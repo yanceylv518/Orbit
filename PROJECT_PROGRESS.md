@@ -77,6 +77,20 @@
   - 免登录：`true`
   - 存储：`mysql`
 
+## Git 管理
+
+- 已初始化 Git 仓库，默认分支为 `main`。
+- 已建立首个提交：`4dc389e chore: initialize project git repository`。
+- 已配置 `.gitignore`，排除本地敏感配置和运行产物：
+  - `config.local.json`
+  - `data/`
+  - `runtime/`
+  - `tmp/`
+  - `reports/`
+  - `.agents/`
+  - `.codex/`
+- 已配置 `.gitattributes`，统一文本文件行尾并标记图片/PDF 为二进制。
+
 ## 当前风险与注意事项
 
 - 不要泄露 `config.local.json` 中的真实 MySQL 密码或任何真实 API Secret。
