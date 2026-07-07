@@ -81,6 +81,8 @@
 
 - 已初始化 Git 仓库，默认分支为 `main`。
 - 已建立首个提交：`4dc389e chore: initialize project git repository`。
+- 已关联远程仓库：
+  - `origin`: `https://github.com/yanceylv518/Orbit.git`
 - 已配置 `.gitignore`，排除本地敏感配置和运行产物：
   - `config.local.json`
   - `data/`
