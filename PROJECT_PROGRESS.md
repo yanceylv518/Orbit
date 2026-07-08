@@ -140,6 +140,7 @@
 ### 策略与设计待办（先定设计，再改代码）
 
 > 设计提案已成文：`design/STRATEGY_LOGIC.md`（净敞口 Δ 重述、趋势生命周期状态机、vol 归一化触发、参数一致性约束、仿真验收规范），覆盖以下 7–11 项，待评审后转入实现。
+> 实现方案已成文：`design/STRATEGY_IMPLEMENTATION.md`（纯函数内核、表驱动 FSM、四阶段：测试先行 → 离线标定 → plan_only 双跑 → paper/live，含与现有 engine/planning 的迁移映射）。
 
 7. 定义「趋势生命周期」：趋势结束/回到 BALANCE 的判定，`base_price` 重锚、high/low 与 `*_count_in_trend` 清零规则（技术方案 §21.1）。
 8. 定义趋势结束后亏损腿重建规则（§21.2）。
