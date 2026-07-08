@@ -578,62 +578,6 @@ body.auth-locked .app-shell {
   gap: 8px;
 }
 
-.account-section {
-  display: grid;
-  gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.account-credential-form {
-  margin-top: 0;
-}
-
-.account-run-fields {
-  margin-top: 0;
-}
-
-.credential-form {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
-  align-items: end;
-  gap: 10px;
-  padding: 12px;
-  background: #f8fbff;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-}
-
-.admin-credential-notice {
-  display: grid;
-  gap: 4px;
-  padding: 12px;
-  color: #344054;
-  background: #f8fbff;
-  border: 1px solid var(--line-soft);
-  border-left: 4px solid var(--blue);
-  border-radius: 8px;
-}
-
-.admin-credential-notice span {
-  color: var(--muted);
-}
-
-.admin-credential-actions {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto auto;
-  gap: 7px;
-  align-items: center;
-  min-width: 430px;
-}
-
-.admin-credential-actions input {
-  width: 100%;
-  padding: 7px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-
 .account-inline-actions {
   display: grid;
   gap: 7px;
@@ -672,77 +616,6 @@ body.auth-locked .app-shell {
   color: var(--muted);
 }
 
-.run-config-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.run-config-card {
-  min-width: 0;
-  padding: 13px;
-  background: var(--panel-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-}
-
-.run-config-head,
-.run-config-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.run-config-head strong,
-.run-config-head span {
-  display: block;
-}
-
-.run-config-fields {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.run-config-card .field {
-  grid-template-columns: 1fr;
-  gap: 6px;
-  padding: 0;
-  border-top: 0;
-}
-
-.run-config-card .field span,
-.check-field span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.run-config-card .field input {
-  text-align: left;
-}
-
-.check-field {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 34px;
-}
-
-.check-field input {
-  width: 16px;
-  height: 16px;
-}
-
-.run-config-actions {
-  margin-top: 12px;
-  padding-top: 11px;
-  border-top: 1px solid var(--line-soft);
-}
-
 .sync-error {
   padding: 11px 12px;
   color: var(--red);
@@ -770,6 +643,16 @@ body.auth-locked .app-shell {
   margin: 6px 0 4px;
   overflow-wrap: anywhere;
   font-size: 15px;
+}
+
+.plan-review {
+  display: grid;
+  gap: 6px;
+  min-width: 120px;
+}
+
+.plan-review .button {
+  width: max-content;
 }
 
 .digest-list,
@@ -931,12 +814,12 @@ tr:last-child td {
 }
 
 .risk-metrics {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .risk-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.9fr) 210px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.25fr) 220px;
   align-items: start;
   gap: 14px;
   margin-top: 14px;
@@ -946,11 +829,18 @@ tr:last-child td {
   min-height: 330px;
 }
 
+.plan-risk-panel {
+  min-height: 330px;
+}
+
 .risk-side-panel {
+  grid-column: 1 / span 2;
   min-height: 330px;
 }
 
 .risk-action-panel {
+  grid-column: 3;
+  grid-row: 1 / span 2;
   min-height: 330px;
 }
 
@@ -1054,6 +944,12 @@ tr:last-child td {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .risk-side-panel,
+  .risk-action-panel {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
   .detail-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1093,9 +989,7 @@ tr:last-child td {
   .content-grid,
   .accounts-grid,
   .event-config-grid,
-  .editor-grid,
-  .run-config-grid,
-  .run-config-fields {
+  .editor-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1113,9 +1007,7 @@ tr:last-child td {
   .summary-grid.compact,
   .mini-grid,
   .accounts-grid,
-  .editor-grid,
-  .run-config-grid,
-  .run-config-fields {
+  .editor-grid {
     grid-template-columns: 1fr;
   }
 

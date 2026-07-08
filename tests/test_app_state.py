@@ -184,6 +184,60 @@ class AppStateAdminTest(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_execution_plan_manual_confirm_and_export_are_audited(self):
+        tmp, app = self.make_app()
+        try:
+            account_id = "binance_dry_run_001"
+            app.binance_account_snapshots[account_id] = {
+                "ok": True,
+                "status": "synced",
+                "account_id": account_id,
+                "synced_at": "2026-07-07T00:00:00+00:00",
+                "position_mode": {
+                    "dual_side_position": True,
+                    "hedge_mode_required": True,
+                    "hedge_mode_ok": True,
+                },
+                "positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "position_side": "LONG",
+                        "position_amt": 0.01,
+                        "entry_price": 60000,
+                        "mark_price": 62000,
+                        "unrealized_profit": 20,
+                        "notional": 620,
+                    },
+                    {
+                        "symbol": "BTCUSDT",
+                        "position_side": "SHORT",
+                        "position_amt": -0.01,
+                        "entry_price": 62100,
+                        "mark_price": 62000,
+                        "unrealized_profit": -1,
+                        "notional": -620,
+                    },
+                ],
+            }
+            plan = app.generate_execution_plans(account_id, actor="user_001")["plans"][0]
+
+            confirmed = app.confirm_execution_plan(plan["id"], actor="user_001", note="人工核对通过")
+            self.assertTrue(confirmed["ok"])
+            self.assertEqual(confirmed["plan"]["manual_review"]["status"], "confirmed")
+            self.assertEqual(confirmed["plan"]["manual_review"]["reviewed_by"], "user_001")
+
+            exported = app.record_execution_plan_export([plan["id"]], actor="admin_001")
+            self.assertTrue(exported["ok"])
+            self.assertEqual(exported["plan_count"], 1)
+            self.assertEqual(exported["status_counts"]["confirmed"], 1)
+
+            snapshot = app.snapshot(app.user_by_id("admin_001"))
+            latest_actions = [item["action_type"] for item in snapshot["admin_audit_logs"][:2]]
+            self.assertEqual(latest_actions, ["EXPORT_EXECUTION_PLANS", "CONFIRM_EXECUTION_PLAN"])
+            self.assertEqual(snapshot["execution_plans"][0]["last_export"]["id"], exported["export_id"])
+        finally:
+            tmp.cleanup()
+
     def test_binance_credentials_can_be_set_by_owner_or_admin(self):
         if not sys.platform.startswith("win"):
             self.skipTest("Account credential encryption uses Windows DPAPI in local V1.")

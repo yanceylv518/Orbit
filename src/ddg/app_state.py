@@ -823,6 +823,19 @@ class AppState:
                 return account
         return None
 
+    def actor_can_access_account(self, actor: str, account_id: str) -> bool:
+        actor_user = self.user_by_id(actor)
+        if actor_user and actor_user.get("role") in ("admin", "super_admin"):
+            return True
+        account = self.account_by_id(account_id)
+        return bool(account and account.get("user_id") == actor)
+
+    def execution_plan_by_id(self, plan_id: str) -> dict[str, Any] | None:
+        for plan in self.execution_plans:
+            if plan.get("id") == plan_id:
+                return plan
+        return None
+
     def generate_execution_plans(self, account_id: str | None = None, actor: str = "system") -> dict[str, Any]:
         with self.lock:
             if account_id and not self.account_by_id(account_id):
@@ -840,6 +853,108 @@ class AppState:
             )
             self.persist()
             return {"ok": True, "plans": deepcopy(plans)}
+
+    def confirm_execution_plan(self, plan_id: str, actor: str, note: str | None = None) -> dict[str, Any]:
+        plan_id = str(plan_id or "").strip()
+        note = str(note or "").strip()
+        with self.lock:
+            plan = self.execution_plan_by_id(plan_id)
+            if not plan:
+                return {"ok": False, "error": f"执行计划不存在：{plan_id}"}
+            if not self.actor_can_access_account(actor, str(plan.get("account_id", ""))):
+                return {"ok": False, "status": "forbidden", "error": "只能确认自己可见账户的执行计划。"}
+            if plan.get("status") != "planned":
+                return {"ok": False, "error": "只有待演练计划可以人工确认，已拦截或无动作计划只保留审计。"}
+
+            before = deepcopy(plan.get("manual_review") or {})
+            reviewed_at = now_iso()
+            plan["manual_review"] = {
+                "status": "confirmed",
+                "reviewed_by": actor,
+                "reviewed_at": reviewed_at,
+                "note": note,
+            }
+            self.add_audit(
+                actor=actor,
+                action_type="CONFIRM_EXECUTION_PLAN",
+                reason=f"人工确认执行计划：{plan_id}",
+                before_value=before,
+                after_value={
+                    "plan_id": plan_id,
+                    "account_id": plan.get("account_id"),
+                    "symbol": plan.get("symbol"),
+                    "event_type": plan.get("event_type"),
+                    "reviewed_at": reviewed_at,
+                    "note": note,
+                },
+            )
+            self.persist()
+            return {"ok": True, "plan": deepcopy(plan)}
+
+    def record_execution_plan_export(self, plan_ids: list[Any], actor: str) -> dict[str, Any]:
+        if not isinstance(plan_ids, list):
+            return {"ok": False, "error": "导出计划参数必须是计划 ID 数组。"}
+        normalized_ids = [str(item).strip() for item in plan_ids if str(item or "").strip()]
+        if not normalized_ids:
+            return {"ok": False, "error": "没有可导出的执行计划。"}
+
+        with self.lock:
+            plans = []
+            missing = []
+            for plan_id in normalized_ids:
+                plan = self.execution_plan_by_id(plan_id)
+                if plan:
+                    plans.append(plan)
+                else:
+                    missing.append(plan_id)
+            if missing:
+                return {"ok": False, "error": f"执行计划不存在：{', '.join(missing)}"}
+
+            forbidden = [
+                plan.get("id")
+                for plan in plans
+                if not self.actor_can_access_account(actor, str(plan.get("account_id", "")))
+            ]
+            if forbidden:
+                return {"ok": False, "status": "forbidden", "error": "只能导出自己可见账户的执行计划。"}
+
+            exported_at = now_iso()
+            export_id = f"plan_export_{int(time.time() * 1000)}"
+            for plan in plans:
+                plan["last_export"] = {
+                    "id": export_id,
+                    "exported_by": actor,
+                    "exported_at": exported_at,
+                }
+
+            status_counts = {
+                "planned": sum(1 for plan in plans if plan.get("status") == "planned"),
+                "blocked": sum(1 for plan in plans if plan.get("status") == "blocked"),
+                "no_action": sum(1 for plan in plans if plan.get("status") == "no_action"),
+                "confirmed": sum(1 for plan in plans if plan.get("manual_review", {}).get("status") == "confirmed"),
+            }
+            account_ids = sorted({str(plan.get("account_id")) for plan in plans if plan.get("account_id")})
+            self.add_audit(
+                actor=actor,
+                action_type="EXPORT_EXECUTION_PLANS",
+                reason=f"导出第一阶段执行计划：{len(plans)} 条。",
+                after_value={
+                    "export_id": export_id,
+                    "exported_at": exported_at,
+                    "plan_ids": normalized_ids,
+                    "account_ids": account_ids,
+                    "status_counts": status_counts,
+                },
+            )
+            self.persist()
+            return {
+                "ok": True,
+                "export_id": export_id,
+                "exported_at": exported_at,
+                "plan_count": len(plans),
+                "account_ids": account_ids,
+                "status_counts": status_counts,
+            }
 
     def _build_execution_plans_for_accounts(self, account_ids: set[str]) -> list[dict[str, Any]]:
         self._ensure_account_run_configs()

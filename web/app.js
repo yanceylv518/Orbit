@@ -20,7 +20,7 @@ function jsArg(value = "") {
 }
 
 const PAGE_META = {
-  dashboard: ["总览", "用户总览", "核心资产、策略实例和币种状态。"],
+  dashboard: ["总览", "用户总览", "核心资产、系统策略和币种状态。"],
   accounts: ["交易账户", "用户与账户", "业务用户、交易账户和真实账户同步。"],
   events: ["策略事件配置", "策略事件配置", "利润搬运、仓位恢复、亏损腿减仓。"],
   plans: ["执行计划", "第一阶段执行计划", "真实仓位触发判断、计划动作和风控拦截。"],
@@ -90,6 +90,7 @@ function statusLabel(value) {
     planned: "已生成",
     blocked: "已拦截",
     no_action: "无动作",
+    confirmed: "已确认",
   };
   return map[value] || value || "-";
 }
@@ -214,15 +215,16 @@ async function post(path, payload = {}) {
     const payload = await res.json();
     alert(payload.error || "操作失败。");
     await fetchState();
-    return;
+    return null;
   }
   state = await res.json();
   if (!state.auth?.authenticated) {
     showLogin("", true);
-    return;
+    return null;
   }
   hideLogin();
   render();
+  return state;
 }
 
 async function login(login, password) {
@@ -278,17 +280,23 @@ async function saveBinanceCredentials(accountId) {
   activatePage("accounts");
 }
 
-async function saveAccountRunConfig(accountId) {
-  await post("/api/account-run-config", {
-    account_id: accountId,
-    run_config: collectAccountRunConfig(accountId),
-  });
-  activatePage("accounts");
-}
-
 async function generateExecutionPlans(accountId = "") {
   await post("/api/execution-plans/generate", accountId ? { account_id: accountId } : {});
   activatePage("plans");
+}
+
+async function confirmExecutionPlan(planId) {
+  const plan = (state.execution_plans || []).find((item) => item.id === planId);
+  if (!plan) return;
+  const note = prompt("确认该计划已人工核对。当前阶段只记录确认，不会下单。", "人工核对通过");
+  if (note === null) return;
+  await post("/api/execution-plans/confirm", { plan_id: planId, note });
+  activatePage("plans");
+}
+
+async function recordExecutionPlanExport(planIds) {
+  const updated = await post("/api/execution-plans/export", { plan_ids: planIds });
+  return updated?.execution_plan_export_result || null;
 }
 
 async function saveBusinessUser() {
@@ -623,257 +631,6 @@ function isInlineEditorFocused() {
   return Boolean(active?.closest?.(".inline-editor-form"));
 }
 
-function visibleExchangeAccounts() {
-  const overviewAccounts = state.admin_overview?.accounts;
-  const overviewAccountIds = new Set((overviewAccounts || []).map((account) => account.account_id));
-  return Array.isArray(overviewAccounts)
-    ? (state.exchange_accounts || []).filter((account) => overviewAccountIds.has(account.id))
-    : (state.exchange_accounts || []);
-}
-
-function runConfigForAccount(accountId) {
-  return (state.account_run_configs || []).find((item) => item.account_id === accountId) || {};
-}
-
-function plansForAccount(accountId) {
-  return (state.execution_plans || []).filter((item) => item.account_id === accountId);
-}
-
-function collectAccountRunConfig(accountId) {
-  const safeId = safeDomId(accountId);
-  const symbols = $(`runSymbols-${safeId}`).value
-    .split(/[,\s]+/)
-    .map((item) => item.trim().toUpperCase())
-    .filter(Boolean);
-  const budget = Number($(`runBudget-${safeId}`).value || 0);
-  return {
-    enabled: $(`runEnabled-${safeId}`).checked,
-    mode: "plan_only",
-    symbols,
-    symbol_budget_usdt: Object.fromEntries(symbols.map((symbol) => [symbol, budget])),
-    base_position_usdt: Number($(`runBase-${safeId}`).value || 0),
-    max_single_order_usdt: Number($(`runMaxOrder-${safeId}`).value || 0),
-    allow_reduce_only: $(`runReduceOnly-${safeId}`).checked,
-    allow_add_position: $(`runAllowAdd-${safeId}`).checked,
-    allow_market_orders: false,
-  };
-}
-
-function renderAccountRunConfigs() {
-  if (!$("accountRunConfigPanel")) return;
-  const accounts = visibleExchangeAccounts();
-  $("accountRunConfigPanel").innerHTML = accounts.length ? accounts.map((account) => {
-    const cfg = runConfigForAccount(account.id);
-    const safeId = safeDomId(account.id);
-    const symbols = cfg.symbols || [];
-    const budgetValues = Object.values(cfg.symbol_budget_usdt || {});
-    const budget = budgetValues.length ? budgetValues[0] : 0;
-    const plans = plansForAccount(account.id);
-    const plannedCount = plans.filter((item) => item.status === "planned").length;
-    return `
-      <article class="run-config-card">
-        <div class="run-config-head">
-          <div>
-            <strong>${account.account_label}</strong>
-            <span class="muted">${account.id} · ${statusLabel(cfg.mode || "plan_only")}</span>
-          </div>
-          ${cfg.enabled ? badge("启用", "green") : badge("停用", "orange")}
-        </div>
-        <div class="run-config-fields">
-          <label class="check-field">
-            <input id="runEnabled-${safeId}" type="checkbox" ${cfg.enabled ? "checked" : ""} />
-            <span>启用计划生成</span>
-          </label>
-          <label class="field">
-            <span>币种</span>
-            <input id="runSymbols-${safeId}" value="${symbols.join(", ")}" />
-          </label>
-          <label class="field">
-            <span>单币种预算 USDT</span>
-            <input id="runBudget-${safeId}" type="number" min="0" step="1" value="${budget}" />
-          </label>
-          <label class="field">
-            <span>基础仓位 USDT</span>
-            <input id="runBase-${safeId}" type="number" min="0" step="1" value="${cfg.base_position_usdt || 0}" />
-          </label>
-          <label class="field">
-            <span>单笔上限 USDT</span>
-            <input id="runMaxOrder-${safeId}" type="number" min="0" step="1" value="${cfg.max_single_order_usdt || 0}" />
-          </label>
-          <label class="check-field">
-            <input id="runReduceOnly-${safeId}" type="checkbox" ${cfg.allow_reduce_only ? "checked" : ""} />
-            <span>只允许减仓计划</span>
-          </label>
-          <label class="check-field">
-            <input id="runAllowAdd-${safeId}" type="checkbox" ${cfg.allow_add_position ? "checked" : ""} />
-            <span>允许生成加仓计划</span>
-          </label>
-        </div>
-        <div class="run-config-actions">
-          <span class="muted">当前计划：${plans.length} 条，待演练 ${plannedCount} 条</span>
-          <div class="action-row">
-            <button class="button ghost small" onclick="generateExecutionPlans('${account.id}')">生成计划</button>
-            <button class="button small" onclick="saveAccountRunConfig('${account.id}')">保存配置</button>
-          </div>
-        </div>
-      </article>
-    `;
-  }).join("") : `<p class="muted">暂无可配置账户。</p>`;
-}
-
-function renderBinancePanel() {
-  if (!$("binanceAccountPanel")) return;
-  if (isCredentialInputFocused()) return;
-
-  const accounts = visibleExchangeAccounts();
-  const primaryAccountId = accounts[0]?.id;
-  const snapshots = state.binance_account_snapshots || {};
-  const snapshot = snapshots[primaryAccountId];
-  const primaryAccount = accounts.find((item) => item.id === primaryAccountId);
-  const currentUserId = state.auth?.current_user?.id;
-  const isAdmin = ["admin", "super_admin"].includes(state.auth?.current_user?.role);
-  const canConfigureCredentials = isAdmin || primaryAccount?.user_id === currentUserId;
-
-  if (!primaryAccount) {
-    $("syncPrimaryBinanceBtn").style.display = "none";
-    $("binanceAccountPanel").innerHTML = `<p class="muted">当前用户没有可同步的 Binance 账户。</p>`;
-    return;
-  }
-  $("syncPrimaryBinanceBtn").style.display = canConfigureCredentials ? "" : "none";
-
-  if (isAdmin && primaryAccount?.user_id !== currentUserId) {
-    renderAdminBinancePanel(accounts, snapshots);
-    return;
-  }
-
-  const safeId = safeDomId(primaryAccount.id);
-  const credentialEditor = canConfigureCredentials ? `
-    <div class="credential-form">
-      <label class="field">
-        <span>Binance API Key</span>
-        <input id="apiKey-${safeId}" type="password" autocomplete="off" placeholder="仅保存到当前账户" />
-      </label>
-      <label class="field">
-        <span>Binance Secret</span>
-        <input id="apiSecret-${safeId}" type="password" autocomplete="off" placeholder="不会向管理员展示" />
-      </label>
-      <button class="button small" onclick="saveBinanceCredentials('${primaryAccount.id}')">保存账户凭证</button>
-    </div>
-  ` : `
-    <p class="muted">API Key/Secret 只能由账户所属用户或管理员维护，密钥不会回显。</p>
-  `;
-
-  if (!snapshot) {
-    $("binanceAccountPanel").innerHTML = `
-      <div class="summary-grid compact">
-        ${summaryItem("账户", primaryAccount.account_label, primaryAccount.id)}
-        ${summaryItem("环境", primaryAccount.testnet ? "Testnet" : "Production", primaryAccount.dry_run ? "只读" : "实盘")}
-        ${summaryItem("API Key", primaryAccount.api_key_present ? "已配置" : "未配置", primaryAccount.api_key_fingerprint || "无指纹")}
-        ${summaryItem("Secret", primaryAccount.secret_present ? "已配置" : "未配置", "不显示明文")}
-      </div>
-      ${credentialEditor}
-      <p class="muted">凭证绑定在这个交易账户上。保存后点击“同步 Binance”读取真实余额、持仓和 Hedge Mode。</p>
-    `;
-    return;
-  }
-
-  const positionMode = snapshot.position_mode || {};
-  const positions = snapshot.positions || [];
-  const errorHtml = snapshot.error ? `<div class="sync-error">${snapshot.error}</div>` : "";
-  $("binanceAccountPanel").innerHTML = `
-    ${errorHtml}
-    <div class="summary-grid compact">
-      ${summaryItem("同步状态", snapshot.status || "-", snapshot.synced_at || "-")}
-      ${summaryItem("钱包余额", `${fmt(snapshot.total_wallet_balance)} USDT`, `可用 ${fmt(snapshot.available_balance)}`)}
-      ${summaryItem("保证金余额", `${fmt(snapshot.total_margin_balance)} USDT`, `未实现 ${fmt(snapshot.total_unrealized_profit)}`)}
-      ${summaryItem("Hedge Mode", positionMode.hedge_mode_ok ? "通过" : "未通过", positionMode.dual_side_position ? "双向持仓" : "单向持仓")}
-    </div>
-    ${credentialEditor}
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>币种</th>
-            <th>方向</th>
-            <th>数量</th>
-            <th>入场价</th>
-            <th>标记价</th>
-            <th>名义价值</th>
-            <th>未实现盈亏</th>
-            <th>强平价</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${positions.length ? positions.map((p) => `
-            <tr>
-              <td>${p.symbol}</td>
-              <td>${p.position_side}</td>
-              <td>${fmt(p.position_amt, 6)}</td>
-              <td>${fmt(p.entry_price, 4)}</td>
-              <td>${fmt(p.mark_price, 4)}</td>
-              <td class="${cls(p.notional)}">${fmt(p.notional)} USDT</td>
-              <td class="${cls(p.unrealized_profit)}">${fmt(p.unrealized_profit)} USDT</td>
-              <td>${fmt(p.liquidation_price, 4)}</td>
-            </tr>
-          `).join("") : emptyRow(8, "当前账户没有真实持仓或开放订单。")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderAdminBinancePanel(accounts, snapshots) {
-  $("binanceAccountPanel").innerHTML = `
-    <div class="admin-credential-notice">
-      <strong>管理员可代配置账户凭证</strong>
-      <span>API Key / Secret 仍绑定到交易账户，保存后不会回显明文；管理员可以同步账户验证配置。</span>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>账户</th>
-            <th>所属用户</th>
-            <th>凭证</th>
-            <th>最近同步</th>
-            <th>钱包余额</th>
-            <th>未实现盈亏</th>
-            <th>Hedge</th>
-            <th>配置</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${accounts.length ? accounts.map((account) => {
-            const snapshot = snapshots[account.id] || {};
-            const positionMode = snapshot.position_mode || {};
-            const credentialReady = account.api_key_present && account.secret_present;
-            const safeId = safeDomId(account.id);
-            return `
-              <tr>
-                <td><strong>${account.account_label}</strong><div class="muted">${account.id}</div></td>
-                <td>${account.user_id}</td>
-                <td>${credentialReady ? badge("已配置", "green") : badge("未配置", "orange")}</td>
-                <td>${snapshot.status ? `${statusLabel(snapshot.status)}<div class="muted">${snapshot.synced_at || "-"}</div>` : "-"}</td>
-                <td>${snapshot.total_wallet_balance !== undefined ? `${fmt(snapshot.total_wallet_balance)} USDT` : "-"}</td>
-                <td class="${cls(snapshot.total_unrealized_profit)}">${snapshot.total_unrealized_profit !== undefined ? `${fmt(snapshot.total_unrealized_profit)} USDT` : "-"}</td>
-                <td>${positionMode.hedge_mode_ok === undefined ? "-" : (positionMode.hedge_mode_ok ? badge("通过", "green") : badge("未通过", "orange"))}</td>
-                <td>
-                  <div class="admin-credential-actions">
-                    <input id="apiKey-${safeId}" type="password" autocomplete="off" placeholder="API Key" />
-                    <input id="apiSecret-${safeId}" type="password" autocomplete="off" placeholder="Secret" />
-                    <button class="button small" onclick="saveBinanceCredentials('${account.id}')">保存</button>
-                    <button class="button ghost small" onclick="syncBinanceAccount('${account.id}')">同步</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          }).join("") : emptyRow(8, "暂无账户数据")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
 function renderPlanControls() {
   const accounts = overviewAccounts();
   const canSelectAll = currentUserIsAdmin();
@@ -909,18 +666,45 @@ function riskCheckText(plan) {
   `).join("<br />") : "-";
 }
 
-function exportExecutionPlans() {
+function planReviewCell(plan) {
+  const review = plan.manual_review || {};
+  const lastExport = plan.last_export || {};
+  const confirmed = review.status === "confirmed";
+  const lines = [];
+  if (confirmed) {
+    lines.push(`${badge("已确认", "green")}<div class="muted">${esc(review.reviewed_at || "-")} / ${esc(review.reviewed_by || "-")}</div>`);
+    if (review.note) {
+      lines.push(`<div class="muted">${esc(review.note)}</div>`);
+    }
+  } else if (plan.status === "planned") {
+    lines.push(`<button class="button small" onclick="confirmExecutionPlan(${jsArg(plan.id)})">确认</button>`);
+  } else {
+    lines.push(`<span class="muted">不可确认</span>`);
+  }
+  if (lastExport.exported_at) {
+    lines.push(`<div class="muted">导出：${esc(lastExport.exported_at)}</div>`);
+  }
+  return `<div class="plan-review">${lines.join("")}</div>`;
+}
+
+async function exportExecutionPlans() {
   const plans = filteredExecutionPlans();
   if (!plans.length) {
     alert("当前筛选下没有可导出的执行计划。");
     return;
   }
+  const planIds = plans.map((plan) => plan.id);
+  const exportAudit = await recordExecutionPlanExport(planIds);
+  if (!exportAudit) return;
+  const auditedPlans = filteredExecutionPlans().filter((plan) => planIds.includes(plan.id));
   const payload = {
-    exported_at: state.server_time,
+    exported_at: exportAudit.exported_at,
+    export_id: exportAudit.export_id,
     account_id: selectedPlanAccount || "ALL_VISIBLE_ACCOUNTS",
     mode: "plan_only",
-    note: "第一阶段只读执行计划，不包含下单指令确认。",
-    plans,
+    note: "第一阶段只读执行计划，不包含下单指令确认；导出动作已写入审计日志。",
+    audit: exportAudit,
+    plans: auditedPlans,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -941,10 +725,12 @@ function renderPlans() {
   const planned = plans.filter((item) => item.status === "planned").length;
   const blocked = plans.filter((item) => item.status === "blocked").length;
   const noAction = plans.filter((item) => item.status === "no_action").length;
+  const confirmed = plans.filter((item) => item.manual_review?.status === "confirmed").length;
   $("exportPlansBtn").disabled = !plans.length;
   $("executionPlanSummary").innerHTML = [
     summaryItem("计划总数", plans.length, "当前可见账户"),
     summaryItem("待演练", planned, "只生成计划，不下单"),
+    summaryItem("已确认", confirmed, "人工核对记录"),
     summaryItem("风控拦截", blocked, "需要处理后再演练"),
     summaryItem("无动作", noAction, "未满足触发条件"),
   ].join("");
@@ -966,10 +752,11 @@ function renderPlans() {
         <td>${planStatusBadge(plan.status)}</td>
         <td>${actionText}</td>
         <td>${riskCheckText(plan)}</td>
+        <td>${planReviewCell(plan)}</td>
         <td>${esc(plan.reason)}</td>
       </tr>
     `;
-  }).join("") : emptyRow(8, "暂无执行计划。请先同步账户，然后生成执行计划。");
+  }).join("") : emptyRow(9, "暂无执行计划。请先同步账户，然后生成执行计划。");
 }
 
 function renderEventConfig() {
@@ -1124,11 +911,15 @@ function renderTimeline() {
 function renderRisk() {
   const overview = state.admin_overview || { users: [], accounts: [] };
   const planned = (state.execution_plans || []).filter((plan) => plan.status === "planned").length;
+  const blocked = (state.execution_plans || []).filter((plan) => plan.status === "blocked").length;
+  const confirmed = (state.execution_plans || []).filter((plan) => plan.manual_review?.status === "confirmed").length;
+  const accountsById = Object.fromEntries((overview.accounts || []).map((account) => [account.account_id, account]));
   $("riskControlSummary").innerHTML = [
     metricTile("运行用户", overview.users.length, "业务用户"),
     metricTile("运行账户", overview.accounts.length, "Binance futures"),
     metricTile("待演练计划", planned, "plan_only"),
-    metricTile("今日总盈亏", `${fmt(state.strategy.today_pnl)} USDT`, `${fmt(state.strategy.today_pnl_pct, 3)}%`, cls(state.strategy.today_pnl)),
+    metricTile("计划拦截", blocked, "来自计划风控检查", blocked ? "negative" : ""),
+    metricTile("已确认计划", confirmed, "人工核对记录"),
     metricTile("风险告警", state.risk_events.length, state.strategy.risk_status === "normal" ? "当前正常" : "需要关注", state.risk_events.length ? "negative" : ""),
   ].join("");
 
@@ -1143,6 +934,28 @@ function renderRisk() {
       <td>${r.action_taken}</td>
     </tr>
   `).join("") : emptyRow(7, "暂无风险告警");
+
+  $("planRiskRows").innerHTML = (state.execution_plans || []).length ? (state.execution_plans || []).slice(0, 14).map((plan) => {
+    const account = accountsById[plan.account_id] || {};
+    const checks = plan.risk_checks || [];
+    const failed = checks.filter((check) => !check.ok);
+    const checkText = failed.length
+      ? failed.map((check) => `${badge("拦截", "orange")} ${esc(check.message || check.name)}`).join("<br />")
+      : `${badge("通过", "green")} ${checks.length ? "计划检查通过" : "无检查项"}`;
+    const review = plan.manual_review || {};
+    const reviewText = review.status === "confirmed"
+      ? `${badge("已确认", "green")}<div class="muted">${esc(review.reviewed_at || "-")}</div>`
+      : `<span class="muted">未确认</span>`;
+    return `
+      <tr>
+        <td><strong>${esc(account.account_label || plan.account_id)}</strong><div class="muted">${esc(plan.account_id)}</div></td>
+        <td>${esc(plan.symbol)}</td>
+        <td>${planStatusBadge(plan.status)}</td>
+        <td>${checkText}</td>
+        <td>${reviewText}</td>
+      </tr>
+    `;
+  }).join("") : emptyRow(5, "暂无执行计划风控记录");
 
   $("auditLogs").innerHTML = state.admin_audit_logs.length ? state.admin_audit_logs.slice(0, 12).map((item) => `
     <div class="audit-item">
@@ -1374,16 +1187,6 @@ $("emergencyStopBtn").addEventListener("click", () => {
 $("resumeBtn").addEventListener("click", () => {
   post("/api/admin/resume");
 });
-if ($("syncPrimaryBinanceBtn")) {
-  $("syncPrimaryBinanceBtn").addEventListener("click", () => {
-    const accountId = visibleExchangeAccounts()[0]?.id;
-    if (!accountId) {
-      alert("当前没有可同步的账户。");
-      return;
-    }
-    syncBinanceAccount(accountId);
-  });
-}
 $("logoutBtn").addEventListener("click", logout);
 $("sidebarLogoutBtn").addEventListener("click", logout);
 $("switchUserBtn").addEventListener("click", logout);

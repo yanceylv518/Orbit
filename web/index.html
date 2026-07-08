@@ -150,7 +150,7 @@
           <div class="dashboard-stack">
             <article class="panel full-panel">
               <div class="panel-head">
-                <h3>策略实例</h3>
+                <h3>系统策略</h3>
                 <span class="pill" id="dashboardTick">--</span>
               </div>
               <div class="table-wrap">
@@ -256,8 +256,8 @@
               <p>利润搬运、仓位恢复、亏损腿减仓。</p>
             </div>
             <div class="action-row">
-              <select class="select-control" aria-label="策略实例选择">
-                <option>策略实例：Dynamic Dual Grid V1</option>
+              <select class="select-control" aria-label="系统策略选择">
+                <option>系统策略：Dynamic Dual Grid V1</option>
               </select>
               <button class="button" id="saveConfigBtn">保存配置</button>
             </div>
@@ -290,6 +290,7 @@
                     <th>状态</th>
                     <th>计划动作</th>
                     <th>风控检查</th>
+                    <th>确认 / 导出</th>
                     <th>原因</th>
                   </tr>
                 </thead>
@@ -362,7 +363,7 @@
           <div class="risk-workspace">
             <article class="panel risk-alert-panel">
               <div class="panel-head">
-                <h3>风险告警列表</h3>
+                <h3>系统风险告警</h3>
               </div>
               <div class="table-wrap">
                 <table>
@@ -378,6 +379,26 @@
                     </tr>
                   </thead>
                   <tbody id="riskRows"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel plan-risk-panel">
+              <div class="panel-head">
+                <h3>计划风控检查</h3>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>账户</th>
+                      <th>币种</th>
+                      <th>计划状态</th>
+                      <th>检查结果</th>
+                      <th>人工确认</th>
+                    </tr>
+                  </thead>
+                  <tbody id="planRiskRows"></tbody>
                 </table>
               </div>
             </article>

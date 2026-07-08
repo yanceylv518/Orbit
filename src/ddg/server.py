@@ -203,6 +203,35 @@ class DdgHandler(BaseHTTPRequestHandler):
             filtered["execution_plan_result"] = result
             self.send_json(filtered)
             return
+        if parsed.path == "/api/execution-plans/confirm":
+            payload = self.read_json()
+            result = self.app.confirm_execution_plan(
+                plan_id=str(payload.get("plan_id", "")),
+                actor=user["id"],
+                note=payload.get("note"),
+            )
+            if not result.get("ok"):
+                status = 403 if result.get("status") == "forbidden" else 400
+                self.send_json(result, status=status)
+                return
+            filtered = self.app.snapshot(user)
+            filtered["execution_plan_confirm_result"] = result
+            self.send_json(filtered)
+            return
+        if parsed.path == "/api/execution-plans/export":
+            payload = self.read_json()
+            result = self.app.record_execution_plan_export(
+                plan_ids=payload.get("plan_ids", []),
+                actor=user["id"],
+            )
+            if not result.get("ok"):
+                status = 403 if result.get("status") == "forbidden" else 400
+                self.send_json(result, status=status)
+                return
+            filtered = self.app.snapshot(user)
+            filtered["execution_plan_export_result"] = result
+            self.send_json(filtered)
+            return
         if parsed.path == "/api/admin/emergency-stop":
             payload = self.read_json()
             if not self.is_admin(user):
