@@ -47,7 +47,7 @@ user_001 / user123456
 & "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" scripts/set_user_password.py user_001
 ```
 
-管理员可以查看所有用户和账户；普通用户只能看到自己的账户、策略和事件。
+本系统的使用者是管理员：管理员登录后运行整个平台，维护业务用户与交易账户，并把平台提供的策略挂到账户上运行。业务用户只是交易账户的归属方（提供 Binance API Key/Secret），不设计、不维护、也不运行策略。若开启登录，业务用户会话仅用于隔离数据可见范围，不承担任何策略操作职责。
 
 ## MySQL
 
