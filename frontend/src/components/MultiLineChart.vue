@@ -6,7 +6,7 @@
     height="100%"
     preserveAspectRatio="none"
   >
-    <line :x1="pad" :x2="width - pad" :y1="height - pad" :y2="height - pad" stroke="#dce3ee" />
+    <line :x1="pad" :x2="width - pad" :y1="height - pad" :y2="height - pad" stroke="#22304a" />
     <polyline
       v-for="line in linePoints"
       :key="line.key"
@@ -38,7 +38,7 @@ const linePoints = computed(() => {
   const span = max - min || 1;
   return props.keys.map((key, index) => ({
     key,
-    color: props.colors[index] || "#1f6feb",
+    color: props.colors[index] || "#3987e5",
     points: props.data.map((item, itemIndex) => {
       const x = props.pad + (itemIndex / Math.max(props.data.length - 1, 1)) * (props.width - props.pad * 2);
       const y = props.height - props.pad - ((Number(item[key]) - min) / span) * (props.height - props.pad * 2);

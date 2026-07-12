@@ -81,7 +81,14 @@
         <h3>价格走势</h3>
         <div class="chart"><LineChart :data="history" data-key="price" :label="symbol.symbol" /></div>
         <div class="mini-grid">
-          <div><h4>仓位名义价值</h4><div class="mini-chart"><MultiLineChart :data="positionData" :keys="['long', 'short']" :colors="['#078f52', '#d92d20']" /></div></div>
+          <div>
+            <h4>仓位名义价值</h4>
+            <div class="mini-chart"><MultiLineChart :data="positionData" :keys="['long', 'short']" :colors="['#19a862', '#ad3b48']" /></div>
+            <div class="chart-legend">
+              <span><i style="background: #19a862"></i>多头</span>
+              <span><i style="background: #ad3b48"></i>空头</span>
+            </div>
+          </div>
           <div><h4>权益曲线</h4><div class="mini-chart"><LineChart :data="equityData" data-key="equity" label="equity" :width="300" :height="150" :pad="22" /></div></div>
         </div>
       </article>

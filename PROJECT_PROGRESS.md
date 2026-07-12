@@ -254,6 +254,13 @@
 
 验证说明：本轮在 Linux 环境完成（无 node），已做 import/export 交叉验证与 script 块配平静态检查；`npm run check`/`npm run build` 需在 Windows 侧复验。
 
+视觉重做（2026-07-12，应「风格不够大气、页面粗糙」反馈）：
+- 整体切换为**深色交易终端设计系统**（`styles/app.css` 全量重写）：深蓝黑表面体系、tabular-nums 数字排版、克制的结构色 + 状态/盈亏专用色、卡片渐变与柔和阴影、sticky 毛玻璃顶栏。
+- 品牌升级为 **ORBIT**：轨道环 logo（纯 CSS）、登录页深色渐变 + 轨道环装饰、`index.html` 标题与 `color-scheme: dark`。
+- 侧栏重构：运营/策略/治理三分组 + 内联 SVG 线性图标（新组件 `NavIcon.vue`，零依赖）。
+- 图表深色适配：轴线弱化；双线图色对 `#19A862/#AD3B48` 与价格线 `#3987E5` 按 dataviz 规范在面板色 `#111B2E` 上做了 CVD（Machado）与对比度校验（CVD ΔE 13.6 通过），并按 relief 规则为多空双线图补图例直标。
+- 类名体系保持兼容，页面模板基本未动；已做全模板类名覆盖核对（无缺失）。
+
 ### 项目文件与运维
 
 1. 校准产品技术方案中关于配置格式和目录结构的旧描述：当前以 JSON 配置和 `backend/`、`frontend/`、`docs/`、`config/` 顶层结构为准。

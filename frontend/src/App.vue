@@ -2,10 +2,10 @@
   <section class="login-screen" :class="{ active: !isAuthenticated }">
     <form class="login-card" @submit.prevent="submitLogin">
       <div class="brand login-brand">
-        <div class="brand-mark">D</div>
+        <div class="brand-mark">O</div>
         <div>
-          <strong>Dynamic Dual Grid</strong>
-          <span>实盘测试控制台</span>
+          <strong>ORBIT</strong>
+          <span>Dynamic Dual Grid 管理控制台</span>
         </div>
       </div>
       <label class="login-field">
@@ -25,24 +25,27 @@
   <div class="app-shell" :class="{ 'auth-locked': !isAuthenticated }">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">D</div>
+        <div class="brand-mark">O</div>
         <div>
-          <strong>Dynamic Dual Grid</strong>
-          <span>V1 控制台</span>
+          <strong>ORBIT</strong>
+          <span>Dynamic Dual Grid</span>
         </div>
       </div>
 
       <nav>
-        <a
-          v-for="item in navItems"
-          :key="item.id"
-          href="#"
-          :class="{ active: store.activePage === item.id }"
-          @click.prevent="setActivePage(item.id)"
-        >
-          <span>{{ item.label }}</span>
-          <small>{{ item.note }}</small>
-        </a>
+        <div v-for="group in navGroups" :key="group.label" class="nav-group">
+          <div class="nav-group-label">{{ group.label }}</div>
+          <a
+            v-for="item in group.items"
+            :key="item.id"
+            href="#"
+            :class="{ active: store.activePage === item.id }"
+            @click.prevent="setActivePage(item.id)"
+          >
+            <NavIcon :name="item.id" />
+            <span>{{ item.label }}</span>
+          </a>
+        </div>
       </nav>
 
       <div class="operator-card">
@@ -93,6 +96,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import NavIcon from "./components/NavIcon.vue";
 import AccountsPage from "./pages/AccountsPage.vue";
 import DashboardPage from "./pages/DashboardPage.vue";
 import PlansPage from "./pages/PlansPage.vue";
@@ -120,15 +124,30 @@ const loginId = ref("admin_001");
 const password = ref("");
 let timer = null;
 
-const navItems = [
-  ["dashboard", "工作台", "主流程与待办"],
-  ["accounts", "用户与账户", "凭证与同步"],
-  ["strategy", "策略中心", "挂载与参数"],
-  ["plans", "执行计划", "审查与确认"],
-  ["symbol", "币种视图", "相位与净敞口"],
-  ["risk", "风控中心", "拦截、审计、急停"],
-  ["reports", "报表", "日报与事件日志"],
-].map(([id, label, note]) => ({ id, label, note }));
+const navGroups = [
+  {
+    label: "运营",
+    items: [
+      { id: "dashboard", label: "工作台" },
+      { id: "accounts", label: "用户与账户" },
+    ],
+  },
+  {
+    label: "策略",
+    items: [
+      { id: "strategy", label: "策略中心" },
+      { id: "plans", label: "执行计划" },
+      { id: "symbol", label: "币种视图" },
+    ],
+  },
+  {
+    label: "治理",
+    items: [
+      { id: "risk", label: "风控中心" },
+      { id: "reports", label: "报表" },
+    ],
+  },
+];
 
 const pageMeta = computed(() => PAGE_META[store.activePage] || PAGE_META.dashboard);
 const readOnlyMode = computed(() => store.state?.strategy?.mode === "read_only");

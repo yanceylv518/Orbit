@@ -7,10 +7,10 @@
     preserveAspectRatio="none"
   >
     <rect x="0" y="0" :width="width" :height="height" fill="transparent" />
-    <line :x1="pad" :x2="width - pad" :y1="height - pad" :y2="height - pad" stroke="#dce3ee" />
-    <line :x1="pad" :x2="pad" :y1="pad" :y2="height - pad" stroke="#dce3ee" />
-    <polyline :points="points" fill="none" stroke="#1f6feb" stroke-width="2.5" />
-    <text :x="pad" y="18" fill="#667085" font-size="12">{{ label }}: {{ fmt(lastValue, 2) }}</text>
+    <line :x1="pad" :x2="width - pad" :y1="height - pad" :y2="height - pad" stroke="#22304a" />
+    <line :x1="pad" :x2="pad" :y1="pad" :y2="height - pad" stroke="#22304a" />
+    <polyline :points="points" fill="none" stroke="#3987e5" stroke-width="2" />
+    <text :x="pad" y="18" fill="#93a1bb" font-size="12">{{ label }}: {{ fmt(lastValue, 2) }}</text>
   </svg>
 </template>
 
