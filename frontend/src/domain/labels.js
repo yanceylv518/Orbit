@@ -1,12 +1,17 @@
 export const PAGE_META = {
-  dashboard: ["总览", "用户总览", "核心资产、系统策略和币种状态。"],
-  accounts: ["交易账户", "用户与账户", "业务用户、交易账户和真实账户同步。"],
-  events: ["策略事件配置", "策略事件配置", "利润搬运、仓位恢复、亏损腿减仓。"],
+  dashboard: ["工作台", "运行工作台", "第一阶段主流程：同步账户 → 生成计划 → 审查风控 → 确认导出。"],
+  accounts: ["用户与账户", "用户与交易账户", "业务用户、交易账户、API 凭证与 Binance 同步。"],
+  strategy: ["策略中心", "平台策略与账户挂载", "策略实例、账户运行配置与事件参数。"],
   plans: ["执行计划", "第一阶段执行计划", "真实仓位触发判断、计划动作和风控拦截。"],
-  symbol: ["币种详情", "币种详情 / 事件时间线", "单币种多空仓位、权益曲线和事件时间线。"],
-  risk: ["风控中心", "管理员风控中心", "运行概览、风险告警、审计日志和快捷操作。"],
-  reports: ["报表中心", "每日复盘报告", "Markdown 日报和 SVG 曲线图。"],
-  logs: ["事件日志", "策略事件日志", "父事件、子成交和执行原因。"],
+  symbol: ["币种视图", "币种视图 / 事件时间线", "相位、净敞口、锚点偏离与事件时间线。"],
+  risk: ["风控中心", "管理员风控中心", "拦截分类、风险告警、审计日志和快捷操作。"],
+  reports: ["报表", "复盘报告与事件日志", "Markdown 日报、SVG 曲线与策略事件明细。"],
+};
+
+// 旧路由锚点重定向：#events → #strategy，#logs → #reports
+export const LEGACY_PAGE_ALIASES = {
+  events: "strategy",
+  logs: "reports",
 };
 
 export function stateLabel(value) {
@@ -23,6 +28,8 @@ export function stateLabel(value) {
     TREND_DOWN_REDUCING_LONG: "下跌减多",
     RECOVERING_FROM_UP: "上涨后恢复",
     RECOVERING_FROM_DOWN: "下跌后恢复",
+    STOPPED: "已终止",
+    PAUSED: "已暂停",
   };
   return map[value] || value;
 }
@@ -105,6 +112,9 @@ export function boolText(value) {
 }
 
 export function stateColor(value) {
+  if (!value) return "blue";
+  if (value === "STOPPED") return "red";
+  if (value === "PAUSED") return "orange";
   if (value === "REAL_POSITION") return "green";
   if (["BALANCE", "BALANCED"].includes(value)) return "blue";
   if (value.includes("SKEWED")) return "orange";

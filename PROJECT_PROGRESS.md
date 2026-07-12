@@ -243,6 +243,17 @@
 
 页面结构重构设计已成文：`docs/design/UI_PAGES.md`（菜单 8→7、工作台改主流程漏斗驾驶舱、币种视图上墙相位/Δ/锚点/触发进度、计划详情展开行、风控拦截三桶、报表与日志合并；分两批交付，第一批全部基于现有后端数据）。其中已吸收上方「工程架构」下一步的第 4、5、6 项。
 
+第一批已实现（2026-07-12）：
+- 导航 8→7：`EventsPage → StrategyPage`（策略中心，含平台策略卡、账户挂载表、未生效参数标注、内核状态），`LogsPage` 并入报表页 Tab；旧锚点 `#events/#logs` 重定向。
+- 工作台重做：主流程漏斗 KPI（账户同步/Hedge/待确认/拦截/无动作，逐格点击直达）+ 待办区（问题账户重试同步、待确认计划前 5）+ 系统状态行。
+- 顶栏模式感知：只读模式显示「同步全部账户 / 生成执行计划」，Tick/暂停/重置仅 mock 模式渲染；新增风控状态徽章直达风控中心。
+- 币种视图：卡片头上墙相位 badge、锚点价、偏离、触发进度条（0—a_pt—θ_t，新组件 `TriggerProgress`）、Δ 净敞口与 Δ* 目标（数据来自 `execution_plans[].trigger` 的 `net_exposure_v1` 上下文）；列表加 Δ 列与账户筛选。
+- 执行计划页：详情展开行（触发快照 + 生命周期上下文 + 风控/动作逐条 + 原始 trigger JSON）、相位与 Δ→Δ* 列、拦截原因前置。
+- 风控中心：拦截三桶（账户同步 / Hedge Mode / 计划动作）。
+- `appStore` 新增 `syncFunnel/planFunnel/aggregateSymbols/syncAllAccounts` 派生状态与动作。
+
+验证说明：本轮在 Linux 环境完成（无 node），已做 import/export 交叉验证与 script 块配平静态检查；`npm run check`/`npm run build` 需在 Windows 侧复验。
+
 ### 项目文件与运维
 
 1. 校准产品技术方案中关于配置格式和目录结构的旧描述：当前以 JSON 配置和 `backend/`、`frontend/`、`docs/`、`config/` 顶层结构为准。

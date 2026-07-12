@@ -1,5 +1,6 @@
 <template>
-  <section class="page active">
+  <!-- 作为报表页 Tab 内容嵌入，不再是独立页面 -->
+  <div>
     <article class="panel">
       <div class="panel-head"><h3>策略事件日志</h3></div>
       <div class="event-log">
@@ -26,7 +27,7 @@
         <p v-if="!events.length" class="muted">暂无策略事件。</p>
       </div>
     </article>
-  </section>
+  </div>
 </template>
 
 <script setup>

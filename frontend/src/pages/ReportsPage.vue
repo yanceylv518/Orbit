@@ -2,12 +2,18 @@
   <section class="page active">
     <div class="page-toolbar">
       <div>
-        <h2>每日复盘报告</h2>
-        <p>先选择报告资源，再查看 Markdown 或图表。</p>
+        <h2>{{ activeTab === "reports" ? "每日复盘报告" : "策略事件日志" }}</h2>
+        <p>{{ activeTab === "reports" ? "先选择报告资源，再查看 Markdown 或图表。" : "父事件、子成交和执行原因。" }}</p>
       </div>
-      <button class="button" @click="generateReport">生成今日报告</button>
+      <div class="action-row">
+        <button class="tab" :class="{ active: activeTab === 'reports' }" @click="activeTab = 'reports'">复盘日报</button>
+        <button class="tab" :class="{ active: activeTab === 'logs' }" @click="activeTab = 'logs'">事件日志</button>
+        <button v-if="activeTab === 'reports'" class="button" @click="generateReport">生成今日报告</button>
+      </div>
     </div>
-    <div class="resource-workspace">
+
+    <LogsPage v-if="activeTab === 'logs'" />
+    <div v-else class="resource-workspace">
       <article class="panel resource-list-panel">
         <div class="panel-head">
           <h3>资源列表</h3>
@@ -66,9 +72,11 @@
 
 <script setup>
 import { computed, ref, watch } from "vue";
+import LogsPage from "./LogsPage.vue";
 import { cls, fmt } from "../core/format.js";
 import { generateReport, store } from "../stores/appStore.js";
 
+const activeTab = ref("reports");
 const reports = computed(() => store.state?.daily_reports || []);
 const selectedKey = ref("");
 const markdownText = ref("");

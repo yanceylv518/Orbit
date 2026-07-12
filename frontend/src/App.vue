@@ -64,10 +64,22 @@
           <p>{{ pageMeta[2] }}</p>
         </div>
         <div class="toolbar">
-          <span class="pill">Tick {{ store.state?.tick_index ?? "--" }} / {{ store.state?.server_time ?? "--" }}</span>
-          <button class="button ghost" :disabled="readOnlyMode" @click="tick">执行 Tick</button>
-          <button class="button" :disabled="readOnlyMode" @click="toggleRunning">{{ readOnlyMode ? "只读模式" : (store.state?.running ? "暂停" : "启动") }}</button>
-          <button class="button danger" :disabled="readOnlyMode" @click="resetRuntime">重置</button>
+          <button class="risk-pill" :class="riskStatusClass" @click="setActivePage('risk')" title="点击进入风控中心">
+            风控 {{ riskStatusText }}
+          </button>
+          <!-- 只读模式：第一阶段主动作；模拟模式：dry_run 控件 -->
+          <template v-if="readOnlyMode">
+            <button class="button ghost" :disabled="store.syncAllBusy" @click="syncAllAccounts">
+              {{ store.syncAllBusy ? "同步中..." : "同步全部账户" }}
+            </button>
+            <button class="button" @click="generateExecutionPlans('')">生成执行计划</button>
+          </template>
+          <template v-else>
+            <span class="pill">Tick {{ store.state?.tick_index ?? "--" }}</span>
+            <button class="button ghost" @click="tick">执行 Tick</button>
+            <button class="button" @click="toggleRunning">{{ store.state?.running ? "暂停" : "启动" }}</button>
+            <button class="button danger" @click="resetRuntime">重置</button>
+          </template>
           <button class="button ghost" v-if="store.state?.auth?.login_required !== false" @click="logout">退出登录</button>
         </div>
       </header>
@@ -83,24 +95,25 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import AccountsPage from "./pages/AccountsPage.vue";
 import DashboardPage from "./pages/DashboardPage.vue";
-import EventsPage from "./pages/EventsPage.vue";
-import LogsPage from "./pages/LogsPage.vue";
 import PlansPage from "./pages/PlansPage.vue";
 import ReportsPage from "./pages/ReportsPage.vue";
 import RiskPage from "./pages/RiskPage.vue";
+import StrategyPage from "./pages/StrategyPage.vue";
 import SymbolPage from "./pages/SymbolPage.vue";
 import {
   currentUser,
+  generateExecutionPlans,
   isAuthenticated,
   loadState,
   logout,
   resetRuntime,
   setActivePage,
   store,
+  syncAllAccounts,
   tick,
   toggleRunning,
 } from "./stores/appStore.js";
-import { PAGE_META, modeLabel, statusLabel } from "./domain/labels.js";
+import { LEGACY_PAGE_ALIASES, PAGE_META, modeLabel, statusLabel } from "./domain/labels.js";
 import { login } from "./stores/appStore.js";
 
 const loginId = ref("admin_001");
@@ -108,27 +121,27 @@ const password = ref("");
 let timer = null;
 
 const navItems = [
-  ["dashboard", "总览", "用户与运行"],
-  ["accounts", "交易账户", "用户与交易账户"],
-  ["events", "策略事件配置", "三类核心事件"],
-  ["plans", "执行计划", "只读演练"],
-  ["symbol", "币种详情", "多空与时间线"],
-  ["risk", "风控中心", "急停、风险、审计"],
-  ["reports", "复盘日报", "Markdown 与曲线"],
-  ["logs", "事件日志", "父事件与成交"],
+  ["dashboard", "工作台", "主流程与待办"],
+  ["accounts", "用户与账户", "凭证与同步"],
+  ["strategy", "策略中心", "挂载与参数"],
+  ["plans", "执行计划", "审查与确认"],
+  ["symbol", "币种视图", "相位与净敞口"],
+  ["risk", "风控中心", "拦截、审计、急停"],
+  ["reports", "报表", "日报与事件日志"],
 ].map(([id, label, note]) => ({ id, label, note }));
 
 const pageMeta = computed(() => PAGE_META[store.activePage] || PAGE_META.dashboard);
 const readOnlyMode = computed(() => store.state?.strategy?.mode === "read_only");
+const riskStatusText = computed(() => (store.state?.strategy?.risk_status === "normal" ? "正常" : "关注"));
+const riskStatusClass = computed(() => (store.state?.strategy?.risk_status === "normal" ? "ok" : "warn"));
 const pageComponents = {
   dashboard: DashboardPage,
   accounts: AccountsPage,
-  events: EventsPage,
+  strategy: StrategyPage,
   plans: PlansPage,
   symbol: SymbolPage,
   risk: RiskPage,
   reports: ReportsPage,
-  logs: LogsPage,
 };
 const activeComponent = computed(() => pageComponents[store.activePage] || DashboardPage);
 
@@ -138,7 +151,8 @@ async function submitLogin() {
 }
 
 function syncHash() {
-  const page = location.hash.replace("#", "") || "dashboard";
+  const raw = location.hash.replace("#", "") || "dashboard";
+  const page = LEGACY_PAGE_ALIASES[raw] || raw;
   if (PAGE_META[page]) setActivePage(page);
 }
 

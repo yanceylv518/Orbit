@@ -9,6 +9,28 @@
       <MetricCard label="风险告警" :value="riskEvents.length" :note="store.state?.strategy?.risk_status === 'normal' ? '当前正常' : '需要关注'" :value-class="riskEvents.length ? 'negative' : ''" />
     </div>
 
+    <!-- 拦截分类三桶：账户同步 / Hedge Mode / 计划动作 -->
+    <div class="metric-grid risk-buckets">
+      <MetricCard
+        label="账户同步风险"
+        :value="syncBucket.length"
+        note="未同步 / 同步失败 / 配置未启用"
+        :value-class="syncBucket.length ? 'negative' : ''"
+      />
+      <MetricCard
+        label="Hedge Mode 风险"
+        :value="hedgeBucket.length"
+        note="账户未开启双向持仓"
+        :value-class="hedgeBucket.length ? 'negative' : ''"
+      />
+      <MetricCard
+        label="计划动作风险"
+        :value="actionBucket.length"
+        note="动作被 RiskGuard 拦截"
+        :value-class="actionBucket.length ? 'negative' : ''"
+      />
+    </div>
+
     <div class="risk-workspace">
       <article class="panel risk-alert-panel">
         <div class="panel-head"><h3>系统风险告警</h3></div>
@@ -93,6 +115,15 @@ const auditLogs = computed(() => store.state?.admin_audit_logs || []);
 const plannedCount = computed(() => executionPlans.value.filter((plan) => plan.status === "planned").length);
 const blockedCount = computed(() => executionPlans.value.filter((plan) => plan.status === "blocked").length);
 const confirmedCount = computed(() => executionPlans.value.filter((plan) => plan.manual_review?.status === "confirmed").length);
+
+// 拦截三桶分类
+const SYNC_EVENT_TYPES = ["SYNC_REQUIRED", "ACCOUNT_CONFIG_DISABLED"];
+const blockedPlans = computed(() => executionPlans.value.filter((plan) => plan.status === "blocked"));
+const syncBucket = computed(() => blockedPlans.value.filter((plan) => SYNC_EVENT_TYPES.includes(plan.event_type)));
+const hedgeBucket = computed(() => blockedPlans.value.filter((plan) => plan.event_type === "HEDGE_MODE_REQUIRED"));
+const actionBucket = computed(() => blockedPlans.value.filter(
+  (plan) => !SYNC_EVENT_TYPES.includes(plan.event_type) && plan.event_type !== "HEDGE_MODE_REQUIRED",
+));
 const accountById = computed(() => Object.fromEntries(accounts.value.map((account) => [account.account_id, account])));
 
 function accountName(accountId) {

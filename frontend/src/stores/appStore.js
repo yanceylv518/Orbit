@@ -9,6 +9,7 @@ export const store = reactive({
   loginBusy: false,
   loginError: "",
   stateError: "",
+  syncAllBusy: false,
 });
 
 export const isAuthenticated = computed(() => Boolean(store.state?.auth?.authenticated));
@@ -18,10 +19,92 @@ export const symbols = computed(() => store.state?.symbols || []);
 export const accounts = computed(() => store.state?.admin_overview?.accounts || []);
 export const users = computed(() => store.state?.admin_overview?.users || []);
 export const executionPlans = computed(() => store.state?.execution_plans || []);
+export const exchangeAccounts = computed(() => store.state?.exchange_accounts || []);
+export const accountSnapshots = computed(() => store.state?.binance_account_snapshots || {});
 
 export function currentSymbol() {
   return symbols.value.find((item) => item.symbol === store.selectedSymbol) || symbols.value[0] || null;
 }
+
+// 第一阶段主流程漏斗：账户同步 → Hedge 检查 → 计划生成 → 确认/拦截
+export const syncFunnel = computed(() => {
+  const snaps = accountSnapshots.value;
+  const rows = exchangeAccounts.value.map((account) => ({
+    account,
+    snapshot: snaps[account.id] || null,
+  }));
+  const synced = rows.filter((row) => row.snapshot?.status === "synced");
+  const failed = rows.filter((row) => row.snapshot && row.snapshot.status !== "synced");
+  const hedgeFail = synced.filter((row) => row.snapshot?.position_mode?.hedge_mode_ok === false);
+  const lastSyncedAt = synced
+    .map((row) => row.snapshot?.synced_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1) || null;
+  return {
+    rows,
+    total: rows.length,
+    syncedCount: synced.length,
+    failed,
+    unsynced: rows.filter((row) => !row.snapshot),
+    hedgeOkCount: synced.length - hedgeFail.length,
+    hedgeFail,
+    lastSyncedAt,
+  };
+});
+
+export const planFunnel = computed(() => {
+  const plans = executionPlans.value;
+  const planned = plans.filter((plan) => plan.status === "planned");
+  return {
+    total: plans.length,
+    planned,
+    pendingConfirm: planned.filter((plan) => plan.manual_review?.status !== "confirmed"),
+    blocked: plans.filter((plan) => plan.status === "blocked"),
+    noActionCount: plans.filter((plan) => plan.status === "no_action").length,
+    confirmedCount: plans.filter((plan) => plan.manual_review?.status === "confirmed").length,
+  };
+});
+
+// 最近一份带净敞口内核上下文的计划，用于展示币种相位/Δ*
+export function latestKernelPlan(symbolName) {
+  return executionPlans.value.find(
+    (plan) => plan.symbol === symbolName && plan.trigger?.exposure_model,
+  ) || null;
+}
+
+// 按币种聚合真实持仓行（real_symbol_views 每行是一个账户+方向），得到 Δ 净敞口视图
+export function aggregateSymbols(rows) {
+  const map = new Map();
+  for (const row of rows) {
+    const entry = map.get(row.symbol) || {
+      symbol: row.symbol,
+      price: 0,
+      long_qty: 0,
+      short_qty: 0,
+      unrealized_pnl: 0,
+      accountLabels: new Set(),
+    };
+    entry.long_qty += Number(row.long_qty) || 0;
+    entry.short_qty += Number(row.short_qty) || 0;
+    entry.unrealized_pnl += Number(row.unrealized_pnl) || 0;
+    entry.price = Number(row.price) || entry.price;
+    if (row.account_id) entry.accountLabels.add(row.account_label || row.account_id);
+    map.set(row.symbol, entry);
+  }
+  return [...map.values()].map((entry) => {
+    const delta = entry.long_qty - entry.short_qty;
+    return {
+      ...entry,
+      accountLabels: [...entry.accountLabels],
+      delta_qty: delta,
+      delta_notional: delta * entry.price,
+      plan: latestKernelPlan(entry.symbol),
+    };
+  });
+}
+
+export const symbolOverviews = computed(() => aggregateSymbols(symbols.value));
 
 export function setActivePage(page) {
   store.activePage = page;
@@ -156,6 +239,19 @@ export async function saveBinanceCredentials(accountId, apiKey, apiSecret) {
 
 export async function syncBinanceAccount(accountId) {
   return post("/api/binance/sync", { account_id: accountId });
+}
+
+export async function syncAllAccounts() {
+  if (store.syncAllBusy) return;
+  store.syncAllBusy = true;
+  try {
+    for (const account of exchangeAccounts.value) {
+      // 顺序同步，避免并发打爆 Binance 限频；单账户失败不阻断后续
+      await post("/api/binance/sync", { account_id: account.id });
+    }
+  } finally {
+    store.syncAllBusy = false;
+  }
 }
 
 export async function generateExecutionPlans(accountId = "") {

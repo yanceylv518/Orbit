@@ -1155,3 +1155,186 @@ tr:last-child td {
     justify-content: center;
   }
 }
+
+/* ===== 页面重构（UI_PAGES.md 第一批）新增样式 ===== */
+
+/* 工作台漏斗 */
+.funnel-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.metric-link {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.metric-link .metric-card {
+  height: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.metric-link:hover .metric-card {
+  border-color: var(--blue);
+  box-shadow: 0 2px 8px rgba(15, 111, 237, 0.12);
+}
+.todo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.status-line-panel {
+  margin-top: 12px;
+  padding: 10px 15px;
+}
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  align-items: center;
+  font-size: 13px;
+}
+.status-line .muted {
+  margin-right: 5px;
+}
+.wrap-cell {
+  max-width: 260px;
+  white-space: normal;
+  word-break: break-all;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+/* 顶栏风控徽章 */
+.risk-pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 13px;
+  font-size: 12.5px;
+  cursor: pointer;
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+.risk-pill.ok {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-soft);
+}
+.risk-pill.warn {
+  border-color: var(--orange);
+  color: var(--orange);
+  background: var(--orange-soft);
+}
+
+/* 触发进度条（0 — a_pt — θ_t） */
+.trigger-progress {
+  width: 100%;
+}
+.trigger-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--line-soft);
+  overflow: visible;
+}
+.trigger-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+.trigger-fill.calm { background: var(--blue); }
+.trigger-fill.skew { background: var(--orange); }
+.trigger-fill.trend { background: var(--red); }
+.trigger-mark {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 16px;
+  background: var(--orange);
+}
+.trigger-mark.trend { background: var(--red); }
+.trigger-legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* 币种卡片头 */
+.symbol-header-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+.symbol-trigger-block h4 {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.kernel-context-line {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* 执行计划详情展开行 */
+.expand-toggle {
+  min-width: 28px;
+  padding: 2px 7px;
+}
+.plan-detail-row td {
+  background: var(--panel-soft);
+}
+.plan-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 8px 4px;
+}
+.plan-detail-section h4 {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.plan-detail-section h4 + .risk-check-line,
+.risk-check-line + h4 {
+  margin-top: 6px;
+}
+.risk-check-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+}
+.raw-trigger pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* 风控拦截三桶 */
+.risk-buckets {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+@media (max-width: 1100px) {
+  .funnel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .todo-grid { grid-template-columns: 1fr; }
+  .symbol-header-grid { grid-template-columns: 1fr; }
+  .plan-detail { grid-template-columns: 1fr; }
+}

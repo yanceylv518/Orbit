@@ -1,11 +1,36 @@
 <template>
   <section class="page active">
-    <div v-if="symbol" class="summary-grid compact">
-      <SummaryItem label="当前币种" :value="symbol.symbol"><StatusBadge :text="stateLabel(symbol.state)" :color="stateColor(symbol.state)" /></SummaryItem>
-      <SummaryItem label="当前价格" :value="fmt(symbol.price, symbol.symbol === 'SOLUSDT' ? 3 : 2)" note="Binance mark price" />
-      <SummaryItem label="基准价" :value="fmt(symbol.base_price, 2)" :note="`偏离 ${fmt(symbol.move_pct, 2)}%`" />
-      <SummaryItem label="浮动盈亏" :note="`净敞口 ${fmt(symbol.net_exposure)} USDT`"><span :class="cls(symbol.unrealized_pnl)">{{ fmt(symbol.unrealized_pnl) }} USDT</span></SummaryItem>
-    </div>
+    <!-- 币种卡片头：相位 + 锚点 + 触发进度 + Δ 净敞口 -->
+    <article v-if="overview" class="panel symbol-header-panel">
+      <div class="panel-head">
+        <h3>
+          {{ overview.symbol }}
+          <StatusBadge :text="stateLabel(phase)" :color="stateColor(phase)" />
+        </h3>
+        <span class="muted">{{ overview.accountLabels.join(" / ") || "-" }}</span>
+      </div>
+      <div class="symbol-header-grid">
+        <div class="summary-grid compact">
+          <SummaryItem label="当前价格" :value="fmt(overview.price, priceDigits)" note="Binance mark price" />
+          <SummaryItem label="锚点价" :value="anchorPrice ? fmt(anchorPrice, priceDigits) : '待生成计划'" :note="movePct === null ? '' : `偏离 ${fmt(movePct, 2)}%`" />
+          <SummaryItem label="Δ 净敞口" :note="`≈ ${fmt(overview.delta_notional)} USDT`">
+            <span :class="cls(overview.delta_qty)">{{ fmt(overview.delta_qty, 6) }}</span>
+          </SummaryItem>
+          <SummaryItem label="Δ* 目标" :value="targetDelta === null ? '-' : fmt(targetDelta, 6)" :note="deltaGap === null ? '' : `差 ${fmt(deltaGap, 6)}`" />
+        </div>
+        <div class="symbol-trigger-block">
+          <h4 class="muted">触发进度（相对锚点偏离）</h4>
+          <TriggerProgress v-if="movePct !== null" :move-pct="movePct" :a-pt="aPt" :theta-t="thetaT" />
+          <p v-else class="muted">尚无内核计划上下文。同步账户并生成执行计划后展示。</p>
+          <p v-if="kernelContext" class="muted kernel-context-line">
+            内核 {{ kernelContext.exposure_model }}
+            <template v-if="kernelContext.event_rule"> · 规则 {{ kernelContext.event_rule }}</template>
+            <template v-if="kernelContext.target_step_count !== undefined"> · 阶梯 {{ kernelContext.target_step_count }}</template>
+            <template v-if="kernelContext.trend_exit_candidate_count !== undefined"> · 趋势退出确认 {{ kernelContext.trend_exit_candidate_count }}</template>
+          </p>
+        </div>
+      </div>
+    </article>
     <div v-else class="summary-grid compact">
       <SummaryItem label="当前币种" value="暂无" note="请先同步 Binance" />
     </div>
@@ -13,22 +38,26 @@
     <article class="panel">
       <div class="panel-head">
         <h3>币种列表</h3>
-        <StatusBadge v-if="symbol" :text="stateLabel(symbol.state)" :color="stateColor(symbol.state)" />
+        <select v-model="accountFilter" class="select-control" aria-label="按账户筛选">
+          <option value="">全部账户</option>
+          <option v-for="account in exchangeAccounts" :key="account.id" :value="account.id">{{ account.account_label }}</option>
+        </select>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>币种</th><th>状态</th><th>价格</th><th>多头</th><th>空头</th><th>浮盈亏</th><th>最近事件</th></tr></thead>
+          <thead><tr><th>币种</th><th>相位</th><th>价格</th><th>多头</th><th>空头</th><th>Δ 净敞口</th><th>浮盈亏</th><th>最近事件</th></tr></thead>
           <tbody>
-            <tr v-for="item in symbols" :key="item.symbol">
+            <tr v-for="item in overviews" :key="item.symbol">
               <td><button class="tab" :class="{ active: store.selectedSymbol === item.symbol }" @click="selectSymbol(item.symbol)">{{ item.symbol }}</button></td>
-              <td><StatusBadge :text="stateLabel(item.state)" :color="stateColor(item.state)" /></td>
+              <td><StatusBadge :text="stateLabel(phaseOf(item))" :color="stateColor(phaseOf(item))" /></td>
               <td>{{ fmt(item.price, item.symbol === "SOLUSDT" ? 3 : 2) }}</td>
               <td>{{ fmt(item.long_qty, 6) }}</td>
               <td>{{ fmt(item.short_qty, 6) }}</td>
+              <td :class="cls(item.delta_qty)">{{ fmt(item.delta_qty, 6) }}</td>
               <td :class="cls(item.unrealized_pnl)">{{ fmt(item.unrealized_pnl) }} USDT</td>
               <td>{{ lastEvents[item.symbol] ? eventLabel(lastEvents[item.symbol].event_type) : "无" }}</td>
             </tr>
-            <tr v-if="!symbols.length"><td colspan="7" class="muted">暂无真实仓位。请先同步 Binance 账户。</td></tr>
+            <tr v-if="!overviews.length"><td colspan="8" class="muted">暂无真实仓位。请先同步 Binance 账户。</td></tr>
           </tbody>
         </table>
       </div>
@@ -72,16 +101,55 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import LineChart from "../components/LineChart.vue";
 import MultiLineChart from "../components/MultiLineChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import SummaryItem from "../components/SummaryItem.vue";
+import TriggerProgress from "../components/TriggerProgress.vue";
 import { cls, fmt } from "../core/format.js";
 import { eventLabel, stateColor, stateLabel } from "../domain/labels.js";
-import { currentSymbol, selectSymbol, store, symbols } from "../stores/appStore.js";
+import { aggregateSymbols, currentSymbol, exchangeAccounts, selectSymbol, store, symbols } from "../stores/appStore.js";
 
+const accountFilter = ref("");
+
+const filteredRows = computed(() => (
+  accountFilter.value
+    ? symbols.value.filter((row) => row.account_id === accountFilter.value)
+    : symbols.value
+));
+const overviews = computed(() => aggregateSymbols(filteredRows.value));
+const overview = computed(() => (
+  overviews.value.find((item) => item.symbol === store.selectedSymbol) || overviews.value[0] || null
+));
 const symbol = computed(() => currentSymbol());
+const priceDigits = computed(() => (overview.value?.symbol === "SOLUSDT" ? 3 : 2));
+
+// 内核上下文：来自该币种最近一份带 exposure_model 的执行计划 trigger
+const kernelContext = computed(() => overview.value?.plan?.trigger || null);
+const phase = computed(() => kernelContext.value?.lifecycle_state || overview.value?.plan?.trigger?.lifecycle_state || "REAL_POSITION");
+const anchorPrice = computed(() => kernelContext.value?.base_price ?? null);
+const movePct = computed(() => {
+  if (kernelContext.value?.move_pct_from_base !== undefined) return Number(kernelContext.value.move_pct_from_base);
+  if (anchorPrice.value && overview.value?.price) return ((overview.value.price / anchorPrice.value) - 1) * 100;
+  return null;
+});
+const targetDelta = computed(() => (
+  kernelContext.value?.target_net_qty !== undefined ? Number(kernelContext.value.target_net_qty) : null
+));
+const deltaGap = computed(() => (
+  kernelContext.value?.delta_to_target_qty !== undefined ? Number(kernelContext.value.delta_to_target_qty) : null
+));
+
+// 触发阈值：现为固定百分比配置；σ 化落地后此处换算展示
+const eventConfig = computed(() => store.state?.event_config || {});
+const aPt = computed(() => Number(eventConfig.value?.profit_transfer?.trigger?.min_price_move_pct_from_base || 1.5));
+const thetaT = computed(() => Number(eventConfig.value?.loss_side_reduction?.trigger?.trend_confirm_move_pct_from_base || 4));
+
+function phaseOf(item) {
+  return item.plan?.trigger?.lifecycle_state || "REAL_POSITION";
+}
+
 const history = computed(() => store.state?.price_history?.[symbol.value?.symbol] || []);
 const latest = computed(() => history.value.at(-1)?.price || symbol.value?.price || 0);
 const positionData = computed(() => history.value.map((point) => ({ tick: point.tick, long: symbol.value.long_qty * point.price, short: symbol.value.short_qty * point.price })));
