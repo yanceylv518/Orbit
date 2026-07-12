@@ -203,7 +203,7 @@ def build_application_container(
     )
     feed_config = config.get("runtime", {}).get("market_feed", {})
     market_feed_service = MarketFeedService(
-        BinanceKlineFeed(),
+        BinanceKlineFeed(base_url=str(feed_config.get("base_url", "https://fapi.binance.com"))),
         account_repository,
         run_config_repository,
         account_snapshot_repository,
