@@ -75,6 +75,9 @@ class EventEngine:
             "loss_side_reduce_count_in_trend": 0,
             "recovery_count_in_trend": 0,
             "trend_exit_candidate_count": 0,
+            "trend_entry_candidate_count": 0,
+            "harvested_profit_usdt": "0",
+            "averaging_spent_usdt": "0",
             "last_transfer_tick": -999999,
             "last_loss_reduce_tick": -999999,
             "last_transfer_price": None,
@@ -143,6 +146,8 @@ class EventEngine:
             realized_pnl=d(state["realized_pnl"]),
             long_unrealized_pnl=d(state["long_unrealized_pnl"]),
             short_unrealized_pnl=d(state["short_unrealized_pnl"]),
+            harvested_profit_usdt=d(state.get("harvested_profit_usdt") or 0),
+            averaging_spent_usdt=d(state.get("averaging_spent_usdt") or 0),
         )
 
     def risk_policy(self) -> RiskPolicy:
@@ -439,6 +444,11 @@ class EventEngine:
         state["realized_pnl"] = str(q(d(state["realized_pnl"]) + realized))
         state["fee_total"] = str(q(d(state["fee_total"]) + fee))
         state["slippage_total"] = str(q(d(state["slippage_total"]) + slippage_cost))
+        # C7 自融资账本：收割 = 减仓的正已实现收益；花费 = 加亏损腿名义
+        if action.startswith("REDUCE_") and realized > Decimal("0"):
+            state["harvested_profit_usdt"] = str(q(d(state.get("harvested_profit_usdt") or 0) + realized))
+        if event_type == "ADD_LOSS_SIDE":
+            state["averaging_spent_usdt"] = str(q(d(state.get("averaging_spent_usdt") or 0) + notional))
         self.mark_to_market(state, price)
 
         return {

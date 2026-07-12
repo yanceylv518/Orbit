@@ -62,16 +62,20 @@ class EventRulesTest(unittest.TestCase):
 
     def test_trend_reduction_rule_blocks_until_next_step(self):
         decision = self.decide("104")
+        state = dict(self.state)
+        state["trend_entry_candidate_count"] = 5
 
-        result = self.rules.evaluate(decision, dict(self.state), Decimal("104"))
+        result = self.rules.evaluate(decision, state, Decimal("104"))
 
         self.assertFalse(result.allowed)
         self.assertEqual(result.code, "TREND_STEP_NOT_REACHED")
 
     def test_trend_reduction_rule_allows_step_price(self):
         decision = self.decide("105")
+        state = dict(self.state)
+        state["trend_entry_candidate_count"] = 5
 
-        result = self.rules.evaluate(decision, dict(self.state), Decimal("105"))
+        result = self.rules.evaluate(decision, state, Decimal("105"))
 
         self.assertTrue(result.allowed)
         self.assertEqual(result.code, "LOSS_SIDE_REDUCTION_ALLOWED")

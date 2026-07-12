@@ -23,7 +23,8 @@
       "limit": 3
     },
     "plan_ttl_seconds": 900,
-    "plan_max_confirm_price_drift_pct": 0.5
+    "plan_max_confirm_price_drift_pct": 0.5,
+    "snapshot_max_age_seconds": 600
   },
   "auth": {
     "login_required": false,
@@ -130,7 +131,8 @@
             },
             "guard": {
               "block_profit_transfer_after_trend_confirmed": true,
-              "cooldown_ticks": 3
+              "cooldown_ticks": 3,
+              "trend_entry_confirm_ticks": 2
             }
           },
           "profit_transfer": {

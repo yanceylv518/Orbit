@@ -13,6 +13,11 @@ from orbit.bootstrap import create_app_state
 from orbit.config import load_config
 
 
+def fresh_synced_at():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 class AppStateAdminTest(unittest.TestCase):
     def make_app(self, mock_data_enabled=False, login_required=True):
         tmp = tempfile.TemporaryDirectory()
@@ -144,7 +149,7 @@ class AppStateAdminTest(unittest.TestCase):
                 "ok": True,
                 "status": "synced",
                 "account_id": account_id,
-                "synced_at": "2026-07-07T00:00:00+00:00",
+                "synced_at": fresh_synced_at(),
                 "position_mode": {
                     "dual_side_position": True,
                     "hedge_mode_required": True,
@@ -228,7 +233,7 @@ class AppStateAdminTest(unittest.TestCase):
                 "ok": True,
                 "status": "synced",
                 "account_id": account_id,
-                "synced_at": "2026-07-07T00:00:00+00:00",
+                "synced_at": fresh_synced_at(),
                 "position_mode": {
                     "dual_side_position": True,
                     "hedge_mode_required": True,
@@ -276,7 +281,7 @@ class AppStateAdminTest(unittest.TestCase):
                 "ok": True,
                 "status": "synced",
                 "account_id": account_id,
-                "synced_at": "2026-07-07T00:00:00+00:00",
+                "synced_at": fresh_synced_at(),
                 "position_mode": {
                     "dual_side_position": True,
                     "hedge_mode_required": True,

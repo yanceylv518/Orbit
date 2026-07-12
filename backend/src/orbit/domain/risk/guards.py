@@ -33,6 +33,9 @@ class RiskContext:
     realized_pnl: Decimal = ZERO
     long_unrealized_pnl: Decimal = ZERO
     short_unrealized_pnl: Decimal = ZERO
+    # C7 自融资账本：加亏损腿的预算只能来自已收割利润
+    harvested_profit_usdt: Decimal = ZERO
+    averaging_spent_usdt: Decimal = ZERO
 
     @property
     def net_qty(self) -> Decimal:
@@ -59,6 +62,10 @@ class RiskPolicy:
     mode: str | None = None
     allow_reduce_only: bool = False
     allow_add_position: bool = True
+    # C7: 加亏损腿累计名义 ≤ ρ_f × 已收割利润；ρ_f ≤ 0 时关闭该 guard
+    loss_side_budget_ratio: Decimal = ZERO
+    # 组合级回撤触发后全局 STOP：非 STOP_UNWIND 动作一律拦截
+    portfolio_stopped: bool = False
 
     @classmethod
     def from_config(
@@ -67,9 +74,12 @@ class RiskPolicy:
         run_config: dict[str, Any] | None = None,
         *,
         enforce_plan_only: bool = False,
+        portfolio_stopped: bool = False,
     ) -> "RiskPolicy":
         body = strategy.get("strategy", strategy)
         risk = body.get("risk", {})
+        events = body.get("events", {})
+        transfer_sizing = events.get("profit_transfer", {}).get("sizing", {})
         run_config = run_config or {}
         has_run_config = bool(run_config)
         return cls(
@@ -79,6 +89,8 @@ class RiskPolicy:
             mode=str(run_config.get("mode", "")) if has_run_config else None,
             allow_reduce_only=bool(run_config.get("allow_reduce_only", True)) if has_run_config else False,
             allow_add_position=bool(run_config.get("allow_add_position", False)) if has_run_config else True,
+            loss_side_budget_ratio=dec(transfer_sizing.get("use_realized_profit_ratio_for_loss_side")),
+            portfolio_stopped=portfolio_stopped,
         )
 
 
@@ -135,6 +147,10 @@ def guard_actions(
     guarded: list[dict[str, Any]] = []
     projected_long = context.long_qty
     projected_short = context.short_qty
+    projected_averaging_spent = context.averaging_spent_usdt
+    # 同一动作组内，先行减仓将实现的利润计入 C7 预算——
+    # 利润搬运的加亏损腿正是由同组减盈利腿自融资的
+    projected_harvested = context.harvested_profit_usdt
 
     for action in actions:
         item = dict(action)
@@ -142,6 +158,7 @@ def guard_actions(
         qty = dec(item.get("quantity"))
         notional = dec(item.get("notional_usdt")) or qty * context.price
         risk_intent = str(item.get("risk_intent", "STRATEGY"))
+        event_role = str(item.get("event_role", ""))
         block_reason = ""
         block_code = ""
 
@@ -151,6 +168,9 @@ def guard_actions(
         elif policy.enforce_plan_only and policy.mode != "plan_only":
             block_code = "PLAN_ONLY_REQUIRED"
             block_reason = "第一阶段仅允许 plan_only 模式生成计划。"
+        elif policy.portfolio_stopped and risk_intent != "STOP_UNWIND":
+            block_code = "GLOBAL_STOP"
+            block_reason = "组合级回撤已触发全局 STOP，仅允许拆对冲平仓动作。"
         elif state.symbol_stopped and risk_intent != "STOP_UNWIND":
             block_code = "SYMBOL_STOPPED"
             block_reason = "单币种回撤已触发 STOPPED，普通策略动作被终止。"
@@ -160,6 +180,18 @@ def guard_actions(
         elif state.gross_exceeded and is_add_action(name):
             block_code = "ONLY_REDUCE"
             block_reason = "当前 gross 已超过上限，只允许降低 gross 的动作。"
+        elif (
+            event_role == "ADD_LOSS_SIDE"
+            and policy.loss_side_budget_ratio > ZERO
+            and projected_averaging_spent + notional
+            > projected_harvested * policy.loss_side_budget_ratio
+        ):
+            block_code = "C7_SELF_FUNDING"
+            block_reason = (
+                "自融资约束：加亏损腿累计名义超过已收割利润预算"
+                f"（已用 {flt(projected_averaging_spent):.2f} + 本次 {flt(notional):.2f}"
+                f" > 预算 {flt(projected_harvested * policy.loss_side_budget_ratio):.2f} USDT）。"
+            )
         elif is_reduce_action(name) and not has_reducible_qty(name, qty, projected_long, projected_short):
             block_code = "REDUCE_SIZE_EXCEEDS_POSITION"
             block_reason = "减仓数量超过当前可减仓位。"
@@ -171,7 +203,14 @@ def guard_actions(
                 block_reason = "执行后 gross 将超过单币种上限。"
             else:
                 item["status"] = "planned"
+                if is_reduce_action(name):
+                    projected_harvested += estimated_reduce_profit(
+                        name, qty, projected_long, projected_short,
+                        context.long_unrealized_pnl, context.short_unrealized_pnl,
+                    )
                 projected_long, projected_short = next_long, next_short
+                if event_role == "ADD_LOSS_SIDE":
+                    projected_averaging_spent += notional
 
         if block_reason:
             item["status"] = "blocked"
@@ -196,6 +235,18 @@ def risk_checks(
             "name": "plan_only",
             "ok": policy.mode == "plan_only",
             "message": "第一阶段只生成执行计划，不直接下单。",
+        })
+    if policy.portfolio_stopped:
+        checks.append({
+            "name": "portfolio_stop",
+            "ok": False,
+            "message": "组合级回撤超过 max_total_drawdown_pct，全局 STOP 生效。",
+        })
+    if policy.loss_side_budget_ratio > ZERO:
+        checks.append({
+            "name": "c7_self_funding",
+            "ok": not any(item.get("block_code") == "C7_SELF_FUNDING" for item in actions),
+            "message": "加亏损腿预算 ≤ ρ_f × 已收割利润（自融资约束）。",
         })
     checks.extend([
         {
@@ -232,6 +283,22 @@ def risk_checks(
         },
     ])
     return checks
+
+
+def estimated_reduce_profit(
+    action: str,
+    qty: Decimal,
+    long_qty: Decimal,
+    short_qty: Decimal,
+    long_unrealized: Decimal,
+    short_unrealized: Decimal,
+) -> Decimal:
+    """线性估计减仓将实现的利润（仅正值计入 C7 预算）。"""
+    if action == "REDUCE_LONG" and long_qty > ZERO:
+        return max(ZERO, long_unrealized * qty / long_qty)
+    if action == "REDUCE_SHORT" and short_qty > ZERO:
+        return max(ZERO, short_unrealized * qty / short_qty)
+    return ZERO
 
 
 def is_add_action(action: str) -> bool:

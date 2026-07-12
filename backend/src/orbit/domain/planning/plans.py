@@ -33,6 +33,8 @@ def generate_account_execution_plans(
     *,
     symbol_states: dict[str, dict[str, Any]] | None = None,
     ttl_seconds: int = DEFAULT_PLAN_TTL_SECONDS,
+    portfolio_stopped: bool = False,
+    snapshot_max_age_seconds: int = 600,
 ) -> list[dict[str, Any]]:
     created_at = now_iso()
     created_at_ms = int(time.time() * 1000)
@@ -46,6 +48,7 @@ def generate_account_execution_plans(
         "ttl_seconds": int(ttl_seconds),
         "expires_at_ms": created_at_ms + int(ttl_seconds) * 1000,
         "mode": run_config.get("mode", "plan_only"),
+        "portfolio_stopped": bool(portfolio_stopped),
     }
 
     if not run_config.get("enabled", False):
@@ -65,6 +68,16 @@ def generate_account_execution_plans(
     position_mode = snapshot.get("position_mode") or {}
     if position_mode.get("hedge_mode_ok") is False:
         return [blocked_plan(common, "HEDGE_MODE_REQUIRED", "-", "账户未通过 Hedge Mode 检查。")]
+
+    # 快照新鲜度：基于陈旧持仓生成的计划没有意义
+    snapshot_age = snapshot_age_seconds(snapshot, now_ms=created_at_ms)
+    if snapshot_max_age_seconds > 0 and snapshot_age is not None and snapshot_age > snapshot_max_age_seconds:
+        return [blocked_plan(
+            common,
+            "SYNC_STALE",
+            "-",
+            f"账户快照已过期 {int(snapshot_age)}s（上限 {int(snapshot_max_age_seconds)}s），请重新同步。",
+        )]
 
     allowed_symbols = normalized_symbols(run_config, strategy)
     positions_by_symbol = group_positions(snapshot.get("positions", []), allowed_symbols)
@@ -155,8 +168,13 @@ def plan_symbol(
         "plan_recovery_count_in_trend": int(state.get("recovery_count_in_trend", 0)),
         **decision.context(),
     }
-    risk_context = symbol_risk_context(symbol, mark_price, budget, long, short, snapshot)
-    risk_policy = RiskPolicy.from_config(strategy, run_config, enforce_plan_only=True)
+    risk_context = symbol_risk_context(symbol, mark_price, budget, long, short, snapshot, state)
+    risk_policy = RiskPolicy.from_config(
+        strategy,
+        run_config,
+        enforce_plan_only=True,
+        portfolio_stopped=bool(common.get("portfolio_stopped")),
+    )
     risk_state = evaluate_risk(risk_context, risk_policy)
     if risk_state.symbol_stopped:
         trigger_context.update({
@@ -305,7 +323,12 @@ def build_plan(
     risk_context: RiskContext,
     strategy: dict[str, Any],
 ) -> dict[str, Any]:
-    result = guard_actions(actions, risk_context, RiskPolicy.from_config(strategy, run_config, enforce_plan_only=True))
+    result = guard_actions(actions, risk_context, RiskPolicy.from_config(
+        strategy,
+        run_config,
+        enforce_plan_only=True,
+        portfolio_stopped=bool(common.get("portfolio_stopped")),
+    ))
     actions = result.actions
     blocked = [item for item in actions if item.get("status") == "blocked"]
     planned = [item for item in actions if item.get("status") == "planned"]
@@ -388,7 +411,7 @@ def build_action(
 
 
 def build_strategy_action(action: StrategyAction, price: Decimal, max_single_order: Decimal) -> dict[str, Any]:
-    return build_action(
+    item = build_action(
         action.action,
         action.position_side,
         action.quantity,
@@ -397,6 +420,8 @@ def build_strategy_action(action: StrategyAction, price: Decimal, max_single_ord
         action.reason,
         risk_intent=action.risk_intent,
     )
+    item["event_role"] = action.event_role
+    return item
 
 
 def blocked_plan(common: dict[str, Any], event_type: str, symbol: str, reason: str) -> dict[str, Any]:
@@ -446,7 +471,9 @@ def symbol_risk_context(
     long: dict[str, Decimal],
     short: dict[str, Decimal],
     snapshot: dict[str, Any],
+    state: dict[str, Any] | None = None,
 ) -> RiskContext:
+    state = state or {}
     return RiskContext(
         symbol=symbol,
         price=price,
@@ -456,7 +483,24 @@ def symbol_risk_context(
         realized_pnl=dec(snapshot.get("realized_pnl")),
         long_unrealized_pnl=long["pnl"],
         short_unrealized_pnl=short["pnl"],
+        harvested_profit_usdt=dec(state.get("harvested_profit_usdt")),
+        averaging_spent_usdt=dec(state.get("averaging_spent_usdt")),
     )
+
+
+def snapshot_age_seconds(snapshot: dict[str, Any], *, now_ms: int) -> float | None:
+    """快照年龄（秒）。synced_at 兼容毫秒时间戳与 ISO 字符串两种历史格式。"""
+    raw = snapshot.get("synced_at")
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        return max(0.0, (now_ms - float(raw)) / 1000.0)
+    try:
+        from datetime import datetime
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return max(0.0, now_ms / 1000.0 - parsed.timestamp())
+    except ValueError:
+        return None
 
 
 def strategy_position(

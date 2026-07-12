@@ -54,12 +54,30 @@ class StrategyLifecycle:
             ))
         else:
             state["trend_exit_candidate_count"] = 0
+            # 趋势进入持续确认：未在趋势态时，统计连续满足 |m|≥θ_t 的 tick 数
+            if self.is_trend_entry_candidate(state, price):
+                state["trend_entry_candidate_count"] = int(state.get("trend_entry_candidate_count", 0)) + 1
+            else:
+                state["trend_entry_candidate_count"] = 0
             return
 
+        state["trend_entry_candidate_count"] = 0
         if self.is_trend_exit_candidate(state, price):
             state["trend_exit_candidate_count"] = int(state.get("trend_exit_candidate_count", 0)) + 1
         else:
             state["trend_exit_candidate_count"] = 0
+
+    def is_trend_entry_candidate(self, state: dict[str, Any], price: Decimal) -> bool:
+        base_price = dec(state.get("base_price"))
+        if base_price <= ZERO or price <= ZERO:
+            return False
+        theta_t = dec(self.events["loss_side_reduction"]["trigger"]["trend_confirm_move_pct_from_base"])
+        move_abs = abs((price / base_price - Decimal("1")) * Decimal("100"))
+        return theta_t > ZERO and move_abs >= theta_t
+
+    def trend_entry_confirm_ticks(self) -> int:
+        guard = self.events["loss_side_reduction"].get("guard", {})
+        return max(1, int(guard.get("trend_entry_confirm_ticks", 1)))
 
     def is_trend_exit_candidate(self, state: dict[str, Any], price: Decimal) -> bool:
         direction = self.trend_direction(state)
@@ -164,6 +182,7 @@ class StrategyLifecycle:
         state["loss_side_reduce_count_in_trend"] = 0
         state["recovery_count_in_trend"] = 0
         state["trend_exit_candidate_count"] = 0
+        state["trend_entry_candidate_count"] = 0
         state["last_transfer_tick"] = -999999
         state["last_loss_reduce_tick"] = -999999
         state["last_transfer_price"] = None

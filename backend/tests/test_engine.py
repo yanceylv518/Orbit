@@ -31,7 +31,11 @@ class EventEngineTest(unittest.TestCase):
         self.assertTrue(any(t["action"] == "ADD_SHORT" for t in events[0]["trades"]))
 
     def test_loss_side_reduction_after_trend_confirm(self):
+        # trend_entry_confirm_ticks=2：第一根确认 K 线只计数不动作
         state, events, risks = self.engine.on_tick(self.state, Decimal("62500"))
+        self.assertFalse(events)
+        self.assertEqual(state["trend_entry_candidate_count"], 1)
+        state, events, risks = self.engine.on_tick(state, Decimal("62550"))
         self.assertTrue(events)
         self.assertEqual(events[0]["event_type"], "LOSS_SIDE_REDUCTION_UP")
         self.assertEqual(state["state"], "TREND_UP")

@@ -117,6 +117,19 @@ class StrategyEventRules:
         if not cfg.get("enabled", True):
             return EventRuleResult.block("EVENT_DISABLED", "loss side reduction is disabled")
 
+        # 趋势进入持续确认：未在趋势态时，需连续 N tick 满足 |m|≥θ_t 才允许进入
+        current_state = str(state.get("state") or "")
+        if not current_state.startswith("TREND_"):
+            required_ticks = max(1, int(cfg.get("guard", {}).get("trend_entry_confirm_ticks", 1)))
+            entry_count = int(state.get("trend_entry_candidate_count", 0))
+            if entry_count < required_ticks:
+                return EventRuleResult.block(
+                    "TREND_ENTRY_NOT_CONFIRMED",
+                    "trend entry needs consecutive confirming ticks",
+                    trend_entry_candidate_count=entry_count,
+                    trend_entry_confirm_ticks=required_ticks,
+                )
+
         tick_count = int(state.get("tick_count", 0))
         last_tick = int(state.get("last_loss_reduce_tick", -999999))
         cooldown = int(cfg["guard"].get("cooldown_ticks", 0))

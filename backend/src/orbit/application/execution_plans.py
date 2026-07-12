@@ -39,6 +39,7 @@ class ExecutionPlanService:
         self.symbol_states = symbol_states  # SymbolStateRepository | None，确认时的漂移校验
         self.ttl_seconds = int(ttl_seconds)
         self.max_confirm_price_drift_pct = float(max_confirm_price_drift_pct)
+        self.snapshot_max_age_seconds = 600
 
     def build_for_accounts(
         self,
@@ -58,6 +59,7 @@ class ExecutionPlanService:
             if account.get("id") in account_ids
         ]
 
+        portfolio_stopped = self.portfolio_stopped(strategy)
         new_plans: list[dict[str, Any]] = []
         for account in selected_accounts:
             account_id = str(account.get("id", ""))
@@ -74,6 +76,8 @@ class ExecutionPlanService:
                 snapshot,
                 symbol_states=account_states,
                 ttl_seconds=self.ttl_seconds,
+                portfolio_stopped=portfolio_stopped,
+                snapshot_max_age_seconds=self.snapshot_max_age_seconds,
             ))
 
         retained_plans = [
@@ -155,6 +159,25 @@ class ExecutionPlanService:
                 },
             },
         }
+
+    def portfolio_stopped(self, strategy: dict[str, Any]) -> bool:
+        """组合级回撤：全部已同步账户的合计未实现盈亏触及 max_total_drawdown_pct → 全局 STOP。"""
+        body = strategy.get("strategy", strategy)
+        limit_pct = float(body.get("risk", {}).get("max_total_drawdown_pct") or 0)
+        if limit_pct <= 0:
+            return False
+        basis = 0.0
+        pnl = 0.0
+        for snapshot in self.snapshots.all().values():
+            if snapshot.get("status") != "synced":
+                continue
+            equity = float(snapshot.get("total_margin_balance") or snapshot.get("total_wallet_balance") or 0)
+            unrealized = float(snapshot.get("total_unrealized_profit") or 0)
+            basis += equity - unrealized
+            pnl += unrealized
+        if basis <= 0:
+            return False
+        return pnl < -(basis * limit_pct / 100.0)
 
     def _confirm_price_drift_pct(self, plan: dict[str, Any]) -> float | None:
         if self.symbol_states is None:

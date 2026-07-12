@@ -179,6 +179,7 @@ def build_application_container(
         ttl_seconds=int(plan_runtime.get("plan_ttl_seconds", 900)),
         max_confirm_price_drift_pct=float(plan_runtime.get("plan_max_confirm_price_drift_pct", 0.5)),
     )
+    execution_plan_service.snapshot_max_age_seconds = int(plan_runtime.get("snapshot_max_age_seconds", 600))
     plan_refresh_service = ExecutionPlanRefreshService(
         run_config_service,
         symbol_state_service,
