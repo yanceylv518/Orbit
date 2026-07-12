@@ -533,10 +533,35 @@ class AppState:
 
     def background_loop(self) -> None:
         interval = float(self.config["runtime"].get("tick_interval_seconds", 3))
+        feed_config = self.config["runtime"].get("market_feed", {})
+        poll_seconds = max(5.0, float(feed_config.get("poll_seconds", 30)))
+        last_poll = 0.0
         while True:
             if self.running and self.mock_data_enabled:
                 self.tick_once()
-            time.sleep(interval)
+            if not self.mock_data_enabled and time.time() - last_poll >= poll_seconds:
+                last_poll = time.time()
+                self.market_tick_once()
+            time.sleep(interval if self.mock_data_enabled else 1)
+
+    def market_tick_once(self) -> dict[str, Any]:
+        """真实模式行情 tick：锁外拉 K 线，锁内推进生命周期并重建计划。"""
+        service = getattr(self, "market_feed_service", None)
+        if service is None or self.mock_data_enabled or not service.status.get("enabled"):
+            return {"ticks": 0}
+        try:
+            klines_by_symbol = service.poll()  # 网络 I/O，锁外
+        except Exception as exc:
+            service.status["last_error"] = str(exc)
+            return {"ticks": 0, "error": str(exc)}
+        if not klines_by_symbol:
+            return {"ticks": 0}
+        with self.lock:
+            result = service.apply(klines_by_symbol)
+            if result["changed_account_ids"]:
+                self.plan_refresh_service.refresh_from_states(set(result["changed_account_ids"]))
+                self.persist()
+        return result
 
     def start_background(self) -> None:
         thread = threading.Thread(target=self.background_loop, name="orbit-runner", daemon=True)
@@ -587,6 +612,7 @@ class AppState:
                 price_history=self.price_history,
                 current_user=current_user,
                 include_internal_history=include_internal_history,
+                market_feed=self.runtime_state.get("market_feed"),
             )
 
     def sanitize_account(self, account: dict[str, Any]) -> dict[str, Any]:

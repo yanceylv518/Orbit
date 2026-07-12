@@ -61,6 +61,7 @@ class SnapshotQueryService:
         price_history: dict[str, list[dict[str, Any]]],
         current_user: dict[str, Any] | None = None,
         include_internal_history: bool = False,
+        market_feed: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         symbols = self.portfolio_views.runtime_symbols(symbol_states)
         totals = self.portfolio_views.totals(symbols)
@@ -89,6 +90,8 @@ class SnapshotQueryService:
             "symbol_metric_history": deepcopy(symbol_metric_history),
             "event_config": self.strategy["strategy"]["events"],
             "storage": self.storage_status(),
+            "market_feed": deepcopy(market_feed) if market_feed else None,
+            "plan_symbol_states": self.plan_symbol_state_rows(symbol_states),
         }
         if not current_user:
             return payload
@@ -100,6 +103,38 @@ class SnapshotQueryService:
             "permissions": self.permissions.capabilities(current_user),
         }
         return filtered
+
+    def plan_symbol_state_rows(self, symbol_states: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        """账户级生命周期状态摘要：前端相位/Δ 可视化的直接数据源（脱离计划存在）。"""
+        if self.mock_data_enabled:
+            return []
+        rows = []
+        for key, state in symbol_states.items():
+            account_id = state.get("account_id") or state.get("exchange_account_id")
+            if not account_id:
+                continue
+            long_qty = float(state.get("long_qty") or 0)
+            short_qty = float(state.get("short_qty") or 0)
+            rows.append({
+                "account_id": account_id,
+                "symbol": state.get("symbol") or key.split("::")[-1],
+                "state": state.get("state", "BALANCED"),
+                "base_price": float(state.get("base_price") or 0),
+                "last_price": float(state.get("last_price") or 0),
+                "base_qty": float(state.get("base_qty") or 0),
+                "long_qty": long_qty,
+                "short_qty": short_qty,
+                "delta_qty": long_qty - short_qty,
+                "trend_extreme_price": float(state.get("trend_extreme_price") or 0),
+                "trend_exit_candidate_count": int(state.get("trend_exit_candidate_count") or 0),
+                "profit_transfer_count_in_trend": int(state.get("profit_transfer_count_in_trend") or 0),
+                "loss_side_reduce_count_in_trend": int(state.get("loss_side_reduce_count_in_trend") or 0),
+                "recovery_count_in_trend": int(state.get("recovery_count_in_trend") or 0),
+                "tick_count": int(state.get("tick_count") or 0),
+                "last_kline_at": state.get("last_kline_at"),
+                "last_kline_close_time": state.get("last_kline_close_time"),
+            })
+        return sorted(rows, key=lambda item: (item["account_id"], item["symbol"]))
 
     def apply_permissions(
         self,
@@ -157,6 +192,10 @@ class SnapshotQueryService:
         filtered["risk_events"] = [
             event for event in payload["risk_events"]
             if event.get("user_id") in (user_id, None)
+        ]
+        filtered["plan_symbol_states"] = [
+            row for row in payload.get("plan_symbol_states", [])
+            if row.get("account_id") in account_ids
         ]
         filtered["execution_plans"] = [
             plan for plan in payload.get("execution_plans", [])

@@ -226,6 +226,14 @@ class ExecutionPlanRefreshService:
         self.run_configs.ensure_all()
         if not self.mock_data_enabled:
             self.symbol_states.refresh_plan_symbol_states(account_ids=account_ids)
+        return self._build(account_ids)
+
+    def refresh_from_states(self, account_ids: set[str]) -> list[dict[str, Any]]:
+        """行情 tick 后重建计划：状态已由行情推进，不再用旧快照回写（避免双重计 tick）。"""
+        self.run_configs.ensure_all()
+        return self._build(account_ids)
+
+    def _build(self, account_ids: set[str]) -> list[dict[str, Any]]:
         result = self.execution_plans.build_for_accounts(
             account_ids=account_ids,
             strategy=self.strategy,

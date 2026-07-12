@@ -10,6 +10,7 @@ from orbit.application.accounts import AccountDirectoryService, AccountService
 from orbit.application.audit import AuditService
 from orbit.application.credentials import CredentialService
 from orbit.application.execution_plans import ExecutionPlanRefreshService, ExecutionPlanService
+from orbit.application.market_data import MarketFeedService
 from orbit.application.metrics import MetricHistoryService
 from orbit.application.permissions import PermissionPolicy
 from orbit.application.portfolio_views import PortfolioViewService
@@ -22,6 +23,7 @@ from orbit.application.symbol_states import SymbolStateService
 from orbit.infrastructure.credentials.account_connection import VaultAccountConnectionInspector
 from orbit.infrastructure.credentials.local_vault import LocalCredentialVault
 from orbit.infrastructure.exchange.binance_snapshots import BinanceSnapshotFetcher
+from orbit.infrastructure.exchange.kline_feed import BinanceKlineFeed
 from orbit.infrastructure.persistence.account_snapshots import InMemoryAccountSnapshotRepository
 from orbit.infrastructure.persistence.accounts import ConfigAccountRepository
 from orbit.infrastructure.persistence.audits import InMemoryAuditRepository
@@ -65,6 +67,7 @@ class ApplicationContainer:
     execution_plan_service: Any
     plan_refresh_service: Any
     account_sync_service: Any
+    market_feed_service: Any
     app_uow: Any
 
     def install(self, target: Any) -> None:
@@ -188,6 +191,19 @@ def build_application_container(
         strategy,
         mock_data_enabled=mock_data_enabled,
     )
+    feed_config = config.get("runtime", {}).get("market_feed", {})
+    market_feed_service = MarketFeedService(
+        BinanceKlineFeed(),
+        account_repository,
+        run_config_repository,
+        account_snapshot_repository,
+        symbol_state_repository,
+        symbol_state_service,
+        runtime_state,
+        interval=str(feed_config.get("interval", "1m")),
+        limit=int(feed_config.get("limit", 3)),
+    )
+    market_feed_service.status["enabled"] = bool(feed_config.get("enabled", True)) and not mock_data_enabled
     snapshot_queries = SnapshotQueryService(
         config,
         strategy,
@@ -248,5 +264,6 @@ def build_application_container(
         execution_plan_service=execution_plan_service,
         plan_refresh_service=plan_refresh_service,
         account_sync_service=account_sync_service,
+        market_feed_service=market_feed_service,
         app_uow=app_uow,
     )

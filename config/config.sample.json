@@ -15,7 +15,13 @@
     "port": 8765,
     "tick_interval_seconds": 3,
     "auto_start": false,
-    "mock_data_enabled": false
+    "mock_data_enabled": false,
+    "market_feed": {
+      "enabled": true,
+      "interval": "1m",
+      "poll_seconds": 30,
+      "limit": 3
+    }
   },
   "auth": {
     "login_required": false,
@@ -59,7 +65,11 @@
       "enabled": true,
       "mode": "plan_only",
       "status": "active",
-      "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      "symbols": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT"
+      ],
       "symbol_budget_usdt": {
         "BTCUSDT": 100,
         "ETHUSDT": 100,
@@ -81,7 +91,11 @@
       "strategy_version": "v1",
       "mode": "read_only",
       "status": "paused",
-      "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      "symbols": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT"
+      ],
       "symbol_budget_usdt": {
         "BTCUSDT": 100,
         "ETHUSDT": 100,

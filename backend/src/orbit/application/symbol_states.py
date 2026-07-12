@@ -9,7 +9,7 @@ from orbit.application.ports.account_snapshot_repository import AccountSnapshotR
 from orbit.application.ports.run_config_repository import RunConfigRepository
 from orbit.application.ports.symbol_state_repository import SymbolStateRepository
 from orbit.domain.planning.plans import empty_side, group_positions, normalized_symbols, symbol_budget
-from orbit.domain.strategy.engine import EventEngine, d, q
+from orbit.domain.strategy.engine import EventEngine, d, now_iso, q
 from orbit.domain.strategy.exposure import derive_anchor_price
 from orbit.domain.strategy.state_keys import lookup_plan_state, plan_state_key
 
@@ -76,6 +76,26 @@ class SymbolStateService:
                     updated.pop(symbol, None)
         self.repository.replace_all(updated)
         return updated
+
+    def advance_state_with_price(
+        self,
+        state: dict[str, Any],
+        *,
+        price: float | Decimal,
+        close_time: int,
+    ) -> dict[str, Any]:
+        """行情 tick：仅用收盘价推进生命周期，不改仓位（仓位来自账户同步）。"""
+        mark_price = d(price)
+        state["tick_count"] = int(state.get("tick_count", 0)) + 1
+        state["last_price"] = str(mark_price)
+        state["last_kline_close_time"] = int(close_time)
+        state["last_kline_at"] = now_iso()
+        state["high_since_base"] = str(max(d(state.get("high_since_base") or state["base_price"]), mark_price))
+        state["low_since_base"] = str(min(d(state.get("low_since_base") or state["base_price"]), mark_price))
+        self.engine.mark_to_market(state, mark_price)
+        self.engine.lifecycle.update_trend_tracking(state, mark_price)
+        state["state"] = self.engine.lifecycle.resolve_state(state)
+        return state
 
     def can_refresh_from_snapshot(
         self,
