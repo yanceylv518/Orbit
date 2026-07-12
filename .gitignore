@@ -4,6 +4,7 @@ data/
 runtime/
 tmp/
 reports/
+var/
 config.local.json
 .venv/
 .env

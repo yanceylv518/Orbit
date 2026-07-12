@@ -1,5 +1,3 @@
-# Runtime is intentionally small for V1 dry_run.
-# The web console and strategy engine run on the Python standard library.
-#
-# Optional for MySQL persistence:
+fastapi>=0.115.0,<1.0.0
+uvicorn>=0.30.0,<1.0.0
 PyMySQL>=1.1.0

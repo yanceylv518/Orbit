@@ -1,0 +1,164 @@
+{
+  "storage": {
+    "driver": "json",
+    "json_path": "var/data/runtime_state.json",
+    "mysql": {
+      "host": "127.0.0.1",
+      "port": 3306,
+      "database": "dynamic_dual_grid",
+      "user": "root",
+      "password_env": "DDG_MYSQL_PASSWORD"
+    }
+  },
+  "runtime": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "tick_interval_seconds": 3,
+    "auto_start": false,
+    "mock_data_enabled": false
+  },
+  "auth": {
+    "login_required": false,
+    "default_operator_user_id": "admin_001",
+    "session_cookie_name": "orbit_session",
+    "bootstrap_passwords": {
+      "admin_001": "admin123456",
+      "user_001": "user123456"
+    }
+  },
+  "users": [
+    {
+      "id": "admin_001",
+      "name": "系统管理员",
+      "role": "admin"
+    },
+    {
+      "id": "user_001",
+      "name": "演示用户",
+      "role": "user"
+    }
+  ],
+  "exchange_accounts": [
+    {
+      "id": "binance_dry_run_001",
+      "user_id": "user_001",
+      "exchange": "binance",
+      "market_type": "futures",
+      "account_label": "Binance Futures Read Only",
+      "testnet": true,
+      "dry_run": true,
+      "hedge_mode_required": true,
+      "status": "active"
+    }
+  ],
+  "account_run_configs": [
+    {
+      "id": "run_binance_dry_run_001",
+      "account_id": "binance_dry_run_001",
+      "strategy_id": "orbit_v1_demo",
+      "enabled": true,
+      "mode": "plan_only",
+      "status": "active",
+      "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      "symbol_budget_usdt": {
+        "BTCUSDT": 100,
+        "ETHUSDT": 100,
+        "SOLUSDT": 100
+      },
+      "base_position_usdt": 40,
+      "max_single_order_usdt": 20,
+      "allow_reduce_only": true,
+      "allow_add_position": false,
+      "allow_market_orders": false
+    }
+  ],
+  "strategy_instances": [
+    {
+      "id": "orbit_v1_demo",
+      "user_id": "user_001",
+      "exchange_account_id": "binance_dry_run_001",
+      "strategy_name": "Dynamic Dual Grid",
+      "strategy_version": "v1",
+      "mode": "read_only",
+      "status": "paused",
+      "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      "symbol_budget_usdt": {
+        "BTCUSDT": 100,
+        "ETHUSDT": 100,
+        "SOLUSDT": 100
+      },
+      "strategy": {
+        "base_position_usdt": 40,
+        "costs": {
+          "taker_fee_rate": 0.0005,
+          "maker_fee_rate": 0.0002,
+          "slippage_bps": 2
+        },
+        "risk": {
+          "max_symbol_drawdown_pct": 10,
+          "max_total_drawdown_pct": 20,
+          "max_gross_exposure_ratio": 2.0,
+          "emergency_stop": true
+        },
+        "events": {
+          "loss_side_reduction": {
+            "enabled": true,
+            "priority": 20,
+            "trigger": {
+              "trend_confirm_move_pct_from_base": 4.0,
+              "reduce_step_pct": 1.0
+            },
+            "sizing": {
+              "reduce_loss_side_ratio": 0.1,
+              "min_loss_side_position_ratio_of_base": 0.2
+            },
+            "guard": {
+              "block_profit_transfer_after_trend_confirmed": true,
+              "cooldown_ticks": 3
+            }
+          },
+          "profit_transfer": {
+            "enabled": true,
+            "priority": 30,
+            "trigger": {
+              "min_profit_pct_of_symbol_budget": 0.6,
+              "min_price_move_pct_from_base": 1.5
+            },
+            "guard": {
+              "cooldown_ticks": 5,
+              "max_times_per_trend": 3,
+              "skip_if_trend_confirmed": true,
+              "skip_if_price_extended_pct_from_base": 5.0
+            },
+            "sizing": {
+              "reduce_profit_side_ratio": 0.2,
+              "use_realized_profit_ratio_for_loss_side": 0.8,
+              "restore_loss_side_only_to_base": false,
+              "max_add_loss_side_ratio_of_base_position": 0.3,
+              "min_net_profit_usdt": 0.05
+            }
+          },
+          "position_recovery": {
+            "enabled": true,
+            "priority": 40,
+            "trigger": {
+              "pullback_pct_from_trend_extreme": 1.2,
+              "min_position_distance_pct_from_base": 0.05,
+              "trend_exit_move_pct_from_base": 2.8,
+              "trend_exit_confirm_ticks": 2
+            },
+            "sizing": {
+              "restore_profit_side_ratio": 0.25,
+              "normalize_loss_side_ratio": 0.25,
+              "max_restore_per_tick_ratio": 0.2
+            },
+            "target": {
+              "target_balance_position_distance_pct": 0.1,
+              "target_price_distance_pct_from_base": 0.5
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -13,16 +13,46 @@
 9. 管理员用户/账户总览、全局急停和恢复运行。
 10. 本地登录、用户会话、用户/账户权限隔离。
 
+## 目录结构
+
+```text
+backend/   Python 后端服务、应用分层、脚本、SQL、测试
+frontend/  Vue 3 + Vite 前端控制台
+docs/      产品方案、架构说明、策略逻辑设计和设计图
+config/    配置样例；本地敏感配置仍使用根目录 config.local.json
+```
+
 ## 启动
 
+先安装后端运行依赖：
+
 ```powershell
-python main.py
+python -m pip install -r requirements.txt
+```
+
+运行后端测试时安装开发依赖：
+
+```powershell
+python -m pip install -r requirements-dev.txt
+```
+
+首次启动前先构建前端：
+
+```powershell
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+```powershell
+python backend/main.py
 ```
 
 如果要使用 Codex bundled Python：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" main.py
+& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/main.py
 ```
 
 启动后访问：
@@ -43,24 +73,40 @@ user_001 / user123456
 首次使用 MySQL 登录时，如果用户还没有密码哈希，系统会用上述本地开发密码完成一次初始化并写入 `users.password_hash`。实盘测试前必须修改密码：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" scripts/set_user_password.py admin_001
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" scripts/set_user_password.py user_001
+& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/set_user_password.py admin_001
+& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/set_user_password.py user_001
 ```
 
 本系统的使用者是管理员：管理员登录后运行整个平台，维护业务用户与交易账户，并把平台提供的策略挂到账户上运行。业务用户只是交易账户的归属方（提供 Binance API Key/Secret），不设计、不维护、也不运行策略。若开启登录，业务用户会话仅用于隔离数据可见范围，不承担任何策略操作职责。
+
+## 项目文档
+
+```text
+docs/product/Dynamic Dual Grid V1 开发需求.pdf
+docs/product/Dynamic Dual Grid V1 修正版产品技术方案.md
+docs/design/ARCHITECTURE.md
+docs/design/STRATEGY_LOGIC.md
+docs/design/dynamic-dual-grid-product-design-cn.png
+```
+
+配置样例在：
+
+```text
+config/config.sample.json
+```
 
 ## MySQL
 
 建表脚本在：
 
 ```text
-sql/schema.sql
+backend/sql/schema.sql
 ```
 
 当前环境未安装 Python MySQL 驱动或未切换配置时，程序会自动使用本地 JSON 状态文件作为 dry_run fallback：
 
 ```text
-data/runtime_state.json
+var/data/runtime_state.json
 ```
 
 ### 接入步骤
@@ -74,13 +120,13 @@ data/runtime_state.json
 2. 执行建库建表。脚本会读取 `DDG_MYSQL_PASSWORD`；如果没有设置，并且你在交互式 PowerShell 中运行，它会安全提示输入密码：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" scripts/setup_mysql.py
+& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/setup_mysql.py
 ```
 
 也可以直接运行包装器：
 
 ```powershell
-.\scripts\setup_mysql.cmd
+.\backend\scripts\setup_mysql.cmd
 ```
 
 也可以只在当前 PowerShell 会话设置环境变量：
@@ -94,7 +140,7 @@ $env:DDG_MYSQL_PASSWORD = "你的 MySQL root 密码"
 3. 切换本地配置到 MySQL：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" scripts/use_mysql_storage.py
+& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/use_mysql_storage.py
 ```
 
 这会生成或更新：
@@ -106,7 +152,7 @@ config.local.json
 如果要把数据库用户名和密码写入本地配置，可运行：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" scripts/configure_mysql.py
+& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/configure_mysql.py
 ```
 
 `config.local.json` 已加入 `.gitignore`，不会提交。
@@ -131,25 +177,25 @@ config.local.json
 4. 用 MySQL 模式启动服务：
 
 ```powershell
-.\scripts\run_server_mysql.ps1
+.\backend\scripts\run_server_mysql.ps1
 ```
 
 如果 PowerShell 执行策略禁止 `.ps1`，运行：
 
 ```powershell
-.\scripts\run_server_mysql.cmd
+.\backend\scripts\run_server_mysql.cmd
 ```
 
 5. 启动服务后检查写入：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" scripts/check_mysql.py
+& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/check_mysql.py
 ```
 
 或者：
 
 ```powershell
-.\scripts\check_mysql.cmd
+.\backend\scripts\check_mysql.cmd
 ```
 
 MySQL store 会写入：
@@ -195,7 +241,7 @@ $env:BINANCE_API_SECRET = "你的 Binance Futures API Secret"
 把账户配置写入 MySQL：
 
 ```powershell
-.\scripts\configure_binance_account.cmd --user-id user_001 --account-id binance_testnet_001 --label "Binance Futures Testnet" --api-key-env BINANCE_API_KEY --secret-env BINANCE_API_SECRET --testnet true --dry-run true --attach-strategy ddg_v1_demo
+.\backend\scripts\configure_binance_account.cmd --user-id user_001 --account-id binance_testnet_001 --label "Binance Futures Testnet" --api-key-env BINANCE_API_KEY --secret-env BINANCE_API_SECRET --testnet true --dry-run true --attach-strategy orbit_v1_demo
 ```
 
 参数说明：
