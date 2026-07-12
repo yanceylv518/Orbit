@@ -168,12 +168,16 @@ def build_application_container(
     strategy_config_service = StrategyEventConfigService(strategy_runtime_repository)
     metric_repository = InMemoryMetricHistoryRepository(metric_history, symbol_metric_history)
     metric_service = MetricHistoryService(metric_repository)
+    plan_runtime = config.get("runtime", {})
     execution_plan_service = ExecutionPlanService(
         permissions,
         account_repository,
         run_config_repository,
         account_snapshot_repository,
         execution_plan_repository,
+        symbol_state_repository,
+        ttl_seconds=int(plan_runtime.get("plan_ttl_seconds", 900)),
+        max_confirm_price_drift_pct=float(plan_runtime.get("plan_max_confirm_price_drift_pct", 0.5)),
     )
     plan_refresh_service = ExecutionPlanRefreshService(
         run_config_service,

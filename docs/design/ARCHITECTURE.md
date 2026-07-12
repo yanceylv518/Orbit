@@ -574,3 +574,32 @@ POST /api/execution-plans/export
 - 从 `plan_only` 切到 `paper/live` 只需要切换 `ExecutionMode` 与下单 adapter，不改计划生成主流程。
 - 管理员权限变化只改 `PermissionPolicy`。
 - 页面增加功能不需要改后端状态容器。
+
+## 实盘化设计决策（2026-07-12 定稿）
+
+走向实盘前必须补齐的三个设计空洞，已定稿并落地：
+
+### D1 策略状态键 = (账户, symbol)
+
+锚点、相位、计数器等生命周期状态以 `"account_id::symbol"` 为键（`domain/strategy/state_keys.py`）。
+两个账户持有同一 symbol 时状态完全独立；旧裸 symbol 键在刷新时自动迁移。
+MySQL `symbol_states` 唯一键为 `(strategy_instance_id, exchange_account_ref, symbol)`，旧库保存时自动迁移索引。
+dry_run 模拟态无账户维度，保留裸 symbol 键（两种键不会出现在同一运行模式）。
+
+### D2 行情时间轴：tick = 1 根已收盘 K 线
+
+真实模式引入 `MarketDataFeed` 端口（`BinanceKlineFeed` 适配主网公共 `/fapi/v1/klines`，无需密钥）。
+策略生命周期只由**收盘价**推进（`MarketFeedService`，poll 网络锁外 / apply 状态锁内，按
+`last_kline_close_time` 幂等去重）。趋势"连续 N tick 确认"即连续 N 根收盘 K 线。
+默认 1m K 线、30s 轮询，`runtime.market_feed` 可配。testnet 账户的持仓估值仍用自身快照的
+mark price；K 线只驱动生命周期，两者的小偏差可接受。行情异常单 symbol 隔离、状态入
+`market_feed` 快照字段供前端展示。
+
+### D3 执行计划有效期（TTL + 漂移双闸）
+
+计划是对某一时刻市场状态的动作建议，随时间失效。每份计划带 `expires_at_ms`
+（默认 `runtime.plan_ttl_seconds=900`）；确认时双重校验：
+1. 过期 → 拒绝（`status=expired`），要求重新生成；
+2. 当前价较生成时刻 `trigger.mark_price` 漂移超过 `plan_max_confirm_price_drift_pct`
+   （默认 0.5%）→ 拒绝（`status=price_drift`）。
+走向 live 后，同一语义延伸为"下单前最后校验"。

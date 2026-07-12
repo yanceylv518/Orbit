@@ -41,6 +41,80 @@ class ExecutionPlanServiceTest(unittest.TestCase):
             self.plans,
         )
 
+    def test_expired_plan_cannot_be_confirmed(self):
+        import time
+        self.plan["expires_at_ms"] = int(time.time() * 1000) - 1_000
+        result = self.service.confirm(
+            plan_id="plan_001",
+            actor="user_001",
+            actor_user=self.owner,
+            note="late",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "expired")
+        self.assertNotIn("manual_review", self.plans.get("plan_001"))
+
+    def test_price_drift_beyond_threshold_blocks_confirmation(self):
+        import time
+        from orbit.infrastructure.persistence.symbol_states import InMemorySymbolStateRepository
+
+        self.plan["expires_at_ms"] = int(time.time() * 1000) + 60_000
+        self.plan["trigger"] = {"mark_price": 60000}
+        states = InMemorySymbolStateRepository({
+            "acc_001::BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "account_id": "acc_001",
+                "last_price": "61000",  # 漂移 1.67% > 0.5%
+            },
+        })
+        service = ExecutionPlanService(
+            PermissionPolicy(),
+            self.accounts,
+            self.run_configs,
+            self.snapshots,
+            self.plans,
+            states,
+            max_confirm_price_drift_pct=0.5,
+        )
+        result = service.confirm(
+            plan_id="plan_001",
+            actor="user_001",
+            actor_user=self.owner,
+            note="drifted",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "price_drift")
+
+    def test_plan_within_ttl_and_drift_confirms(self):
+        import time
+        from orbit.infrastructure.persistence.symbol_states import InMemorySymbolStateRepository
+
+        self.plan["expires_at_ms"] = int(time.time() * 1000) + 60_000
+        self.plan["trigger"] = {"mark_price": 60000}
+        states = InMemorySymbolStateRepository({
+            "acc_001::BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "account_id": "acc_001",
+                "last_price": "60100",  # 漂移 0.17% < 0.5%
+            },
+        })
+        service = ExecutionPlanService(
+            PermissionPolicy(),
+            self.accounts,
+            self.run_configs,
+            self.snapshots,
+            self.plans,
+            states,
+            max_confirm_price_drift_pct=0.5,
+        )
+        result = service.confirm(
+            plan_id="plan_001",
+            actor="user_001",
+            actor_user=self.owner,
+            note="fresh",
+        )
+        self.assertTrue(result["ok"])
+
     def test_owner_confirmation_is_saved_through_repository(self):
         result = self.service.confirm(
             plan_id="plan_001",

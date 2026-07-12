@@ -11,9 +11,9 @@ from orbit.application.ports.account_snapshot_repository import AccountSnapshotR
 from orbit.application.ports.execution_plan_repository import ExecutionPlanRepository
 from orbit.application.ports.run_config_repository import RunConfigRepository
 from orbit.application.symbol_states import SymbolStateService
-from orbit.domain.planning.plans import generate_account_execution_plans
+from orbit.domain.planning.plans import DEFAULT_PLAN_TTL_SECONDS, generate_account_execution_plans
 from orbit.domain.strategy.engine import now_iso
-from orbit.domain.strategy.state_keys import states_for_account
+from orbit.domain.strategy.state_keys import lookup_plan_state, states_for_account
 
 
 class ExecutionPlanService:
@@ -26,12 +26,19 @@ class ExecutionPlanService:
         run_configs: RunConfigRepository,
         snapshots: AccountSnapshotRepository,
         plans: ExecutionPlanRepository,
+        symbol_states: Any = None,
+        *,
+        ttl_seconds: int = DEFAULT_PLAN_TTL_SECONDS,
+        max_confirm_price_drift_pct: float = 0.5,
     ):
         self.permissions = permissions
         self.accounts = accounts
         self.run_configs = run_configs
         self.snapshots = snapshots
         self.plans = plans
+        self.symbol_states = symbol_states  # SymbolStateRepository | None，确认时的漂移校验
+        self.ttl_seconds = int(ttl_seconds)
+        self.max_confirm_price_drift_pct = float(max_confirm_price_drift_pct)
 
     def build_for_accounts(
         self,
@@ -66,6 +73,7 @@ class ExecutionPlanService:
                 strategy,
                 snapshot,
                 symbol_states=account_states,
+                ttl_seconds=self.ttl_seconds,
             ))
 
         retained_plans = [
@@ -100,6 +108,26 @@ class ExecutionPlanService:
         if plan.get("status") != "planned":
             return {"ok": False, "error": "只有待演练计划可以人工确认，已拦截或无动作计划只保留审计。"}
 
+        # 计划有效期：过期计划不可确认（市场状态已变，动作建议失效）
+        expires_at_ms = plan.get("expires_at_ms")
+        if expires_at_ms and int(time.time() * 1000) > int(expires_at_ms):
+            return {
+                "ok": False,
+                "status": "expired",
+                "error": "执行计划已过有效期，请重新生成后再确认。",
+            }
+        # 价格漂移：确认时价格偏离生成时刻超过阈值，同样拒绝
+        drift = self._confirm_price_drift_pct(plan)
+        if drift is not None and drift > self.max_confirm_price_drift_pct:
+            return {
+                "ok": False,
+                "status": "price_drift",
+                "error": (
+                    f"当前价格较计划生成时已漂移 {drift:.2f}%"
+                    f"（阈值 {self.max_confirm_price_drift_pct:.2f}%），请重新生成计划。"
+                ),
+            }
+
         before = deepcopy(plan.get("manual_review") or {})
         reviewed_at = now_iso()
         plan["manual_review"] = {
@@ -127,6 +155,25 @@ class ExecutionPlanService:
                 },
             },
         }
+
+    def _confirm_price_drift_pct(self, plan: dict[str, Any]) -> float | None:
+        if self.symbol_states is None:
+            return None
+        trigger = plan.get("trigger") or {}
+        plan_price = float(trigger.get("mark_price") or 0)
+        if plan_price <= 0:
+            return None
+        state = lookup_plan_state(
+            self.symbol_states.all(),
+            str(plan.get("account_id", "")),
+            str(plan.get("symbol", "")),
+        )
+        if not state:
+            return None
+        current_price = float(state.get("last_price") or 0)
+        if current_price <= 0:
+            return None
+        return abs(current_price / plan_price - 1) * 100
 
     def record_export(
         self,

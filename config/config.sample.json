@@ -21,7 +21,9 @@
       "interval": "1m",
       "poll_seconds": 30,
       "limit": 3
-    }
+    },
+    "plan_ttl_seconds": 900,
+    "plan_max_confirm_price_drift_pct": 0.5
   },
   "auth": {
     "login_required": false,

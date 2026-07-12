@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -21,6 +22,9 @@ def flt(value: Decimal | int | float | str | None) -> float:
     return float(value)
 
 
+DEFAULT_PLAN_TTL_SECONDS = 900
+
+
 def generate_account_execution_plans(
     account: dict[str, Any],
     run_config: dict[str, Any],
@@ -28,13 +32,19 @@ def generate_account_execution_plans(
     snapshot: dict[str, Any] | None,
     *,
     symbol_states: dict[str, dict[str, Any]] | None = None,
+    ttl_seconds: int = DEFAULT_PLAN_TTL_SECONDS,
 ) -> list[dict[str, Any]]:
     created_at = now_iso()
+    created_at_ms = int(time.time() * 1000)
     common = {
         "account_id": account["id"],
         "user_id": account["user_id"],
         "strategy_id": strategy["id"],
         "created_at": created_at,
+        "created_at_ms": created_at_ms,
+        # 计划有效期：计划是对某一时刻市场状态的动作建议，超时或价格漂移后不可再确认
+        "ttl_seconds": int(ttl_seconds),
+        "expires_at_ms": created_at_ms + int(ttl_seconds) * 1000,
         "mode": run_config.get("mode", "plan_only"),
     }
 
