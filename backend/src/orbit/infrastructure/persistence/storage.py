@@ -369,6 +369,22 @@ class MySqlStateStore:
         self._ensure_column(cur, "symbol_states", "last_transfer_price", "DECIMAL(28, 12) NULL")
         self._ensure_column(cur, "symbol_states", "last_loss_reduce_price", "DECIMAL(28, 12) NULL")
         self._ensure_column(cur, "symbol_states", "tick_count", "INT NOT NULL DEFAULT 0")
+        self._ensure_symbol_state_account_key(cur)
+
+    def _ensure_symbol_state_account_key(self, cur) -> None:
+        # 状态键账户化迁移：加 exchange_account_ref 列，唯一键从 (strategy, symbol)
+        # 换成 (strategy, account, symbol)，否则多账户同 symbol 会互相覆盖。
+        self._ensure_column(cur, "symbol_states", "exchange_account_ref", "VARCHAR(64) NOT NULL DEFAULT ''")
+        cur.execute("SHOW INDEX FROM symbol_states WHERE Key_name = %s", ("uk_symbol_states_strategy_account_symbol",))
+        if cur.fetchone():
+            return
+        cur.execute("SHOW INDEX FROM symbol_states WHERE Key_name = %s", ("uk_symbol_states_strategy_symbol",))
+        if cur.fetchone():
+            cur.execute("ALTER TABLE symbol_states DROP INDEX uk_symbol_states_strategy_symbol")
+        cur.execute(
+            "ALTER TABLE symbol_states ADD UNIQUE KEY uk_symbol_states_strategy_account_symbol"
+            " (strategy_instance_id, exchange_account_ref, symbol)"
+        )
 
     def _ensure_runtime_schema(self) -> None:
         conn = self._connect()

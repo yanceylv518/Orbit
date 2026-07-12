@@ -13,6 +13,7 @@ from orbit.application.ports.run_config_repository import RunConfigRepository
 from orbit.application.symbol_states import SymbolStateService
 from orbit.domain.planning.plans import generate_account_execution_plans
 from orbit.domain.strategy.engine import now_iso
+from orbit.domain.strategy.state_keys import states_for_account
 
 
 class ExecutionPlanService:
@@ -57,12 +58,14 @@ class ExecutionPlanService:
             if not run_config:
                 continue
             snapshot = self.snapshots.get(account_id)
+            # 只传本账户的 symbol -> state 视图，防止跨账户读到别人的锚点/相位
+            account_states = states_for_account(symbol_states or {}, account_id)
             new_plans.extend(generate_account_execution_plans(
                 account,
                 run_config,
                 strategy,
                 snapshot,
-                symbol_states=symbol_states,
+                symbol_states=account_states,
             ))
 
         retained_plans = [

@@ -11,6 +11,7 @@ from orbit.application.ports.symbol_state_repository import SymbolStateRepositor
 from orbit.domain.planning.plans import empty_side, group_positions, normalized_symbols, symbol_budget
 from orbit.domain.strategy.engine import EventEngine, d, q
 from orbit.domain.strategy.exposure import derive_anchor_price
+from orbit.domain.strategy.state_keys import lookup_plan_state, plan_state_key
 
 
 class SymbolStateService:
@@ -60,13 +61,19 @@ class SymbolStateService:
                 sides = positions_by_symbol.get(symbol)
                 if not sides:
                     continue
-                updated[symbol] = self.plan_symbol_state_from_snapshot(
+                # 状态键必须带账户维度：两个账户持同一 symbol 时锚点/相位各自独立
+                existing = lookup_plan_state(updated, account_id, symbol)
+                updated[plan_state_key(account_id, symbol)] = self.plan_symbol_state_from_snapshot(
                     account_id=account_id,
                     run_config=run_config,
                     symbol=symbol,
                     sides=sides,
-                    existing_state=updated.get(symbol),
+                    existing_state=existing,
                 )
+                # 迁移期清理：旧裸 symbol 键（无账户归属）升级后移除，避免双份
+                legacy = updated.get(symbol)
+                if legacy is not None and legacy.get("account_id") in (None, account_id):
+                    updated.pop(symbol, None)
         self.repository.replace_all(updated)
         return updated
 

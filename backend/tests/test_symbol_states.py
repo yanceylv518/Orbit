@@ -132,9 +132,115 @@ class SymbolStateServiceTest(unittest.TestCase):
         self.service.refresh_plan_symbol_states(account_ids={"binance_dry_run_001"})
 
         states = self.repository.all()
-        self.assertIn("BTCUSDT", states)
-        self.assertEqual(states["BTCUSDT"]["source"], "binance_plan_state")
-        self.assertEqual(states["BTCUSDT"]["last_price"], "60900")
+        key = "binance_dry_run_001::BTCUSDT"
+        self.assertIn(key, states)
+        self.assertEqual(states[key]["source"], "binance_plan_state")
+        self.assertEqual(states[key]["last_price"], "60900")
+        self.assertNotIn("BTCUSDT", states)
+
+    def test_two_accounts_same_symbol_keep_independent_lifecycle(self):
+        def snapshot(mark_price, entry):
+            return {
+                "status": "synced",
+                "position_mode": {"hedge_mode_ok": True},
+                "positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "position_side": "LONG",
+                        "position_amt": 0.001,
+                        "entry_price": entry,
+                        "mark_price": mark_price,
+                        "unrealized_profit": 0,
+                        "notional": mark_price * 0.001,
+                    },
+                    {
+                        "symbol": "BTCUSDT",
+                        "position_side": "SHORT",
+                        "position_amt": -0.001,
+                        "entry_price": entry,
+                        "mark_price": mark_price,
+                        "unrealized_profit": 0,
+                        "notional": -mark_price * 0.001,
+                    },
+                ],
+            }
+
+        accounts = ConfigAccountRepository({
+            "users": [],
+            "exchange_accounts": [{"id": "acct_a"}, {"id": "acct_b"}],
+        })
+        run_configs = InMemoryRunConfigRepository([
+            {**self.run_config, "id": "run_a", "account_id": "acct_a"},
+            {**self.run_config, "id": "run_b", "account_id": "acct_b"},
+        ], {})
+        snapshots = InMemoryAccountSnapshotRepository({})
+        service = SymbolStateService(
+            self.strategy, self.engine, InMemorySymbolStateRepository({}),
+            accounts, run_configs, snapshots,
+        )
+        # 两个账户同一 symbol、不同入场价 → 锚点必须各自独立
+        snapshots.save("acct_a", snapshot(60000, 60000))
+        snapshots.save("acct_b", snapshot(60000, 50000))
+        states = service.refresh_plan_symbol_states(account_ids={"acct_a", "acct_b"})
+
+        self.assertIn("acct_a::BTCUSDT", states)
+        self.assertIn("acct_b::BTCUSDT", states)
+        self.assertEqual(states["acct_a::BTCUSDT"]["account_id"], "acct_a")
+        self.assertEqual(states["acct_b::BTCUSDT"]["account_id"], "acct_b")
+        self.assertNotEqual(
+            states["acct_a::BTCUSDT"]["base_price"],
+            states["acct_b::BTCUSDT"]["base_price"],
+        )
+
+    def test_legacy_plain_symbol_state_migrates_to_account_key(self):
+        legacy_state = {
+            "symbol": "BTCUSDT",
+            "state": "TREND_UP",
+            "base_price": "60000",
+            "base_qty": "0.0006",
+            "high_since_base": "62500",
+            "low_since_base": "60000",
+            "trend_extreme_price": "62500",
+            "last_price": "62500",
+            "long_qty": "0.0006",
+            "short_qty": "0.0003",
+            "long_entry_price": "60000",
+            "short_entry_price": "62500",
+            "budget_usdt": "100",
+            "realized_pnl": "0",
+            "long_unrealized_pnl": "0",
+            "short_unrealized_pnl": "0",
+            "fee_total": "0",
+            "slippage_total": "0",
+            "funding_total": "0",
+            "tick_count": 1,
+        }
+        repository = InMemorySymbolStateRepository({"BTCUSDT": dict(legacy_state)})
+        service = SymbolStateService(
+            self.strategy, self.engine, repository,
+            self.accounts, self.run_configs, self.snapshots,
+        )
+        self.snapshots.save("binance_dry_run_001", {
+            "status": "synced",
+            "position_mode": {"hedge_mode_ok": True},
+            "positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "position_side": "LONG",
+                    "position_amt": 0.0006,
+                    "entry_price": 60000,
+                    "mark_price": 61000,
+                    "unrealized_profit": 0.6,
+                    "notional": 36.6,
+                },
+            ],
+        })
+        states = service.refresh_plan_symbol_states(account_ids={"binance_dry_run_001"})
+        key = "binance_dry_run_001::BTCUSDT"
+        self.assertIn(key, states)
+        self.assertNotIn("BTCUSDT", states)
+        # 旧状态的锚点被继承，而不是重置
+        self.assertEqual(states[key]["base_price"], "60000")
 
 
 if __name__ == "__main__":

@@ -7,11 +7,13 @@ class MySqlSymbolStateWriter:
     def write(self, cur, payload: dict[str, Any], ids: dict[str, int]) -> None:
         strategy_id = payload["strategy_instance"]["id"]
         strategy_db_id = ids[f"strategy:{strategy_id}"]
-        for symbol, state in payload.get("symbol_states", {}).items():
+        for key, state in payload.get("symbol_states", {}).items():
+            symbol = str(state.get("symbol") or key.split("::")[-1])
+            account_ref = str(state.get("account_id") or state.get("exchange_account_id") or "")
             cur.execute(
                 """
                 INSERT INTO symbol_states (
-                  strategy_instance_id, symbol, state, base_price, base_qty, high_since_base,
+                  strategy_instance_id, exchange_account_ref, symbol, state, base_price, base_qty, high_since_base,
                   low_since_base, trend_extreme_price, last_price, long_qty, short_qty,
                   long_entry_price, short_entry_price, realized_pnl, long_unrealized_pnl,
                   short_unrealized_pnl, fee_total, slippage_total, funding_total,
@@ -19,7 +21,7 @@ class MySqlSymbolStateWriter:
                   recovery_count_in_trend, trend_exit_candidate_count, last_transfer_tick,
                   last_loss_reduce_tick, last_transfer_price, last_loss_reduce_price, tick_count
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                   state = VALUES(state),
                   base_price = VALUES(base_price),
@@ -50,6 +52,7 @@ class MySqlSymbolStateWriter:
                 """,
                 (
                     strategy_db_id,
+                    account_ref,
                     symbol,
                     state["state"],
                     state["base_price"],

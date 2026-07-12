@@ -183,7 +183,7 @@ class AppStateAdminTest(unittest.TestCase):
             self.assertLess(plan["trigger"]["target_net_qty"], 0)
             self.assertTrue(any(action["action"] == "REDUCE_LONG" for action in plan["actions"]))
             self.assertTrue(any(action["action"] == "ADD_SHORT" and action["status"] == "blocked" for action in plan["actions"]))
-            self.assertIn("BTCUSDT", app.symbol_states)
+            self.assertIn("binance_dry_run_001::BTCUSDT", app.symbol_states)
 
             snapshot = app.snapshot(app.user_by_id("user_001"))
             self.assertEqual(snapshot["execution_plans"][0]["account_id"], account_id)
@@ -264,7 +264,7 @@ class AppStateAdminTest(unittest.TestCase):
             self.assertEqual(plan["status"], "blocked")
             self.assertEqual(plan["trigger"]["plan_state"], "TREND_UP")
             self.assertEqual(plan["trigger"]["event_rule"], "TREND_EXIT_NOT_CONFIRMED")
-            self.assertEqual(app.symbol_states["BTCUSDT"]["trend_exit_candidate_count"], 1)
+            self.assertEqual(app.symbol_states["binance_dry_run_001::BTCUSDT"]["trend_exit_candidate_count"], 1)
         finally:
             tmp.cleanup()
 

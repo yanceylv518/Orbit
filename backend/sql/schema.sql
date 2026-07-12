@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS symbol_allocations (
 CREATE TABLE IF NOT EXISTS symbol_states (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   strategy_instance_id BIGINT NOT NULL,
+  exchange_account_ref VARCHAR(64) NOT NULL DEFAULT '',
   symbol VARCHAR(32) NOT NULL,
   state VARCHAR(64) NOT NULL,
   base_price DECIMAL(28, 12) NOT NULL,
@@ -159,7 +160,7 @@ CREATE TABLE IF NOT EXISTS symbol_states (
   created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   CONSTRAINT fk_symbol_states_strategy FOREIGN KEY (strategy_instance_id) REFERENCES strategy_instances(id),
-  UNIQUE KEY uk_symbol_states_strategy_symbol (strategy_instance_id, symbol)
+  UNIQUE KEY uk_symbol_states_strategy_account_symbol (strategy_instance_id, exchange_account_ref, symbol)
 );
 
 CREATE TABLE IF NOT EXISTS market_snapshots (
