@@ -101,6 +101,11 @@
         <span><span class="muted">存储</span> {{ storageLabel }}</span>
         <span><span class="muted">内核</span> {{ kernelLabel }}</span>
         <span><span class="muted">最近同步</span> {{ lastSyncedLabel }}</span>
+        <span v-if="feed">
+          <span class="muted">行情源</span>
+          <template v-if="feed.last_error"><span class="negative">{{ feed.interval }} 异常</span></template>
+          <template v-else>{{ feed.interval }} · tick {{ feed.tick_count }}</template>
+        </span>
         <span><span class="muted">总权益</span> {{ fmt(strategy.total_equity) }} USDT</span>
         <span><span class="muted">今日盈亏</span> <span :class="cls(strategy.today_pnl)">{{ fmt(strategy.today_pnl) }} USDT</span></span>
       </div>
@@ -117,6 +122,7 @@ import { eventLabel, modeLabel, stateColor, stateLabel, statusColor, statusLabel
 import {
   executionPlans,
   generateExecutionPlans,
+  marketFeed,
   planFunnel,
   setActivePage,
   store,
@@ -124,6 +130,8 @@ import {
   syncBinanceAccount,
   syncFunnel,
 } from "../stores/appStore.js";
+
+const feed = marketFeed;
 
 const state = computed(() => store.state || {});
 const strategy = computed(() => state.value.strategy || {});

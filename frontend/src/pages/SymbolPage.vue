@@ -22,11 +22,16 @@
           <h4 class="muted">触发进度（相对锚点偏离）</h4>
           <TriggerProgress v-if="movePct !== null" :move-pct="movePct" :a-pt="aPt" :theta-t="thetaT" />
           <p v-else class="muted">尚无内核计划上下文。同步账户并生成执行计划后展示。</p>
-          <p v-if="kernelContext" class="muted kernel-context-line">
+          <p v-if="liveRow" class="muted kernel-context-line">
+            行情 tick {{ liveRow.tick_count }}
+            <template v-if="liveRow.last_kline_at"> · 最新 K 线 {{ liveRow.last_kline_at }}</template>
+            <template v-if="liveRow.trend_exit_candidate_count"> · 趋势退出确认 {{ liveRow.trend_exit_candidate_count }}</template>
+            · 本轮 搬运{{ liveRow.profit_transfer_count_in_trend }} / 减仓{{ liveRow.loss_side_reduce_count_in_trend }} / 恢复{{ liveRow.recovery_count_in_trend }}
+          </p>
+          <p v-else-if="kernelContext" class="muted kernel-context-line">
             内核 {{ kernelContext.exposure_model }}
             <template v-if="kernelContext.event_rule"> · 规则 {{ kernelContext.event_rule }}</template>
             <template v-if="kernelContext.target_step_count !== undefined"> · 阶梯 {{ kernelContext.target_step_count }}</template>
-            <template v-if="kernelContext.trend_exit_candidate_count !== undefined"> · 趋势退出确认 {{ kernelContext.trend_exit_candidate_count }}</template>
           </p>
         </div>
       </div>
@@ -116,9 +121,17 @@ import SummaryItem from "../components/SummaryItem.vue";
 import TriggerProgress from "../components/TriggerProgress.vue";
 import { cls, fmt } from "../core/format.js";
 import { eventLabel, stateColor, stateLabel } from "../domain/labels.js";
-import { aggregateSymbols, currentSymbol, exchangeAccounts, selectSymbol, store, symbols } from "../stores/appStore.js";
+import { aggregateSymbols, currentSymbol, exchangeAccounts, planSymbolStates, selectSymbol, store, symbols } from "../stores/appStore.js";
 
 const accountFilter = ref("");
+
+// 实时生命周期行：由行情循环驱动，独立于计划存在
+function liveStateRow(symbolName) {
+  const rows = planSymbolStates.value.filter((row) => row.symbol === symbolName);
+  if (!rows.length) return null;
+  if (accountFilter.value) return rows.find((row) => row.account_id === accountFilter.value) || null;
+  return rows[0];
+}
 
 const filteredRows = computed(() => (
   accountFilter.value
@@ -132,11 +145,15 @@ const overview = computed(() => (
 const symbol = computed(() => currentSymbol());
 const priceDigits = computed(() => (overview.value?.symbol === "SOLUSDT" ? 3 : 2));
 
-// 内核上下文：来自该币种最近一份带 exposure_model 的执行计划 trigger
+// 优先用行情循环实时驱动的生命周期状态；执行计划 trigger 仅作回退
+const liveRow = computed(() => (overview.value ? liveStateRow(overview.value.symbol) : null));
 const kernelContext = computed(() => overview.value?.plan?.trigger || null);
-const phase = computed(() => kernelContext.value?.lifecycle_state || overview.value?.plan?.trigger?.lifecycle_state || "REAL_POSITION");
-const anchorPrice = computed(() => kernelContext.value?.base_price ?? null);
+const phase = computed(() => liveRow.value?.state || kernelContext.value?.lifecycle_state || "REAL_POSITION");
+const anchorPrice = computed(() => liveRow.value?.base_price || kernelContext.value?.base_price || null);
 const movePct = computed(() => {
+  if (liveRow.value?.base_price && liveRow.value?.last_price) {
+    return ((liveRow.value.last_price / liveRow.value.base_price) - 1) * 100;
+  }
   if (kernelContext.value?.move_pct_from_base !== undefined) return Number(kernelContext.value.move_pct_from_base);
   if (anchorPrice.value && overview.value?.price) return ((overview.value.price / anchorPrice.value) - 1) * 100;
   return null;
@@ -154,7 +171,7 @@ const aPt = computed(() => Number(eventConfig.value?.profit_transfer?.trigger?.m
 const thetaT = computed(() => Number(eventConfig.value?.loss_side_reduction?.trigger?.trend_confirm_move_pct_from_base || 4));
 
 function phaseOf(item) {
-  return item.plan?.trigger?.lifecycle_state || "REAL_POSITION";
+  return liveStateRow(item.symbol)?.state || item.plan?.trigger?.lifecycle_state || "REAL_POSITION";
 }
 
 const history = computed(() => store.state?.price_history?.[symbol.value?.symbol] || []);

@@ -21,6 +21,9 @@ export const users = computed(() => store.state?.admin_overview?.users || []);
 export const executionPlans = computed(() => store.state?.execution_plans || []);
 export const exchangeAccounts = computed(() => store.state?.exchange_accounts || []);
 export const accountSnapshots = computed(() => store.state?.binance_account_snapshots || {});
+// 账户级生命周期状态（行情循环实时驱动，独立于执行计划存在）
+export const planSymbolStates = computed(() => store.state?.plan_symbol_states || []);
+export const marketFeed = computed(() => store.state?.market_feed || null);
 
 export function currentSymbol() {
   return symbols.value.find((item) => item.symbol === store.selectedSymbol) || symbols.value[0] || null;

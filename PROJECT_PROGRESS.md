@@ -152,6 +152,26 @@
   - 风控中心：风控 KPI + 系统风险告警 + 计划风控检查 + 审计日志 + 快捷操作
   - 已清理账户页之外的旧 Binance 大面板和账户运行配置卡片残留
 
+## 实盘化推进（2026-07-12 起）
+
+三个 P0 设计空洞已定稿并落地（设计见 `docs/design/ARCHITECTURE.md`「实盘化设计决策」）：
+
+1. **D1 状态键账户化**：生命周期状态改键 `account_id::symbol`，双账户同 symbol 锚点/相位独立；MySQL 唯一键含 `exchange_account_ref`，旧库自动迁移。
+2. **D2 行情时间轴**：`MarketDataFeed` 端口 + `BinanceKlineFeed`（主网公共 K 线，无需密钥）；tick = 1 根已收盘 K 线；`MarketFeedService` poll(锁外)/apply(锁内) 幂等推进各账户生命周期并自动重建计划；snapshot 暴露 `market_feed` 状态与 `plan_symbol_states` 账户级相位/Δ 摘要。
+3. **D3 计划 TTL**：计划带 `expires_at_ms`（900s 可配）；确认双闸——过期拒绝 + 价格漂移 >0.5% 拒绝。
+
+内核风控补全：
+- C7 自融资不变量进 RiskGuard（账本 harvested/averaging_spent 随成交更新；同组减仓预估利润计入预算）。
+- 趋势进入持续确认 `trend_entry_confirm_ticks`（sample=2），阴跌/单点冲高不再等同暴跌。
+- 快照新鲜度 `snapshot_max_age_seconds`（600s）→ SYNC_STALE 拦截。
+- 组合级回撤 `max_total_drawdown_pct` 接线 → GLOBAL_STOP 全局拦截（原未接线旋钮消灭）。
+
+S1–S7 仿真验收测试落地（`tests/test_strategy_scenarios.py`）：震荡收割为正、趋势亏损有界、V 型不锁死、横跳/跳空/阴跌防护、C7 随机路径不变量。**126 passed, 1 skipped（Linux）**。
+
+前端接线：计划 TTL 倒计时与过期徽章、币种相位/偏离改由 `plan_symbol_states` 实时驱动、工作台状态行显示行情源健康度。
+
+**待办（下一轮）**：M3 执行通道（paper 撮合 → live 端口 + 多重闸门，默认关闭）；M5 离线标定（π̂ 准入 + 几何扫描）；Windows 侧 npm build 复验与 testnet 端到端验收。
+
 ## 最近验证
 
 - `npm run check` 通过。

@@ -41,6 +41,10 @@
                 <td>
                   <StatusBadge :text="statusLabel(plan.status)" :color="planStatusColor(plan.status)" />
                   <div v-if="plan.status === 'blocked'" class="muted">{{ blockSummary(plan) }}</div>
+                  <div v-if="plan.expires_at_ms" class="muted">
+                    <StatusBadge v-if="isExpired(plan)" text="已过期" color="orange" />
+                    <template v-else>有效 {{ ttlText(plan) }}</template>
+                  </div>
                 </td>
                 <td>
                   <div v-for="action in plan.actions || []" :key="`${plan.id}-${action.action}`">
@@ -147,6 +151,18 @@ function deltaText(plan) {
 function blockSummary(plan) {
   const failed = (plan.risk_checks || []).find((check) => !check.ok);
   return failed?.message || plan.reason || "";
+}
+
+// 计划有效期：过期计划后端会拒绝确认，前端提前提示
+function isExpired(plan) {
+  return plan.expires_at_ms && Date.now() > plan.expires_at_ms;
+}
+
+function ttlText(plan) {
+  const remaining = Math.max(0, plan.expires_at_ms - Date.now());
+  const minutes = Math.floor(remaining / 60000);
+  const seconds = Math.floor((remaining % 60000) / 1000);
+  return minutes > 0 ? `${minutes}m${seconds}s` : `${seconds}s`;
 }
 
 function triggerFacts(plan) {
