@@ -24,7 +24,9 @@
     },
     "plan_ttl_seconds": 900,
     "plan_max_confirm_price_drift_pct": 0.5,
-    "snapshot_max_age_seconds": 600
+    "snapshot_max_age_seconds": 600,
+    "live_trading_enabled": false,
+    "live_confirm_phrase": "I UNDERSTAND LIVE TRADING"
   },
   "auth": {
     "login_required": false,

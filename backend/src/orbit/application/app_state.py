@@ -503,6 +503,22 @@ class AppState:
                 uow.commit()
                 return result
 
+    def execute_live_plan(self, plan_id: str, actor: str, confirm_phrase: str) -> dict[str, Any]:
+        with self.lock:
+            with self.app_uow as uow:
+                result = self.order_execution_service.execute(
+                    plan_id=plan_id,
+                    actor=actor,
+                    actor_user=self.user_by_id(actor),
+                    confirm_phrase=confirm_phrase,
+                )
+                audit = result.pop("_audit", None)
+                if audit:
+                    # 无论成败都留审计：live 执行的每一次尝试都必须可追溯
+                    self.audit_service.record(**audit)
+                uow.commit()
+                return result
+
     def record_execution_plan_export(self, plan_ids: list[Any], actor: str) -> dict[str, Any]:
         with self.lock:
             with self.app_uow as uow:
@@ -559,7 +575,11 @@ class AppState:
         with self.lock:
             result = service.apply(klines_by_symbol)
             if result["changed_account_ids"]:
-                self.plan_refresh_service.refresh_from_states(set(result["changed_account_ids"]))
+                changed = set(result["changed_account_ids"])
+                paper_service = getattr(self, "paper_execution_service", None)
+                if paper_service is not None:
+                    result["paper"] = paper_service.on_market_tick(changed)
+                self.plan_refresh_service.refresh_from_states(changed)
                 self.persist()
         return result
 

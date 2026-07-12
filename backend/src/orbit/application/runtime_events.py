@@ -14,20 +14,22 @@ class RuntimeEventService:
         self,
         events: list[dict[str, Any]],
         risks: list[dict[str, Any]],
+        *,
+        account_id: str | None = None,
     ) -> None:
         for event in events:
             event["user_id"] = None
-            event["exchange_account_id"] = None
+            event["exchange_account_id"] = account_id
             event["strategy_instance_id"] = self.strategy_id
             self.repository.add_strategy_event(event)
             for trade in event["trades"]:
                 trade["strategy_event_id"] = event["id"]
                 trade["user_id"] = None
-                trade["exchange_account_id"] = None
+                trade["exchange_account_id"] = account_id
                 trade["strategy_instance_id"] = self.strategy_id
                 self.repository.add_trade_event(trade)
         for risk in risks:
             risk["user_id"] = None
-            risk["exchange_account_id"] = None
+            risk["exchange_account_id"] = account_id
             risk["strategy_instance_id"] = self.strategy_id
             self.repository.add_risk_event(risk)

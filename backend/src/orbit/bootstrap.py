@@ -12,6 +12,8 @@ from orbit.application.credentials import CredentialService
 from orbit.application.execution_plans import ExecutionPlanRefreshService, ExecutionPlanService
 from orbit.application.market_data import MarketFeedService
 from orbit.application.metrics import MetricHistoryService
+from orbit.application.order_execution import OrderExecutionService
+from orbit.application.paper_execution import PaperExecutionService
 from orbit.application.permissions import PermissionPolicy
 from orbit.application.portfolio_views import PortfolioViewService
 from orbit.application.reporting import DailyReportService
@@ -22,6 +24,7 @@ from orbit.application.strategy_control import StrategyControlService
 from orbit.application.symbol_states import SymbolStateService
 from orbit.infrastructure.credentials.account_connection import VaultAccountConnectionInspector
 from orbit.infrastructure.credentials.local_vault import LocalCredentialVault
+from orbit.infrastructure.exchange.binance import BinanceFuturesClient
 from orbit.infrastructure.exchange.binance_snapshots import BinanceSnapshotFetcher
 from orbit.infrastructure.exchange.kline_feed import BinanceKlineFeed
 from orbit.infrastructure.persistence.account_snapshots import InMemoryAccountSnapshotRepository
@@ -68,6 +71,8 @@ class ApplicationContainer:
     plan_refresh_service: Any
     account_sync_service: Any
     market_feed_service: Any
+    paper_execution_service: Any
+    order_execution_service: Any
     app_uow: Any
 
     def install(self, target: Any) -> None:
@@ -209,6 +214,22 @@ def build_application_container(
         limit=int(feed_config.get("limit", 3)),
     )
     market_feed_service.status["enabled"] = bool(feed_config.get("enabled", True)) and not mock_data_enabled
+    paper_execution_service = PaperExecutionService(
+        engine,
+        run_config_repository,
+        symbol_state_repository,
+        runtime_event_service,
+    )
+    order_execution_service = OrderExecutionService(
+        permissions,
+        account_repository,
+        run_config_repository,
+        execution_plan_repository,
+        execution_plan_service,
+        BinanceFuturesClient.from_account,
+        live_trading_enabled=bool(plan_runtime.get("live_trading_enabled", False)),
+        live_confirm_phrase=str(plan_runtime.get("live_confirm_phrase", "I UNDERSTAND LIVE TRADING")),
+    )
     snapshot_queries = SnapshotQueryService(
         config,
         strategy,
@@ -270,5 +291,7 @@ def build_application_container(
         plan_refresh_service=plan_refresh_service,
         account_sync_service=account_sync_service,
         market_feed_service=market_feed_service,
+        paper_execution_service=paper_execution_service,
+        order_execution_service=order_execution_service,
         app_uow=app_uow,
     )

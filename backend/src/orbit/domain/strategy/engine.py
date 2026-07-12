@@ -115,6 +115,29 @@ class EventEngine:
         self.mark_to_market(state, price)
         return state, strategy_events, risk_events
 
+    def execute_paper_tick(
+        self,
+        state: dict[str, Any],
+        price: Decimal,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """paper 模式：行情推进已由 MarketFeedService 完成，本方法只做
+        决策 → 规则 → guard → 虚拟成交（原地演进 state 的虚拟仓位与账本）。"""
+        strategy_events: list[dict[str, Any]] = []
+        risk_state = self.current_risk_state(state, price)
+        if state.get("state") == "STOPPED":
+            risk_events = self.risk_events_for_state(state, price, risk_state)
+        elif risk_state.symbol_stopped:
+            risk_events = [self.execute_stop_unwind(state, price, risk_state)]
+        else:
+            risk_events = self.risk_events_for_state(state, price, risk_state)
+            event = self.apply_target_exposure_event(state, price)
+            if event is not None:
+                strategy_events.append(event)
+        state["state"] = self.lifecycle.resolve_state(state)
+        state["updated_at"] = now_iso()
+        self.mark_to_market(state, price)
+        return strategy_events, risk_events
+
     def mark_to_market(self, state: dict[str, Any], price: Decimal) -> None:
         long_qty = d(state["long_qty"])
         short_qty = d(state["short_qty"])

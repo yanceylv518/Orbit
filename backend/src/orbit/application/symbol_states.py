@@ -57,12 +57,15 @@ class SymbolStateService:
 
             allowed_symbols = normalized_symbols(run_config, self.strategy)
             positions_by_symbol = group_positions(snapshot.get("positions", []), allowed_symbols)
+            is_paper = run_config.get("mode") == "paper"
             for symbol in allowed_symbols:
                 sides = positions_by_symbol.get(symbol)
                 if not sides:
                     continue
                 # 状态键必须带账户维度：两个账户持同一 symbol 时锚点/相位各自独立
                 existing = lookup_plan_state(updated, account_id, symbol)
+                if is_paper and existing is not None:
+                    continue  # paper 模式：虚拟仓位由内核演进，不被快照覆盖
                 updated[plan_state_key(account_id, symbol)] = self.plan_symbol_state_from_snapshot(
                     account_id=account_id,
                     run_config=run_config,

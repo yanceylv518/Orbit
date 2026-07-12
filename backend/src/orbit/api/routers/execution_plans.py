@@ -58,3 +58,20 @@ def export(request: Request, payload: dict[str, Any], user: dict[str, Any] = Dep
     snapshot = app.snapshot(user)
     snapshot["execution_plan_export_result"] = result
     return snapshot
+
+
+@router.post("/execute")
+def execute_live(request: Request, payload: dict[str, Any], user: dict[str, Any] = Depends(require_user)):
+    """live 下单：全部闸门由 OrderExecutionService 逐一校验，默认全局关闭。"""
+    app = app_state(request)
+    result = app.execute_live_plan(
+        plan_id=str(payload.get("plan_id", "")),
+        actor=user["id"],
+        confirm_phrase=str(payload.get("confirm_phrase", "")),
+    )
+    if not result.get("ok"):
+        status = 403 if result.get("status") in ("forbidden", "disabled") else 400
+        return JSONResponse(result, status_code=status)
+    snapshot = app.snapshot(user)
+    snapshot["execution_result"] = result
+    return snapshot

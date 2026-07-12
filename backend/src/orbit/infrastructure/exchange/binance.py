@@ -83,6 +83,10 @@ class BinanceFuturesClient:
     def test_order(self, params: dict[str, Any]) -> dict[str, Any]:
         return self.signed_request("POST", "/fapi/v1/order/test", params)
 
+    def place_order(self, params: dict[str, Any]) -> dict[str, Any]:
+        """真实下单。调用方必须已通过 OrderExecutionService 的全部闸门。"""
+        return self.signed_request("POST", "/fapi/v1/order", params)
+
     def signed_request(self, method: str, path: str, params: dict[str, Any] | None = None) -> Any:
         params = {k: v for k, v in (params or {}).items() if v is not None}
         params.setdefault("recvWindow", self.recv_window)

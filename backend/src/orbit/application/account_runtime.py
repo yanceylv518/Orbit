@@ -107,7 +107,7 @@ class AccountRunConfigService:
             if key in incoming:
                 merged[key] = incoming[key]
         merged["enabled"] = bool(merged.get("enabled", True))
-        merged["mode"] = merged.get("mode") if merged.get("mode") in ("plan_only", "disabled") else "plan_only"
+        merged["mode"] = merged.get("mode") if merged.get("mode") in ("plan_only", "paper", "live", "disabled") else "plan_only"
         merged["status"] = "active" if merged["enabled"] else "disabled"
         merged["symbols"] = [
             str(symbol).strip().upper()
