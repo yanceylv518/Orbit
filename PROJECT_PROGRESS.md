@@ -497,6 +497,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 ### 任务 G1：极端 Funding 反应信号审计（优先级：高，便宜、纯 perp）
 
+- **训练协议预注册（运行前）**：已冻结于 `docs/design/G1_EXTREME_FUNDING.md`。训练网格为 lookback `90/180/360` 次 Funding、极端分位 `90%/95%/97.5%`、持有 `1h/4h/8h/24h`，单腿往返成本 `0.14%`；信号阈值严格排除当前 Funding，事件非重叠。只有至少 3/4 市场各自 `>=30` 事件、净均值与 bootstrap 下界为正，且组合下界为正，才冻结唯一候选并获取新锁箱；否则训练阶段直接 FAIL。此时尚未运行扫描。
+
 - **假设**：funding 处于极端（极正=拥挤多头付费）时，逆着拥挤方向持有短期方向头寸（极正→做空、极负→做多），成本后是否有正期望。
 - **涉及文件**：`backend/src/orbit/domain/calibration/estimators.py`（新增纯计算估计器，形如 `horizon_reversion_report`）；`backend/tools/`（新增 CLI）；`docs/design/G1_EXTREME_FUNDING.md`（预注册协议）；`backend/tests/test_calibration.py`；如需新锁箱数据则 `fetch_klines/fetch_funding`（本机 fapi 451，须 Binance 可达网络补）。
 - **改动（先预注册、后跑）**：
