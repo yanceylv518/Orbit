@@ -206,6 +206,19 @@ class EventEngineReplayTest(unittest.TestCase):
             0.8,
         )
 
+    def test_first_rung_add_variant_only_enables_excursion_gate(self):
+        original = strategy()
+        configured = strategy_variant(original, "first_rung_loss_side_add_only")
+
+        self.assertTrue(
+            configured["strategy"]["events"]["profit_transfer"]["sizing"]
+            ["first_rung_loss_side_add_only"]
+        )
+        self.assertFalse(
+            original["strategy"]["events"]["profit_transfer"]["sizing"]
+            ["first_rung_loss_side_add_only"]
+        )
+
     def test_profit_transfer_only_disables_trend_reduction_and_recovery(self):
         configured = strategy_variant(strategy(), "profit_transfer_only")
         events = configured["strategy"]["events"]

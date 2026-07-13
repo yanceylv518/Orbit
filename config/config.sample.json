@@ -169,6 +169,7 @@
             "sizing": {
               "reduce_profit_side_ratio": 0.2,
               "use_realized_profit_ratio_for_loss_side": 0.8,
+              "first_rung_loss_side_add_only": false,
               "max_add_loss_side_ratio_of_base_position": 0.3,
               "min_net_profit_usdt": 0.05,
               "require_add_leg_roundtrip_coverage": false

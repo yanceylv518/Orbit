@@ -65,6 +65,34 @@ class StrategyActionsTest(unittest.TestCase):
         self.assertEqual(action_set.actions[0].action, "REDUCE_LONG")
         self.assertEqual(action_set.actions[0].event_role, "REDUCE_PROFIT_SIDE")
 
+    def test_first_rung_candidate_blocks_only_deeper_loss_side_adds(self):
+        strategy = deepcopy(self.strategy)
+        strategy["strategy"]["events"]["profit_transfer"]["sizing"][
+            "first_rung_loss_side_add_only"
+        ] = True
+
+        first_rung = self.decide(price="102", strategy=strategy)
+        deeper_rung = self.decide(price="103", strategy=strategy)
+        first_actions = build_strategy_action_set(
+            first_rung,
+            self.position(price="102", long_pnl="2", short_pnl="-2"),
+            strategy,
+        )
+        deeper_actions = build_strategy_action_set(
+            deeper_rung,
+            self.position(price="103", long_pnl="3", short_pnl="-3"),
+            strategy,
+        )
+
+        self.assertEqual(first_rung.step_count, 1)
+        self.assertEqual(deeper_rung.step_count, 2)
+        self.assertEqual([item.event_role for item in first_actions.actions], [
+            "REDUCE_PROFIT_SIDE", "ADD_LOSS_SIDE",
+        ])
+        self.assertEqual([item.event_role for item in deeper_actions.actions], ["REDUCE_PROFIT_SIDE"])
+        self.assertEqual(deeper_actions.sizing["add_qty"], "0E-8")
+        self.assertEqual(deeper_actions.sizing["loss_side_add_eligible"], "false")
+
     def test_trend_reduction_builds_loss_side_reduce_action(self):
         decision = self.decide(price="105")
         action_set = build_strategy_action_set(

@@ -100,6 +100,12 @@ def inverse_skew_actions(
     min_profit = position.budget_usdt * pct(cfg["trigger"]["min_profit_pct_of_symbol_budget"])
     reduce_ratio = dec(cfg["sizing"]["reduce_profit_side_ratio"])
     add_ratio = dec(cfg["sizing"]["use_realized_profit_ratio_for_loss_side"])
+    first_rung_loss_side_add_only = bool(
+        cfg["sizing"].get("first_rung_loss_side_add_only", False)
+    )
+    loss_side_add_eligible = not first_rung_loss_side_add_only or decision.step_count == 1
+    if not loss_side_add_eligible:
+        add_ratio = ZERO
     max_add = position.base_position_usdt * dec(cfg["sizing"]["max_add_loss_side_ratio_of_base_position"])
     delta_qty = abs(decision.delta_qty)
 
@@ -169,6 +175,7 @@ def inverse_skew_actions(
             "estimated_add_leg_roundtrip_cost": str(add_leg_roundtrip_cost),
             "required_net_profit": str(required_net_profit),
             "delta_to_target_qty": str(decision.delta_qty),
+            "loss_side_add_eligible": str(loss_side_add_eligible).lower(),
         },
         trigger={
             "profit_side": profit_side,
