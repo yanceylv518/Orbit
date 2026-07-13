@@ -331,6 +331,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **验收**：新增回归测试通过；文档缺口与代码对齐、无自相矛盾；无 live 开关变更。
 - **约束**：纯清理与对账，不改变任何交易行为。
 - **完成结果**：从 `config/config.sample.json` 和产品方案的两段配置示例中删除无代码引用的 `restore_loss_side_only_to_base`；新增动作回归测试，锁定亏损腿已达或超过 base 时仍会生成 `REDUCE_PROFIT_SIDE`，不再出现旧模型“整次搬运被跳过”的语义。同步订正本文件、产品技术方案、架构文档与策略逻辑文档：组合级 `GLOBAL_STOP`、C7 自融资账本、计划快照新鲜度拦截、趋势进入速度门和亏损腿重建均已落地；保留 STOP 后人工复核恢复、UI 风控投影、Funding 和参数标定等真实剩余项。仅删除死键、增加测试并对账文档，没有改变交易实现或 live 开关。
+- **验收结论（Claude，2026-07-13）：通过。** 死键 repo-wide 零残留（`.py`/`.json` grep 确认，`199 passed` 印证无 KeyError）；`test_profit_transfer_reduces_profit_leg_when_loss_leg_is_above_base` 是有效载荷（short≥base 时 `action_set.actions[0]` 为 `REDUCE_PROFIT_SIDE`）。四份文档对账准确、无自相矛盾、无过度声称：STRATEGY_LOGIC 参数表删除死键行、`max_total_drawdown_pct` 从「未接线」改为已落地，且诚实保留 `min_position_distance/target_price_distance（未接线）`、STOP 后恢复、Funding、参数标定等真实剩余项。零交易行为变更、未动 live 开关。合并在 `main`（`837f051`）。
 
 ## 最近验证
 
