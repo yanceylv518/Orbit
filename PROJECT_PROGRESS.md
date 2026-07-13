@@ -572,6 +572,7 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 ### 任务 TB1：趋势跟踪篮子 sleeve — 诚实成本后判定（交付 Codex，优先级：高）
 
+- **预注册（运行前，2026-07-14）**：协议已冻结于 `docs/design/TREND_BASKET.md`。正式宇宙固定为 BTC/ETH/BNB/SOL/XRP/DOGE/ADA/LINK/AVAX/DOT/LTC/BCH 共 12 个 USD-M perp，要求 `4h`、共同连续至少 3 年、Funding 覆盖率 `>=99%`、至少 10 个合格市场；末 365 天为一次性锁箱。训练只搜索动量 `28/84/168` 天 × 波动率 `28/84` 天，周频再平衡、组合目标波动 `10%`、gross cap `1.0`、换手成本按完整往返 `0.14%` 并计真实 Funding。组合 bar 固定为年化净收益正、Sharpe `>=0.5`、最大回撤 `<=20%`、盈利年度折严格过半、数据/Funding 完整。现有四币 1h 运行无论数值如何只标记 `DATA_LIMITED_NON_CONCLUSIVE`。
 - **假设（凭什么存在）**：时序动量/趋势溢价是多市场、数十年被验证的持续现象（正偏、截断亏损让盈利奔跑，天生回撤受控）；与已证伪的均值回归正相反。审计它在**加密 perp、扣真实成本后**是否为分散篮子提供「薄但为正」的贡献。
 - **数据前置（关键）**：公正测试趋势溢价需要**日线（或 4h+）+ 分散的多币种宇宙（~10–20 个流动性好的 perp）+ funding**；本机 fapi 451，须在 Binance 可达网络用 `fetch_klines/fetch_funding` 补齐并记指纹。**⚠️ 现有 BTC/ETH/BNB/SOL × 15m/1h 是「弱测试」**——4 个主流币高相关、1h 过噪且换手成本高，**很可能假性 NO-GO（错杀）**；可作冒烟，但**不得据此对趋势 sleeve 下结论**，公正判定必须用正确数据。
 - **涉及文件**：`backend/src/orbit/domain/calibration/`（新增纯计算 trend-basket 回测估计器）；`backend/tools/`（新 CLI）；`docs/design/TREND_BASKET.md`（预注册协议）；`backend/tests/`。
