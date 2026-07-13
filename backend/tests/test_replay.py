@@ -214,6 +214,19 @@ class EventEngineReplayTest(unittest.TestCase):
         self.assertFalse(events["loss_side_reduction"]["enabled"])
         self.assertFalse(events["position_recovery"]["enabled"])
 
+    def test_neutralization_variant_only_enables_candidate_geometry(self):
+        original = strategy()
+        configured = strategy_variant(original, "neutralize_counter_trend_skew")
+
+        self.assertTrue(
+            configured["strategy"]["events"]["loss_side_reduction"]["sizing"]
+            ["neutralize_counter_trend_skew_only"]
+        )
+        self.assertFalse(
+            original["strategy"]["events"]["loss_side_reduction"]["sizing"]
+            ["neutralize_counter_trend_skew_only"]
+        )
+
     def test_event_attribution_reconciles_event_totals(self):
         configured = strategy_variant(strategy(), "full")
         configured["strategy"]["regime_gate"].update({"confirm_ticks": 1, "range_max_autocorrelation": 1.0})

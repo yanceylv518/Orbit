@@ -1,4 +1,5 @@
 import unittest
+from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -19,14 +20,14 @@ class TargetExposureTest(unittest.TestCase):
         self.base_price = Decimal("100")
         self.base_qty = Decimal("1")
 
-    def decide(self, price, long_qty="1", short_qty="1"):
+    def decide(self, price, long_qty="1", short_qty="1", strategy=None):
         return decide_target_exposure(
             price=Decimal(str(price)),
             base_price=self.base_price,
             base_qty=self.base_qty,
             long_qty=Decimal(str(long_qty)),
             short_qty=Decimal(str(short_qty)),
-            strategy=self.strategy,
+            strategy=strategy or self.strategy,
         )
 
     def test_up_move_creates_inverse_short_skew(self):
@@ -51,6 +52,23 @@ class TargetExposureTest(unittest.TestCase):
         self.assertEqual(decision.event_type, "LOSS_SIDE_REDUCTION_UP")
         self.assertEqual(decision.lifecycle_state, "TREND_UP")
         self.assertGreater(decision.target_net_qty, 0)
+
+    def test_neutralization_geometry_only_removes_counter_trend_skew(self):
+        strategy = deepcopy(self.strategy)
+        strategy["strategy"]["events"]["loss_side_reduction"]["sizing"][
+            "neutralize_counter_trend_skew_only"
+        ] = True
+
+        counter_trend = self.decide("105", long_qty="0.7", short_qty="1.0", strategy=strategy)
+        neutral = self.decide("105", strategy=strategy)
+        aligned = self.decide("105", long_qty="1.0", short_qty="0.7", strategy=strategy)
+
+        self.assertEqual(counter_trend.event_type, "LOSS_SIDE_REDUCTION_UP")
+        self.assertEqual(counter_trend.target_net_qty, 0)
+        self.assertEqual(counter_trend.delta_qty, Decimal("0.30000000"))
+        self.assertIsNone(neutral.event_type)
+        self.assertIsNone(aligned.event_type)
+        self.assertEqual(aligned.target_net_qty, aligned.current_net_qty)
 
     def test_recovery_returns_existing_skew_to_zero(self):
         decision = self.decide("100.2", long_qty="0.7", short_qty="1.0")

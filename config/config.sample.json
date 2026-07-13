@@ -144,7 +144,8 @@
             },
             "sizing": {
               "reduce_loss_side_ratio": 0.1,
-              "min_loss_side_position_ratio_of_base": 0.2
+              "min_loss_side_position_ratio_of_base": 0.2,
+              "neutralize_counter_trend_skew_only": false
             },
             "guard": {
               "block_profit_transfer_after_trend_confirmed": true,

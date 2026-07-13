@@ -35,6 +35,8 @@ def strategy_variant(strategy_config: dict[str, Any], variant: str) -> dict[str,
     elif variant == "trend_reduction_only":
         events["profit_transfer"]["enabled"] = False
         events["position_recovery"]["enabled"] = False
+    elif variant == "neutralize_counter_trend_skew":
+        events["loss_side_reduction"]["sizing"]["neutralize_counter_trend_skew_only"] = True
     elif variant == "neutral_hold":
         events["profit_transfer"]["enabled"] = False
         events["loss_side_reduction"]["enabled"] = False

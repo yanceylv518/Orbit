@@ -127,6 +127,9 @@ def decide_target_exposure(
     max_steps = max(1, int(profit_cfg["guard"].get("max_times_per_trend", 1)))
     skew_unit = q(base_qty * dec(profit_cfg["sizing"]["reduce_profit_side_ratio"]))
     q_floor = q(base_qty * dec(loss_cfg["sizing"]["min_loss_side_position_ratio_of_base"]))
+    neutralize_counter_trend_skew_only = bool(
+        loss_cfg["sizing"].get("neutralize_counter_trend_skew_only", False)
+    )
     target_distance = dec(recovery_cfg["target"]["target_balance_position_distance_pct"])
     target_price_distance = dec(recovery_cfg["target"].get("target_price_distance_pct_from_base", a_pt))
     rebuild_threshold = dec(recovery_cfg["trigger"].get(
@@ -144,11 +147,21 @@ def decide_target_exposure(
     target_short_qty: Decimal | None = None
 
     if move_sign and move_abs >= theta_t:
-        target_net = q(Decimal(move_sign) * max(ZERO, base_qty - q_floor))
         direction = "UP" if move_sign > 0 else "DOWN"
-        event_type = f"LOSS_SIDE_REDUCTION_{direction}"
-        lifecycle_state = f"TREND_{direction}"
-        reason = "价格进入趋势带，目标净敞口翻向趋势方向并砍亏损腿至地板。"
+        if neutralize_counter_trend_skew_only:
+            if current_sign == -move_sign:
+                target_net = ZERO
+                event_type = f"LOSS_SIDE_REDUCTION_{direction}"
+                lifecycle_state = f"TREND_{direction}"
+                reason = "confirmed trend neutralizes counter-trend net exposure without crossing zero"
+            else:
+                target_net = current_net
+                reason = "confirmed trend found no counter-trend net exposure to neutralize"
+        else:
+            target_net = q(Decimal(move_sign) * max(ZERO, base_qty - q_floor))
+            event_type = f"LOSS_SIDE_REDUCTION_{direction}"
+            lifecycle_state = f"TREND_{direction}"
+            reason = "价格进入趋势带，目标净敞口翻向趋势方向并砍亏损腿至地板。"
     elif move_sign and move_abs >= a_pt:
         raw_steps = int((move_abs / a_pt).to_integral_value(rounding=ROUND_DOWN))
         step_count = max(1, min(raw_steps, max_steps))

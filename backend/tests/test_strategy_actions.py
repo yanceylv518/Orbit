@@ -79,6 +79,24 @@ class StrategyActionsTest(unittest.TestCase):
         self.assertEqual(action_set.actions[0].event_role, "LOSS_SIDE_REDUCTION")
         self.assertEqual(action_set.trigger["loss_side"], "SHORT")
 
+    def test_neutralization_geometry_reduces_full_counter_trend_delta(self):
+        strategy = deepcopy(self.strategy)
+        strategy["strategy"]["events"]["loss_side_reduction"]["sizing"][
+            "neutralize_counter_trend_skew_only"
+        ] = True
+        decision = self.decide(price="105", long_qty="0.7", short_qty="1.0", strategy=strategy)
+
+        action_set = build_strategy_action_set(
+            decision,
+            self.position(price="105", long_qty="0.7", short_qty="1.0", long_pnl="3.5", short_pnl="-5"),
+            strategy,
+        )
+
+        self.assertIsNotNone(action_set)
+        self.assertEqual(action_set.actions[0].action, "REDUCE_SHORT")
+        self.assertEqual(action_set.actions[0].quantity, Decimal("0.30000000"))
+        self.assertEqual(action_set.sizing["geometry"], "neutralize_counter_trend_skew")
+
     def test_recovery_builds_reduce_heavy_side_action(self):
         decision = self.decide(price="100.2", long_qty="0.7", short_qty="1.0")
         action_set = build_strategy_action_set(
@@ -107,14 +125,14 @@ class StrategyActionsTest(unittest.TestCase):
         self.assertEqual(action_set.sizing["add_long_qty"], "0.20000000")
         self.assertEqual(action_set.sizing["add_short_qty"], "0.20000000")
 
-    def decide(self, price, long_qty="1", short_qty="1"):
+    def decide(self, price, long_qty="1", short_qty="1", strategy=None):
         return decide_target_exposure(
             price=Decimal(str(price)),
             base_price=Decimal("100"),
             base_qty=Decimal("1"),
             long_qty=Decimal(str(long_qty)),
             short_qty=Decimal(str(short_qty)),
-            strategy=self.strategy,
+            strategy=strategy or self.strategy,
         )
 
     def position(self, price, long_qty="1", short_qty="1", long_pnl="0", short_pnl="0"):

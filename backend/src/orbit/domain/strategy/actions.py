@@ -183,6 +183,9 @@ def trend_reduction_actions(
     cfg: dict[str, Any],
 ) -> StrategyActionSet | None:
     reduce_ratio = dec(cfg["sizing"]["reduce_loss_side_ratio"])
+    neutralize_counter_trend_skew_only = bool(
+        cfg["sizing"].get("neutralize_counter_trend_skew_only", False)
+    )
     delta_qty = abs(decision.delta_qty)
     if decision.delta_qty > ZERO:
         side = position.short
@@ -193,7 +196,10 @@ def trend_reduction_actions(
         action = "REDUCE_LONG"
         loss_side = "LONG"
 
-    reduce_qty = q(min(delta_qty, side.qty * reduce_ratio, side.qty))
+    if neutralize_counter_trend_skew_only:
+        reduce_qty = q(min(delta_qty, side.qty))
+    else:
+        reduce_qty = q(min(delta_qty, side.qty * reduce_ratio, side.qty))
     if reduce_qty <= ZERO:
         return None
 
@@ -211,6 +217,11 @@ def trend_reduction_actions(
         sizing={
             "reduce_qty": str(reduce_qty),
             "delta_to_target_qty": str(decision.delta_qty),
+            "geometry": (
+                "neutralize_counter_trend_skew"
+                if neutralize_counter_trend_skew_only
+                else "staged_trend_flip"
+            ),
         },
         trigger={"loss_side": loss_side},
     )
