@@ -5,9 +5,22 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+
+def read_json_with_retries(url: str, *, attempts: int = 4) -> list:
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (TimeoutError, urllib.error.URLError):
+            if attempt == attempts:
+                raise
+            time.sleep(2 ** (attempt - 1))
+    return []
 
 
 def fetch_funding(symbol: str, days: int, base_url: str) -> list[dict]:
@@ -18,10 +31,9 @@ def fetch_funding(symbol: str, days: int, base_url: str) -> list[dict]:
         query = urllib.parse.urlencode({
             "symbol": symbol, "startTime": cursor, "endTime": end_ms, "limit": 1000,
         })
-        with urllib.request.urlopen(
-            f"{base_url.rstrip('/')}/fapi/v1/fundingRate?{query}", timeout=20,
-        ) as response:
-            batch = json.loads(response.read().decode("utf-8"))
+        batch = read_json_with_retries(
+            f"{base_url.rstrip('/')}/fapi/v1/fundingRate?{query}"
+        )
         if not batch:
             break
         points.extend({

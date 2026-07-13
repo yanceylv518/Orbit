@@ -1,7 +1,7 @@
 # TB1 趋势跟踪篮子预注册
 
 预注册时间：2026-07-14  
-状态：正式训练 PASS，唯一候选已冻结；锁箱尚未打开
+状态：TB1 锁箱 FAIL；实现纠错已审计，不进入 paper/testnet/live
 
 ## 1. 研究问题
 
@@ -113,3 +113,27 @@ net_return_pct(t) = price_return_pct + funding_return_pct - transaction_cost_pct
 本地只追加训练报告：`var/calibration/tb1_trend_basket_training.json`。报告 SHA-256：`e557cd0c389e34781259851df8570aaf5823d445da48171cf1f8489b6a4f0797`。
 
 当前 verdict 为 `TRAINING_PASS_LOCKBOX_PENDING`，`lockbox_opened=false`。下一步只允许使用该报告和原输入指纹执行一次性锁箱，不得再选择 `mom28_vol84` 或修改参数。
+
+## 10. Funding 纠错与一次性锁箱结果（2026-07-14）
+
+首次实现错误地复用了 G2 的标准 8 小时 Funding 槽归一化，因而漏掉 SOLUSDT 的 `75` 个非标准结算事件。该初始训练/锁箱文件和原开箱标记均保留，不能作为最终结果。实现随后改为按 Binance 原始 `funding_time_ms` 逐条记账，并新增非标准 Funding 不得丢弃的单测。
+
+纠正后的训练没有改变参数选择：唯一候选仍为 `mom28_vol28`，年化净收益由 `+23.135%` 修正为 `+23.019%`，Sharpe 由 `0.948` 修正为 `0.944`，最大回撤仍为 `18.937%`，盈利年度折仍为 `2/3`。因为候选 ID 和全部参数完全不变，允许对同一已开锁箱做一次受限实现纠错复算；CLI 要求原开箱标记、相同候选和输入指纹，并写独立 correction 标记，第二次纠错已验证会被拒绝。
+
+纠正后的末 365 天锁箱：
+
+| 指标 | 结果 | 固定 bar | 判定 |
+|---|---:|---:|---|
+| 总净收益 | +10.146% | > 0 | PASS |
+| 年化净收益 | +10.141% | > 0 | PASS |
+| 年化波动率 | 23.920% | 记录项 | — |
+| Sharpe | 0.523 | >= 0.50 | PASS |
+| 最大回撤 | 20.951% | <= 20% | **FAIL** |
+| 盈利年度折 | 1/1 | 严格过半 | PASS |
+| 再平衡次数 | 52 | 记录项 | — |
+| 累计换手 | 8.273 | 记录项 | — |
+| 累计交易成本 | 1.158% | 已计入 | PASS |
+
+最终 verdict：**`LOCKBOX_FAIL`**。收益和 Sharpe 过线，但最大回撤超出冻结上限 `0.951` 个百分点；不得因为差距较小而放宽 bar，也不得改目标波动、加止损或切换到训练第二名后重开锁箱。TB1 不进入 paper/testnet/live。该结果说明趋势篮子有正收益迹象，但当前冻结 sleeve 尚未达到“回撤可控”的体系目标；任何风险 overlay 必须作为新的预注册候选使用新锁箱研究。
+
+纠错训练报告：`var/calibration/tb1_trend_basket_training_corrected.json`，SHA-256 `f863f39ec4445802bc727c0c052a81763ad2c2afd29c667e58fcd48e11f1abe8`。纠错锁箱报告：`var/calibration/tb1_trend_basket_lockbox_corrected.json`，SHA-256 `d97508c74ca4f039e1e4d971a3cca91370cb4741032834f193a68443da35f8c1`。

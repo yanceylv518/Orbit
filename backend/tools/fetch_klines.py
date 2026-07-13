@@ -12,12 +12,27 @@ import argparse
 import json
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
 from orbit.infrastructure.exchange.kline_feed import INTERVAL_MS, BinanceKlineFeed  # noqa: E402
+
+
+def read_json_with_retries(url: str, *, attempts: int = 4) -> list:
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (TimeoutError, urllib.error.URLError):
+            if attempt == attempts:
+                raise
+            time.sleep(2 ** (attempt - 1))
+    return []
 
 
 def fetch_history(symbol: str, interval: str, days: int, *, spot_mirror: bool = False, ohlc: bool = False) -> list:
@@ -34,17 +49,13 @@ def fetch_history(symbol: str, interval: str, days: int, *, spot_mirror: bool = 
     rows: list = []
     cursor = start_ms
     while cursor < end_ms:
-        import urllib.parse
-        import urllib.request
-
         query = urllib.parse.urlencode({
             "symbol": symbol,
             "interval": interval,
             "startTime": cursor,
             "limit": 1000 if spot_mirror else 1500,
         })
-        with urllib.request.urlopen(f"{base_url}{path}?{query}", timeout=15) as response:
-            batch = json.loads(response.read().decode("utf-8"))
+        batch = read_json_with_retries(f"{base_url}{path}?{query}")
         if not batch:
             break
         for row in batch:

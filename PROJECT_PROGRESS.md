@@ -574,6 +574,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 - **预注册（运行前，2026-07-14）**：协议已冻结于 `docs/design/TREND_BASKET.md`。正式宇宙固定为 BTC/ETH/BNB/SOL/XRP/DOGE/ADA/LINK/AVAX/DOT/LTC/BCH 共 12 个 USD-M perp，要求 `4h`、共同连续至少 3 年、Funding 覆盖率 `>=99%`、至少 10 个合格市场；末 365 天为一次性锁箱。训练只搜索动量 `28/84/168` 天 × 波动率 `28/84` 天，周频再平衡、组合目标波动 `10%`、gross cap `1.0`、换手成本按完整往返 `0.14%` 并计真实 Funding。组合 bar 固定为年化净收益正、Sharpe `>=0.5`、最大回撤 `<=20%`、盈利年度折严格过半、数据/Funding 完整。现有四币 1h 运行无论数值如何只标记 `DATA_LIMITED_NON_CONCLUSIVE`。
 - **正式训练（锁箱前，2026-07-14）**：12/12 市场通过数据质量门，共同 `1824.67` 天、`10949` 根 4h K 线；六组中 `mom28_vol28` 与 `mom28_vol84` 训练 PASS。按冻结排序唯一候选为 `mom28_vol28`：年化净收益 `+23.135%`、Sharpe `0.948`、最大回撤 `18.937%`、盈利年度折 `2/3`。训练报告 SHA-256 为 `e557cd0c389e34781259851df8570aaf5823d445da48171cf1f8489b6a4f0797`，状态 `TRAINING_PASS_LOCKBOX_PENDING`，锁箱尚未打开。
+- **实现纠错**：首次运行复用了标准 8 小时 Funding 槽，漏掉 SOL 的 `75` 个非标准结算事件；初始文件与开箱标记保留但结果作废。改为按原始 Funding 时间逐条计账后，训练唯一候选仍为 `mom28_vol28`，参数未改变；纠错训练年化 `+23.019%`、Sharpe `0.944`、回撤 `18.937%`。受限纠错路径要求原标记、同候选、同输入指纹且只能使用一次，二次尝试已验证被拒绝。
+- **最终锁箱（2026-07-14）**：同一候选末 365 天净收益 `+10.146%`、年化 `+10.141%`、Sharpe `0.523`、盈利年度折 `1/1` 均过线，但最大回撤 `20.951%` 超过冻结 `20%` 上限 `0.951` 个百分点，最终 **`LOCKBOX_FAIL`**。不放宽 bar、不切换候选、不进入 paper/testnet/live；若继续研究风险 overlay，必须作为新预注册候选并使用新锁箱。
 - **假设（凭什么存在）**：时序动量/趋势溢价是多市场、数十年被验证的持续现象（正偏、截断亏损让盈利奔跑，天生回撤受控）；与已证伪的均值回归正相反。审计它在**加密 perp、扣真实成本后**是否为分散篮子提供「薄但为正」的贡献。
 - **数据前置（关键）**：公正测试趋势溢价需要**日线（或 4h+）+ 分散的多币种宇宙（~10–20 个流动性好的 perp）+ funding**；本机 fapi 451，须在 Binance 可达网络用 `fetch_klines/fetch_funding` 补齐并记指纹。**⚠️ 现有 BTC/ETH/BNB/SOL × 15m/1h 是「弱测试」**——4 个主流币高相关、1h 过噪且换手成本高，**很可能假性 NO-GO（错杀）**；可作冒烟，但**不得据此对趋势 sleeve 下结论**，公正判定必须用正确数据。
 - **涉及文件**：`backend/src/orbit/domain/calibration/`（新增纯计算 trend-basket 回测估计器）；`backend/tools/`（新 CLI）；`docs/design/TREND_BASKET.md`（预注册协议）；`backend/tests/`。
@@ -590,7 +592,7 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`231 tests OK`。
+- Python 单元测试及 API 契约测试：`239 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
