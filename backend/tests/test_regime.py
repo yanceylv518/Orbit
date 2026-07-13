@@ -72,6 +72,26 @@ class RegimeClassifierTests(unittest.TestCase):
         self.assertEqual(regime, TRENDING)
         self.assertEqual(features.efficiency_ratio, 1.0)
 
+    def test_low_er_with_extreme_positive_autocorrelation_is_not_range(self):
+        prices = [100.0]
+        for change in ([0.001] * 60 + [-0.001] * 60):
+            prices.append(prices[-1] * (1 + change))
+
+        regime, features = classify_regime(prices, strategy_config()["strategy"]["regime_gate"])
+
+        self.assertLess(features.efficiency_ratio, 0.35)
+        self.assertGreater(features.return_autocorrelation, 0.95)
+        self.assertEqual(regime, TRANSITION)
+
+    def test_low_er_with_low_autocorrelation_is_range(self):
+        prices = [100 + 2 * math.sin(2 * math.pi * index / 12) for index in range(120)]
+
+        regime, features = classify_regime(prices, strategy_config()["strategy"]["regime_gate"])
+
+        self.assertLess(features.efficiency_ratio, 0.35)
+        self.assertLess(features.return_autocorrelation, 0.95)
+        self.assertEqual(regime, RANGE)
+
     def test_state_transition_requires_confirmation(self):
         gate = RegimeGate(strategy_config(window=6, min_samples=4, confirm_ticks=2))
         state = {}

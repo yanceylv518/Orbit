@@ -20,6 +20,8 @@ DEFAULT_REGIME_CONFIG = {
     "confirm_ticks": 3,
     "range_efficiency_ratio": 0.35,
     "trend_efficiency_ratio": 0.65,
+    # RANGE is intentionally ER-led. This ceiling only rejects the pathological
+    # combination of low net path efficiency and near-perfect positive persistence.
     "range_max_autocorrelation": 0.95,
     "trend_autocorrelation": 0.35,
     "min_volatility_pct": 0.01,
@@ -94,6 +96,7 @@ def classify_regime(prices: Sequence[float], config: dict[str, Any]) -> tuple[st
         return TRENDING, features
     if (
         features.efficiency_ratio <= range_er
+        # The default 0.95 is a pathology guard, not a second primary RANGE signal.
         and features.return_autocorrelation <= float(config.get("range_max_autocorrelation", 0.95))
     ):
         return RANGE, features

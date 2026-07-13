@@ -251,7 +251,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **约束**：只补记录，不改变实际成交/仓位行为。
 - **完成结果**：`EventEngine` 在目标动作被 Regime Gate 或 EventRule 拦截时生成 `info` 级 `risk_event`，统一标记 `status=blocked`、`action_taken=BLOCKED_NO_TRADE`，携带目标敞口、阻断来源/代码、regime 三态、ER、自相关和波动率，且 `trades=[]`；`RuntimeEventService` 沿既有风险事件通道入历史。`plan_only` blocked plan 同步暴露上述 Gate 特征。`PortfolioViewService` 排除 `info` 级决策痕迹，避免把正常 Gate 阻断误报为组合 `watch`。新增领域、计划和投影测试，确认仓位、已实现盈亏与成交行为不变。
 
-### 任务 R2：厘清并修正 RANGE 自相关阈值语义（优先级：中，先出结论再改）
+### 任务 R2：厘清并修正 RANGE 自相关阈值语义（已完成，2026-07-13）
 
 - **问题**：`backend/src/orbit/domain/strategy/regime.py` 的 `classify_regime`（约 95–99 行）中 RANGE 分支要求 `return_autocorrelation <= range_max_autocorrelation`，默认 `0.95`。一阶自相关几乎不会超过 0.95，该条件近乎恒真，**RANGE 实际退化为“仅 `efficiency_ratio <= range_efficiency_ratio(0.35)`”**，自相关未参与判定。若本意是“震荡=低/负收益持续性”，阈值过松。
 - **涉及文件**：`backend/src/orbit/domain/strategy/regime.py`；`config/config.sample.json`（`strategy.regime_gate`）；`backend/tests/test_regime.py`；分析用 `backend/tools/calibrate_matrix.py` / `backend/tools/replay_matrix.py`。
@@ -260,6 +260,9 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
   2. 依据结论二选一：**要么**保留 `0.95` 但在代码加注释说明它只是病态值保险；**要么**改默认阈值收紧 RANGE 语义，并附训练窗对照数据。
 - **验收**：`test_regime.py` 增加“低 ER + 高自相关”与“低 ER + 低自相关”两类样本的分类断言，把当前语义钉死；若改默认值，须附训练窗（非验证窗）对照数据。
 - **约束**：严禁按验证集/某次回放结果反推阈值。
+- **训练窗对照**：固定预注册候选 `0.95` 与 `0.20`，使用 BTCUSDT/ETHUSDT × 15m/1h 各 5 折；15m 训练/验证为 5760/1920 根，1h 为 2880/960 根。按 20 个训练窗汇总，`0.95` 的已知样本 RANGE 命中率为 `73088/86020 = 84.97%`、完整引擎训练净收益 `+10.54 USDT`；`0.20` 为 `67167/86020 = 78.08%`、训练净收益 `+2.81 USDT`。收紧阈值仅减少 `6.88` 个百分点 RANGE 暴露，却使训练表现下降 `7.74 USDT`。
+- **隔离验证（只报告、不据此选参）**：`0.95` 外样本合计 `-7.68 USDT`、盈利折 `6/20`；`0.20` 为 `-8.56 USDT`、盈利折 `5/20`，没有提供反转训练结论的证据。
+- **决策**：保留默认 `0.95`。代码已明确其语义是低 ER 条件下的极端正持续性病态保险，RANGE 分类有意以 ER 为主判据，而不是把 `0.95` 误解为有效的第二重过滤器。新增“低 ER + 自相关 >0.95 → TRANSITION”及“低 ER + 低自相关 → RANGE”测试锁定该契约；未改 live 默认开关与任何交易参数。
 
 ### 任务 R3：收敛 paper 收盘推进与引擎单一入口（优先级：低，维护）
 
@@ -277,7 +280,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`192 tests OK`。
+- Python 单元测试及 API 契约测试：`194 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
@@ -318,7 +321,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **成本项待补**：Funding 在失衡对冲中是方向性成本（当前恒为 0）；高频小额搬运有手续费 churn 风险，`min_net_profit` 应覆盖下一次反向平仓成本。
 - **Regime Gate 审查发现（2026-07-13，修复计划见上方「Regime Gate 审查修复计划」）**：
   - 被 regime / 规则拦截的决策已写入 `info` 级 blocked 风险事件，且不产生成交（R1 已完成）。
-  - RANGE 自相关阈值 `0.95` 近乎恒真，RANGE 退化为仅看效率比（待办 R2）。
+  - RANGE 自相关阈值语义已厘清：训练窗不支持收紧到 `0.20`，保留 `0.95` 作为极端病态保险，并由分类测试锁定（R2 已完成）。
   - regime 冷启动静默期：`min_samples` 根收盘前禁止利润搬运/重建（`interval=1h` 约 20 小时），属预期行为，paper/live 上线首日需据此设期望。
   - paper 收盘推进（`advance_state_with_price`）与引擎 `_on_price` 逻辑重复、`tick_count` 自增条件已有差异，需收敛单一入口（待办 R3）。
 
