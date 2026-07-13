@@ -230,6 +230,48 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 **待办（下一轮）**：补 MySQL 既有库 interval migration 与运行配置 writer/read model；前端账户运行配置显示 interval。随后为“1h + 关闭趋势减仓”建立只记录不成交的 shadow/paper 候选，不绕过 Funding/path 阶段门。
 
+## Regime Gate 审查修复计划（2026-07-13，交付 Codex 执行）
+
+对提交 `0e1bbd3 feat(strategy): add regime gate and full replay validation` 做了代码审查。结论：方向正确、无阻断性 bug、`188 passed / 1 skipped`，可合入；以下为审查发现的待修复项与开发计划。**本计划交由 Codex 执行，每个任务完成后由 Claude 对其提交做 review。**
+
+### 全局约束（所有任务通用）
+
+1. 每个任务独立提交，提交信息用 conventional commits（如 `fix(strategy): ...`）。
+2. 全程保持测试绿：`cd backend && python3 -m pytest tests/ -q`（当前基线 188 passed / 1 skipped）。
+3. 不改动 live 通道任何默认开关（默认全关不变）。
+4. 遵守 walk-forward 纪律：**禁止为“让某次回放/验证集通过”而调参**；阈值只能在训练窗/历史样本上选择。
+5. 每个任务完成后，在本文件对应条目登记结果（含关键数据），保持进度不滞后于代码。
+
+### 任务 R1：为被 regime / 规则拦截的决策补审计痕迹（优先级：高）
+
+- **问题**：`backend/src/orbit/domain/strategy/engine.py` 的 `apply_target_exposure_event`（约 431–454 行）在 `regime_result.allowed=False` 或 `rule_result.allowed=False` 时静默 `return None`，且 `regime_result.context` 被丢弃。复盘时看不到“本该产生动作，但被 regime/规则拦截”，违反“每次决策可解释、可复盘”的验收目标。
+- **涉及文件**：`backend/src/orbit/domain/strategy/engine.py`；`backend/src/orbit/application/runtime_events.py`（或现有 blocked-plan / risk_event 记录路径）；`backend/src/orbit/domain/planning/plans.py`（plan_only 计划详情）。
+- **改动**：当 `decision.has_action` 为真但被 regime 或 event_rule 拦截时，产出一条轻量 blocked 记录（复用现有 blocked plan / risk_event 结构，不新造模型），携带 `code`、`reason`，以及 regime 上下文（`regime` / `regime_raw` / `regime_stable`、ER、自相关、波动率）或规则拦截原因。该记录进入 dry_run/paper 事件历史与 `plan_only` 计划详情。**不产生任何成交。**
+- **验收**：新增测试——① 在 TRENDING regime 且存在目标动作时，`on_tick` 结果包含一条 regime-blocked 记录，且 `long_qty` / `short_qty` / `realized_pnl` 不变；② `plan_only` 生成的计划详情中含 regime 拦截原因字段。
+- **约束**：只补记录，不改变实际成交/仓位行为。
+
+### 任务 R2：厘清并修正 RANGE 自相关阈值语义（优先级：中，先出结论再改）
+
+- **问题**：`backend/src/orbit/domain/strategy/regime.py` 的 `classify_regime`（约 95–99 行）中 RANGE 分支要求 `return_autocorrelation <= range_max_autocorrelation`，默认 `0.95`。一阶自相关几乎不会超过 0.95，该条件近乎恒真，**RANGE 实际退化为“仅 `efficiency_ratio <= range_efficiency_ratio(0.35)`”**，自相关未参与判定。若本意是“震荡=低/负收益持续性”，阈值过松。
+- **涉及文件**：`backend/src/orbit/domain/strategy/regime.py`；`config/config.sample.json`（`strategy.regime_gate`）；`backend/tests/test_regime.py`；分析用 `backend/tools/calibrate_matrix.py` / `backend/tools/replay_matrix.py`。
+- **改动分两步**：
+  1. **先分析、后决策**：用现有回放/标定工具在**训练窗**对比“收紧 RANGE 自相关阈值（如要求 `autocorr <= 0.2`）”与现状对 RANGE 命中率和外样本收益的影响，把结论（数据）写回本文件。
+  2. 依据结论二选一：**要么**保留 `0.95` 但在代码加注释说明它只是病态值保险；**要么**改默认阈值收紧 RANGE 语义，并附训练窗对照数据。
+- **验收**：`test_regime.py` 增加“低 ER + 高自相关”与“低 ER + 低自相关”两类样本的分类断言，把当前语义钉死；若改默认值，须附训练窗（非验证窗）对照数据。
+- **约束**：严禁按验证集/某次回放结果反推阈值。
+
+### 任务 R3：收敛 paper 收盘推进与引擎单一入口（优先级：低，维护）
+
+- **问题**：`backend/src/orbit/application/symbol_states.py` 的 `advance_state_with_price`（约 83–102 行）手工重复了 `tick_count / high_since_base / low_since_base / regime_gate.update / lifecycle.update_trend_tracking / resolve_state` 这套收盘推进逻辑，与 `engine._on_price` 重复，且已有细微差异（`_on_price` 仅在收盘 tick 自增 `tick_count`，而 `advance_state_with_price` 每次都自增）。两条路径未来容易漂移。
+- **涉及文件**：`backend/src/orbit/application/symbol_states.py`；`backend/src/orbit/domain/strategy/engine.py`。
+- **改动**：在 `EventEngine` 暴露一个只做“推进指标 + 生命周期，不决策不成交”的收盘推进方法（如 `advance_close(state, price, close_time)`），让 `advance_state_with_price` 复用它，消除重复；paper 决策仍由 `execute_paper_tick` 承担。
+- **验收**：现有 paper 相关测试（`test_market_data` / `test_account_runtime` / paper 执行）保持绿；新增测试断言 `advance_state_with_price` 与引擎收盘推进对 `regime_*` / 生命周期字段结果一致。
+- **约束**：不改变 paper 决策与成交时序。
+
+### 已在本文档登记、无需 Codex 改码的观察
+
+- **regime 冷启动静默期**：累计到 `min_samples`(默认 20) 根收盘前，regime 为 `UNKNOWN`，而 `UNKNOWN / TRANSITION / TRENDING` 均禁止利润搬运与双腿重建。`interval=1h` 时新 symbol 约 20 小时内不会有搬运；`regime_price_history` 存入 state，重启不丢，但新初始化的 symbol 会重新预热。此为**预期行为**，paper/live 上线首日需据此设期望（见下方「策略逻辑已知缺口」）。
+
 ## 最近验证
 
 - `npm run check` 通过。
@@ -273,6 +315,11 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **趋势确认进入条件仍无斜率/时间维度**：趋势退出已有连续 tick 确认，但进入 TREND 仍主要依赖相对 base 的单点位移；慢速阴跌与暴跌仍可能被同等对待。
 - **利润搬运口径待澄清**：`restore_loss_side_only_to_base=true` 且亏损腿已到 base 时，整次搬运（含减盈利腿止盈）被跳过；「用利润恢复亏损腿」是仓位定量口径而非资金划转。
 - **成本项待补**：Funding 在失衡对冲中是方向性成本（当前恒为 0）；高频小额搬运有手续费 churn 风险，`min_net_profit` 应覆盖下一次反向平仓成本。
+- **Regime Gate 审查发现（2026-07-13，修复计划见上方「Regime Gate 审查修复计划」）**：
+  - 被 regime / 规则拦截的决策静默返回、无审计痕迹（待办 R1）。
+  - RANGE 自相关阈值 `0.95` 近乎恒真，RANGE 退化为仅看效率比（待办 R2）。
+  - regime 冷启动静默期：`min_samples` 根收盘前禁止利润搬运/重建（`interval=1h` 约 20 小时），属预期行为，paper/live 上线首日需据此设期望。
+  - paper 收盘推进（`advance_state_with_price`）与引擎 `_on_price` 逻辑重复、`tick_count` 自增条件已有差异，需收敛单一入口（待办 R3）。
 
 ### 平台与文档差异（详见技术方案 §22）
 
