@@ -1,4 +1,5 @@
 import unittest
+from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -31,6 +32,25 @@ class StrategyActionsTest(unittest.TestCase):
         self.assertEqual([item.action for item in action_set.actions], ["REDUCE_LONG", "ADD_SHORT"])
         self.assertEqual([item.event_role for item in action_set.actions], ["REDUCE_PROFIT_SIDE", "ADD_LOSS_SIDE"])
         self.assertEqual(action_set.trigger["profit_side"], "LONG")
+
+    def test_profit_transfer_can_require_add_leg_roundtrip_coverage(self):
+        strategy = deepcopy(self.strategy)
+        sizing = strategy["strategy"]["events"]["profit_transfer"]["sizing"]
+        sizing["min_net_profit_usdt"] = 0.1928
+        decision = self.decide(price="102")
+        position = self.position(price="102", long_pnl="2", short_pnl="-2")
+
+        sizing["require_add_leg_roundtrip_coverage"] = False
+        without_coverage = build_strategy_action_set(decision, position, strategy)
+        sizing["require_add_leg_roundtrip_coverage"] = True
+        with_coverage = build_strategy_action_set(decision, position, strategy)
+
+        self.assertIsNotNone(without_coverage)
+        self.assertIsNone(with_coverage)
+        projected = Decimal(without_coverage.sizing["projected_net_realized"])
+        roundtrip_cost = Decimal(without_coverage.sizing["estimated_add_leg_roundtrip_cost"])
+        self.assertGreater(projected, Decimal("0.1928"))
+        self.assertLess(projected, Decimal("0.1928") + roundtrip_cost)
 
     def test_trend_reduction_builds_loss_side_reduce_action(self):
         decision = self.decide(price="105")

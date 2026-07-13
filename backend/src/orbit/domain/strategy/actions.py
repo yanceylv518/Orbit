@@ -124,16 +124,20 @@ def inverse_skew_actions(
         return None
 
     projected = preview_reduce(profit, reduce_action, reduce_qty, position.price, costs)
-    min_net_profit = dec(cfg["sizing"]["min_net_profit_usdt"])
-    if projected.net_realized < min_net_profit:
-        return None
-
     add_notional_budget = min(max(projected.net_realized, ZERO) * add_ratio, max_add)
     add_qty = max(ZERO, delta_qty - reduce_qty)
     if position.price > ZERO:
         add_qty = q(min(add_qty, add_notional_budget / position.price))
     else:
         add_qty = ZERO
+
+    add_leg_roundtrip_cost = estimate_add_leg_roundtrip_cost(add_qty, position.price, costs)
+    min_net_profit = dec(cfg["sizing"]["min_net_profit_usdt"])
+    required_net_profit = min_net_profit
+    if bool(cfg["sizing"].get("require_add_leg_roundtrip_coverage", False)):
+        required_net_profit += add_leg_roundtrip_cost
+    if projected.net_realized < required_net_profit:
+        return None
 
     actions = [
         StrategyAction(
@@ -162,6 +166,8 @@ def inverse_skew_actions(
             "reduce_qty": str(reduce_qty),
             "add_qty": str(add_qty),
             "projected_net_realized": str(projected.net_realized),
+            "estimated_add_leg_roundtrip_cost": str(add_leg_roundtrip_cost),
+            "required_net_profit": str(required_net_profit),
             "delta_to_target_qty": str(decision.delta_qty),
         },
         trigger={
@@ -318,6 +324,21 @@ def preview_reduce(
         fee=fee,
         net_realized=gross - fee,
     )
+
+
+def estimate_add_leg_roundtrip_cost(
+    add_qty: Decimal,
+    price: Decimal,
+    costs: dict[str, Any],
+) -> Decimal:
+    if add_qty <= ZERO or price <= ZERO:
+        return ZERO
+    add_notional = add_qty * price
+    expected_roundtrip_rate = (
+        dec(costs["taker_fee_rate"]) * Decimal("2")
+        + dec(costs["slippage_bps"]) / Decimal("10000")
+    )
+    return q(add_notional * expected_roundtrip_rate)
 
 
 def fill_price(price: Decimal, action: str, costs: dict[str, Any]) -> Decimal:

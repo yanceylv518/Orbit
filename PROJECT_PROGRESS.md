@@ -311,13 +311,16 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **决策**：速度门确实过滤了 `38` 次趋势减仓，但训练净收益下降 `4.835 USDT`，盈利折无改善且成本略升，因此不翻默认值。保留该能力供后续按周期独立标定，样例配置默认 `trend_entry_min_velocity_pct_per_tick=0.0`，无 live 默认行为变化；未使用验证窗选参。
 - **验收结论（Claude，2026-07-13）：通过。** 机制正确：velocity=尾部窗口端点速度 `|P_t/P_{t-k}-1|×100/k`，`min_velocity≤0` 时短路回退到纯 level+tick（默认零行为变更，`test_default_zero_velocity_gate_preserves_level_only_behavior` 证明）。`test_velocity_gate_distinguishes_slow_drift_from_fast_move` 是有效载荷——慢速逼近因尾部窗速度不足被否（滑窗使中途跳空也会归零候选计数），快速路径通过。训练窗对照数据完整、结论诚实（首候选劣化 → 不翻默认、保留供按周期标定），严守「只在训练窗选参」。后端 `197 passed / 1 skipped`。合并在 `main`（`9f088b8`）。**注**：训练窗 USDT 数值为 Codex 标定器产出，未在本机重跑矩阵（需数据缓存/fapi）；因默认 off、零行为变更，重跑与该改动不成比例。
 
-### 任务 S2：利润搬运可行性纳入加仓腿往返成本（优先级：中）
+### 任务 S2：利润搬运可行性纳入加仓腿往返成本（已完成，2026-07-13）
 
 - **问题**：`backend/src/orbit/domain/strategy/actions.py` 的 `inverse_skew_actions`（约 100–134 行）用 `projected.net_realized`（只扣**减盈利腿**这一腿的手续费）与 `min_net_profit_usdt(0.05)` 比较来判定搬运是否可行。但同一次搬运还会**加一条亏损腿**（`ADD_LOSS_SIDE`），这条腿将来平仓要再吃一轮手续费+滑点。当前判据没算这条，导致「减腿看着赚 0.05，但配对的加腿未来平仓成本 > 0.05」的高频小额搬运仍会通过——手续费 churn。
 - **涉及文件**：`backend/src/orbit/domain/strategy/actions.py`（`inverse_skew_actions`、`preview_reduce`）；`config/config.sample.json`（`events.profit_transfer.sizing`）；`backend/tests/`（actions/engine 测试）。
 - **改动**：可行性判据改为 `net_realized ≥ min_net_profit_usdt + 预估加仓腿往返成本`（加仓 notional × (taker_fee_rate×2 + slippage)）。用 config 旗标门控（如 `require_add_leg_roundtrip_coverage`，**默认 false 保持现有行为**）。
 - **验收**：① 单元测试——构造「减腿净利略高于 min_net_profit 但不足以覆盖加腿往返成本」的场景，旗标开启时搬运被拒、关闭时通过。② 训练窗对照：开/关旗标的搬运次数、手续费拖累、训练净收益，写回本文件。
 - **约束**：默认零行为变更；不据验证集选参。
+- **完成结果**：`inverse_skew_actions` 在算出实际 `ADD_LOSS_SIDE` 数量后，按 `add_notional × (taker_fee_rate×2 + slippage_bps/10000)` 估算加仓腿往返成本；`require_add_leg_roundtrip_coverage=true` 时要求 `projected.net_realized ≥ min_net_profit_usdt + estimated_roundtrip_cost`，默认 `false` 时仍使用原门槛。action sizing 新增 `estimated_add_leg_roundtrip_cost` 与 `required_net_profit`，便于计划和事件审计。新增边界测试确认原门槛刚通过但成本覆盖不足时，仅开启旗标会拒绝搬运。
+- **训练窗对照**：使用与 S1 相同的 BTCUSDT/ETHUSDT × 15m/1h 共 20 个训练窗，仅切换 `require_add_leg_roundtrip_coverage`。off 与 on 均为搬运 `207` 次、训练净收益 `+10.545 USDT`、盈利折 `10/20`、手续费 `3.583 USDT`、滑点 `1.433 USDT`，四个市场逐项结果完全一致。
+- **决策**：当前 `min_net_profit_usdt=0.05` 的训练样本没有落入“原门槛通过但加腿成本覆盖不足”的边际区间，训练数据不支持翻默认；样例配置保持 `false`，零默认行为变化。该开关作为更严格的实盘成本保护保留，后续只有在交易成本或最小利润参数改变时再独立标定；未使用验证窗选参。
 
 ### 任务 S3：清理死配置 + 对账陈旧缺口（优先级：低，文档/清理）
 
@@ -331,7 +334,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`198 tests OK`。
+- Python 单元测试及 API 契约测试：`199 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
@@ -369,7 +372,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **风控剩余维度未补齐**：`RiskGuard` 已接入 `plan_only` 计划生成和 dry-run 引擎，`MAX_SYMBOL_DRAWDOWN` 会转为 `STOPPED` 拆对冲全平，gross 超限会进入 `ONLY_REDUCE`；但组合级回撤、C7 自融资账本、快照新鲜度/暂停态仍未落地。
 - **趋势确认速度门默认关闭**：进入 TREND 已支持最近 `k` 个 close tick 的位移速度门；首个训练候选降低了趋势触发但损害净收益，因此默认保持中性，后续需按周期独立标定（S1 已完成）。
 - **利润搬运口径待澄清**：`restore_loss_side_only_to_base=true` 且亏损腿已到 base 时，整次搬运（含减盈利腿止盈）被跳过；「用利润恢复亏损腿」是仓位定量口径而非资金划转。
-- **成本项待补**：Funding 在失衡对冲中是方向性成本（当前恒为 0）；高频小额搬运有手续费 churn 风险，`min_net_profit` 应覆盖下一次反向平仓成本。
+- **成本项仍需标定**：Funding 在失衡对冲中是方向性成本（当前恒为 0）；利润搬运已支持可选的加仓腿往返成本覆盖，但首轮训练窗没有触发差异，默认保持关闭（S2 已完成）。
 - **Regime Gate 审查发现（2026-07-13，修复计划见上方「Regime Gate 审查修复计划」）**：
   - 被 regime / 规则拦截的决策已写入 `info` 级 blocked 风险事件，且不产生成交（R1 已验收通过）；但每 tick 记录会冲刷 200 条上限的风险历史、挤掉真实风险事件，需按拦截状态转换去重（待办 R1.1）。
   - RANGE 自相关阈值语义已厘清：训练窗不支持收紧到 `0.20`，保留 `0.95` 作为极端病态保险，并由分类测试锁定（R2 已完成）。
