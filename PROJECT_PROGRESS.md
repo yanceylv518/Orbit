@@ -309,6 +309,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **完成结果**：趋势进入新增最近 `k` 个 close tick 的绝对位移速度 `|P_t/P_{t-k}-1|×100/k`，由 `trend_entry_velocity_window_ticks` 与 `trend_entry_min_velocity_pct_per_tick` 控制；阈值缺省或为 `0` 时仍执行原有纯 level + 连续 tick 逻辑。速度历史独立于 Regime Gate 维护，并随初始化、存量状态补全和重锚正确建立或清零；阻断上下文同步暴露当前速度与要求阈值。新增慢磨/快速路径及默认中性行为测试。
 - **训练窗对照**：预注册候选为 off（`min_velocity=0`）与开启（`k=3`、`min_velocity=0.5%/tick`）。使用 BTCUSDT/ETHUSDT × 15m/1h 各 5 折，15m 训练/验证窗为 5760/1920 根、1h 为 2880/960 根，仅回放 20 个训练窗。off：RANGE 搬运 `207` 次、TREND 减仓 `469` 次、训练净收益 `+10.545 USDT`、盈利折 `10/20`、手续费/滑点 `3.583/1.433 USDT`；开启：RANGE 搬运 `233` 次、TREND 减仓 `431` 次、训练净收益 `+5.710 USDT`、盈利折 `10/20`、手续费/滑点 `3.659/1.464 USDT`。
 - **决策**：速度门确实过滤了 `38` 次趋势减仓，但训练净收益下降 `4.835 USDT`，盈利折无改善且成本略升，因此不翻默认值。保留该能力供后续按周期独立标定，样例配置默认 `trend_entry_min_velocity_pct_per_tick=0.0`，无 live 默认行为变化；未使用验证窗选参。
+- **验收结论（Claude，2026-07-13）：通过。** 机制正确：velocity=尾部窗口端点速度 `|P_t/P_{t-k}-1|×100/k`，`min_velocity≤0` 时短路回退到纯 level+tick（默认零行为变更，`test_default_zero_velocity_gate_preserves_level_only_behavior` 证明）。`test_velocity_gate_distinguishes_slow_drift_from_fast_move` 是有效载荷——慢速逼近因尾部窗速度不足被否（滑窗使中途跳空也会归零候选计数），快速路径通过。训练窗对照数据完整、结论诚实（首候选劣化 → 不翻默认、保留供按周期标定），严守「只在训练窗选参」。后端 `197 passed / 1 skipped`。合并在 `main`（`9f088b8`）。**注**：训练窗 USDT 数值为 Codex 标定器产出，未在本机重跑矩阵（需数据缓存/fapi）；因默认 off、零行为变更，重跑与该改动不成比例。
 
 ### 任务 S2：利润搬运可行性纳入加仓腿往返成本（优先级：中）
 
