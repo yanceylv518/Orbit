@@ -272,13 +272,14 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **决策**：保留默认 `0.95`。代码已明确其语义是低 ER 条件下的极端正持续性病态保险，RANGE 分类有意以 ER 为主判据，而不是把 `0.95` 误解为有效的第二重过滤器。新增“低 ER + 自相关 >0.95 → TRANSITION”及“低 ER + 低自相关 → RANGE”测试锁定该契约；未改 live 默认开关与任何交易参数。
 - **验收结论（Claude，2026-07-13）：通过。** 严格遵守「先分析后决策 / 隔离验证只报告不选参」纪律：训练窗（非验证窗）数据支撑保留 `0.95`，收紧到 `0.20` 在训练窗即劣化，未据验证集反推。R2 只改注释+测试+文档，**零交易行为变更**；`test_low_er_with_extreme_positive_autocorrelation_is_not_range`（autocorr>0.95→TRANSITION）证明该上限是载荷判据、非空条件，契约锁得住。后端 `193 passed / 1 skipped`。合并在 `main`（`6b27cff`）。**注**：训练/验证的具体 USDT 数值为 Codex 标定器产出，我未在本机重跑 20 折矩阵（需数据缓存且本机 fapi 451），因 R2 不触及任何代码路径、重跑矩阵与该改动不成比例。
 
-### 任务 R3：收敛 paper 收盘推进与引擎单一入口（优先级：低，维护）
+### 任务 R3：收敛 paper 收盘推进与引擎单一入口（已完成，2026-07-13）
 
 - **问题**：`backend/src/orbit/application/symbol_states.py` 的 `advance_state_with_price`（约 83–102 行）手工重复了 `tick_count / high_since_base / low_since_base / regime_gate.update / lifecycle.update_trend_tracking / resolve_state` 这套收盘推进逻辑，与 `engine._on_price` 重复，且已有细微差异（`_on_price` 仅在收盘 tick 自增 `tick_count`，而 `advance_state_with_price` 每次都自增）。两条路径未来容易漂移。
 - **涉及文件**：`backend/src/orbit/application/symbol_states.py`；`backend/src/orbit/domain/strategy/engine.py`。
 - **改动**：在 `EventEngine` 暴露一个只做“推进指标 + 生命周期，不决策不成交”的收盘推进方法（如 `advance_close(state, price, close_time)`），让 `advance_state_with_price` 复用它，消除重复；paper 决策仍由 `execute_paper_tick` 承担。
 - **验收**：现有 paper 相关测试（`test_market_data` / `test_account_runtime` / paper 执行）保持绿；新增测试断言 `advance_state_with_price` 与引擎收盘推进对 `regime_*` / 生命周期字段结果一致。
 - **约束**：不改变 paper 决策与成交时序。
+- **完成结果**：`EventEngine.advance_close()` 统一负责 close tick、价格/极值、K 线时间、Regime Gate、mark-to-market、趋势跟踪和生命周期解析；`SymbolStateService.advance_state_with_price()` 已收敛为单行委托。dry_run/replay 的 `_on_price` 复用同一入口，并通过延后生命周期最终解析保持原有“收盘推进 → 决策/成交 → 最终解析”时序；paper 仍由 MarketFeed 推进后交给 `execute_paper_tick` 决策。新增字段对照测试确认应用层与引擎投影一致且仓位/PnL 不变。
 
 ### 已在本文档登记、无需 Codex 改码的观察
 
@@ -288,7 +289,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`195 tests OK`。
+- Python 单元测试及 API 契约测试：`196 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
@@ -331,7 +332,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
   - 被 regime / 规则拦截的决策已写入 `info` 级 blocked 风险事件，且不产生成交（R1 已验收通过）；但每 tick 记录会冲刷 200 条上限的风险历史、挤掉真实风险事件，需按拦截状态转换去重（待办 R1.1）。
   - RANGE 自相关阈值语义已厘清：训练窗不支持收紧到 `0.20`，保留 `0.95` 作为极端病态保险，并由分类测试锁定（R2 已完成）。
   - regime 冷启动静默期：`min_samples` 根收盘前禁止利润搬运/重建（`interval=1h` 约 20 小时），属预期行为，paper/live 上线首日需据此设期望。
-  - paper 收盘推进（`advance_state_with_price`）与引擎 `_on_price` 逻辑重复、`tick_count` 自增条件已有差异，需收敛单一入口（待办 R3）。
+  - paper 收盘推进已统一委托 `EventEngine.advance_close()`，与 dry_run/replay 共用 close-only 指标和生命周期推进（R3 已完成）。
 
 ### 平台与文档差异（详见技术方案 §22）
 

@@ -117,14 +117,12 @@ class EventEngine:
     ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
         state = deepcopy(state)
         if closed_candle:
-            state["tick_count"] = int(state.get("tick_count", 0)) + 1
-        state["last_price"] = str(price)
-        state["high_since_base"] = str(max(d(state["high_since_base"]), price))
-        state["low_since_base"] = str(min(d(state["low_since_base"]), price))
-        if closed_candle:
-            self.regime_gate.update(state, float(price))
-            self.lifecycle.update_trend_tracking(state, price)
-        self.mark_to_market(state, price)
+            self.advance_close(state, price, resolve_lifecycle=False)
+        else:
+            state["last_price"] = str(price)
+            state["high_since_base"] = str(max(d(state["high_since_base"]), price))
+            state["low_since_base"] = str(min(d(state["low_since_base"]), price))
+            self.mark_to_market(state, price)
 
         strategy_events: list[dict[str, Any]] = []
         risk_state = self.current_risk_state(state, price)
@@ -148,6 +146,30 @@ class EventEngine:
         state["updated_at"] = now_iso()
         self.mark_to_market(state, price)
         return state, strategy_events, risk_events
+
+    def advance_close(
+        self,
+        state: dict[str, Any],
+        price: Decimal,
+        *,
+        close_time: int | None = None,
+        resolve_lifecycle: bool = True,
+    ) -> dict[str, Any]:
+        """Advance close-only indicators and lifecycle without deciding or trading."""
+        state["tick_count"] = int(state.get("tick_count", 0)) + 1
+        state["last_price"] = str(price)
+        if close_time is not None:
+            state["last_kline_close_time"] = int(close_time)
+            state["last_kline_at"] = now_iso()
+        state["high_since_base"] = str(max(d(state.get("high_since_base") or state["base_price"]), price))
+        state["low_since_base"] = str(min(d(state.get("low_since_base") or state["base_price"]), price))
+        self.regime_gate.update(state, float(price))
+        self.mark_to_market(state, price)
+        self.lifecycle.update_trend_tracking(state, price)
+        if resolve_lifecycle:
+            state["state"] = self.lifecycle.resolve_state(state)
+        state["updated_at"] = now_iso()
+        return state
 
     def execute_paper_tick(
         self,

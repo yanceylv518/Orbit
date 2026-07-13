@@ -1,4 +1,5 @@
 import unittest
+from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -241,6 +242,33 @@ class SymbolStateServiceTest(unittest.TestCase):
         self.assertNotIn("BTCUSDT", states)
         # 旧状态的锚点被继承，而不是重置
         self.assertEqual(states[key]["base_price"], "60000")
+
+    def test_application_close_advance_matches_engine_lifecycle_projection(self):
+        state = self.engine.initialize_symbol("BTCUSDT", Decimal("60000"), Decimal("100"))
+        state.update({
+            "state": "TREND_UP",
+            "high_since_base": "62500",
+            "trend_extreme_price": "62500",
+            "long_qty": "0.00066666",
+            "short_qty": "0.00030000",
+        })
+        direct = deepcopy(state)
+        delegated = deepcopy(state)
+
+        self.engine.advance_close(direct, Decimal("60700"), close_time=1_000_000)
+        self.service.advance_state_with_price(
+            delegated,
+            price=Decimal("60700"),
+            close_time=1_000_000,
+        )
+
+        fields = (
+            "tick_count", "last_price", "last_kline_close_time", "high_since_base",
+            "low_since_base", "regime", "regime_raw", "regime_stable",
+            "regime_features", "trend_extreme_price", "trend_exit_candidate_count",
+            "state", "long_qty", "short_qty", "realized_pnl",
+        )
+        self.assertEqual({key: direct.get(key) for key in fields}, {key: delegated.get(key) for key in fields})
 
 
 if __name__ == "__main__":
