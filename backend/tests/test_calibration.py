@@ -15,11 +15,13 @@ from orbit.domain.calibration.estimators import (
     excursion_outcomes,
     expected_value_per_bet,
     extreme_funding_reaction_report,
+    funding_relative_strength_report,
     gated_estimate,
     geometry_scan,
     funding_carry_screen,
     horizon_reversion_report,
     max_drawdown,
+    normalize_funding_slots,
     pi_required,
     portfolio_calibration_summary,
     select_gate_config,
@@ -239,6 +241,138 @@ class EstimatorTest(unittest.TestCase):
         self.assertEqual(report["events"], 42)
         self.assertTrue(report["admitted"])
         self.assertGreater(report["bootstrap_mean_ci_low"], 0)
+
+    def test_funding_slots_normalize_small_exchange_timestamp_offsets(self):
+        slots = normalize_funding_slots(
+            self.funding_points([0.01, 0.02, 0.03], start=1, step=4),
+            settlement_interval_ms=10,
+            tolerance_ms=2,
+        )
+
+        self.assertEqual(set(slots), {0, 10})
+        self.assertAlmostEqual(slots[0].funding_rate, 0.01)
+        self.assertAlmostEqual(slots[10].funding_rate, 0.03)
+
+    def test_funding_strength_accounts_for_pair_direction_cashflows_and_cost(self):
+        long_prices = [100.0] * 30
+        long_prices[11] = 110.0
+        markets = {
+            "A": (
+                self.funding_points([0.01, 0.02, 0.02], step=10),
+                self.candles(long_prices),
+            ),
+            "B": (
+                self.funding_points([-0.01, -0.02, -0.02], step=10),
+                self.candles([100.0] * 30),
+            ),
+        }
+        report = funding_relative_strength_report(
+            markets,
+            1,
+            1,
+            min_market_appearances=0,
+            settlement_interval_ms=10,
+            candle_interval_ms=1,
+            bootstrap_samples=20,
+        )
+        event = report["records"][0]
+
+        self.assertEqual(event["long_market"], "A")
+        self.assertEqual(event["short_market"], "B")
+        self.assertAlmostEqual(event["long_price_return_pct"], 10.0)
+        self.assertAlmostEqual(event["long_funding_return_pct"], -2.0)
+        self.assertAlmostEqual(event["short_funding_return_pct"], -2.0)
+        self.assertAlmostEqual(event["gross_return_pct"], 3.0)
+        self.assertAlmostEqual(event["net_return_pct"], 2.86)
+        self.assertAlmostEqual(
+            report["mean_price_return_pct"] + report["mean_funding_return_pct"],
+            report["mean_gross_return_pct"],
+        )
+        self.assertAlmostEqual(
+            report["mean_gross_return_pct"] - report["cost_pct"],
+            report["mean_net_return_pct"],
+        )
+
+    def test_funding_strength_signal_includes_current_but_not_future_funding(self):
+        candles = self.candles([100.0] * 50)
+        original = {
+            "A": (self.funding_points([0.01, 0.03, -0.5], step=10), candles),
+            "B": (self.funding_points([-0.01, -0.03, 0.5], step=10), candles),
+        }
+        altered = {
+            "A": (self.funding_points([0.01, 0.03, 0.5], step=10), candles),
+            "B": (self.funding_points([-0.01, -0.03, -0.5], step=10), candles),
+        }
+        kwargs = {
+            "lookback_settlements": 2,
+            "holding_settlements": 1,
+            "min_market_appearances": 0,
+            "settlement_interval_ms": 10,
+            "candle_interval_ms": 1,
+            "bootstrap_samples": 20,
+        }
+        first = funding_relative_strength_report(original, **kwargs)
+        changed = funding_relative_strength_report(altered, **kwargs)
+
+        self.assertAlmostEqual(first["records"][0]["scores"]["A"], 0.02)
+        self.assertEqual(first["records"][0]["long_market"], "A")
+        self.assertEqual(changed["records"][0]["long_market"], "A")
+        self.assertEqual(first["records"][0]["scores"], changed["records"][0]["scores"])
+        self.assertNotEqual(
+            first["records"][0]["net_return_pct"],
+            changed["records"][0]["net_return_pct"],
+        )
+
+    def test_funding_strength_events_do_not_overlap(self):
+        candles = self.candles([100.0] * 70)
+        markets = {
+            "A": (self.funding_points([0.01] * 6, step=10), candles),
+            "B": (self.funding_points([-0.01] * 6, step=10), candles),
+        }
+        report = funding_relative_strength_report(
+            markets,
+            1,
+            1,
+            min_market_appearances=0,
+            settlement_interval_ms=10,
+            candle_interval_ms=1,
+            bootstrap_samples=20,
+        )
+
+        self.assertGreater(len(report["records"]), 1)
+        for previous, current in zip(report["records"], report["records"][1:]):
+            self.assertGreater(
+                current["long_entry_time_ms"], previous["exit_time_ms"],
+            )
+
+    def test_funding_strength_coverage_gate_rejects_fixed_pair(self):
+        slots = 72
+        funding = {
+            "A": self.funding_points([0.001] * slots, step=10),
+            "B": self.funding_points([-0.001] * slots, step=10),
+            "C": self.funding_points([0.0002] * slots, step=10),
+            "D": self.funding_points([-0.0002] * slots, step=10),
+        }
+        candles = {
+            "A": self.candles([100 * (1.002 ** index) for index in range(750)]),
+            "B": self.candles([100 * (0.998 ** index) for index in range(750)]),
+            "C": self.candles([100.0] * 750),
+            "D": self.candles([100.0] * 750),
+        }
+        report = funding_relative_strength_report(
+            {name: (funding[name], candles[name]) for name in funding},
+            1,
+            1,
+            min_market_appearances=10,
+            settlement_interval_ms=10,
+            candle_interval_ms=1,
+            bootstrap_samples=200,
+        )
+
+        self.assertGreaterEqual(report["events"], 30)
+        self.assertTrue(report["statistical_admitted"])
+        self.assertFalse(report["coverage_admitted"])
+        self.assertFalse(report["admitted"])
 
     def test_bootstrap_mean_interval_is_deterministic(self):
         first = bootstrap_mean_interval([0.1, 0.2, 0.3], samples=100, seed=7)

@@ -514,14 +514,14 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 ### 任务 G2：Funding 跨币种相对强弱动量（最后一个低成本候选）
 
-- **训练协议预注册（运行前）**：已冻结于 `docs/design/G2_FUNDING_RELATIVE_STRENGTH.md`。在四市场公共 8 小时 Funding 结算槽上，以过去 `1/3/7` 天 signed Funding 均值排序，等名义做多最高者、做空最低者，持有 `1/3/7` 天，共 `9` 组；组合收益同时计两腿价格盈亏、持有期真实 Funding 现金流和按 gross notional 计的 `0.14%` 往返成本。只审计动量方向，不同时测试反转方向。训练门要求 `>=30` 非重叠事件、净均值与 bootstrap 下界为正，且四市场各至少参与 `10` 条事件腿。此时尚未运行扫描。
-- **边界**：纯离线；只使用已打开的 BTC/ETH/BNB/SOL 训练数据。训练 PASS 才能获取至少四个全新市场并冻结哈希后一次性锁箱；训练 FAIL 则不碰新数据、不回调参数，并结束低成本 alpha 候选搜索。
+- **训练协议与结论（2026-07-13）**：协议已预先冻结于 `docs/design/G2_FUNDING_RELATIVE_STRENGTH.md`，随后完整运行 `9` 组训练网格。候选 `0/9`，全部组合净均值为负。最优诊断组合为 lookback `3天`、holding `1天`：`135` 个事件，价格贡献 `-0.0023%`、Funding 贡献 `-0.0082%`、毛收益 `-0.0105%`、成本后净收益 `-0.1505%`，bootstrap 95% 下界 `-0.3050%`；四市场覆盖门通过但统计门失败。**G2 训练阶段 FAIL；未创建或打开新锁箱，未测试反向或回调参数。**
+- **决策**：F1 Funding Carry、G1 极端 Funding 反转、G2 Funding 相对强弱动量均已按预注册规则 NO-GO。停止继续枚举低成本 alpha；下一步应在平台价值路线（数据同步、执行计划、风控审计、paper/live 基础设施）与项目收尾之间作明确选择，而不是继续调参寻找策略正收益。
 
 ## 最近验证
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`226 tests OK`。
+- Python 单元测试及 API 契约测试：`231 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。

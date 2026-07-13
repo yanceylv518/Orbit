@@ -4,7 +4,7 @@ import math
 import random
 import statistics
 from bisect import bisect_right
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from orbit.domain.calibration.history import FundingPoint, MarketCandle
 from orbit.domain.strategy.regime import DEFAULT_REGIME_CONFIG, RANGE, RegimeGate
@@ -410,6 +410,232 @@ def extreme_funding_reaction_report(
         "net_returns_pct": net_returns,
         "records": records,
         **summary,
+    }
+
+
+def normalize_funding_slots(
+    funding_points: Sequence[FundingPoint],
+    *,
+    settlement_interval_ms: int = 8 * 3_600_000,
+    tolerance_ms: int = 60_000,
+) -> dict[int, FundingPoint]:
+    """Map exchange timestamps to their nearest standard funding settlement."""
+    if settlement_interval_ms < 1 or tolerance_ms < 0:
+        raise ValueError("settlement interval must be positive and tolerance non-negative")
+    slots: dict[int, FundingPoint] = {}
+    offsets: dict[int, int] = {}
+    for point in funding_points:
+        slot = round(point.funding_time_ms / settlement_interval_ms) * settlement_interval_ms
+        offset = abs(point.funding_time_ms - slot)
+        if offset > tolerance_ms:
+            continue
+        if slot not in slots or offset < offsets[slot]:
+            slots[slot] = point
+            offsets[slot] = offset
+    return slots
+
+
+def funding_relative_strength_report(
+    markets: Mapping[str, tuple[Sequence[FundingPoint], Sequence[MarketCandle]]],
+    lookback_settlements: int,
+    holding_settlements: int,
+    *,
+    cost_pct: float = 0.14,
+    min_market_appearances: int = 10,
+    settlement_interval_ms: int = 8 * 3_600_000,
+    candle_interval_ms: int = 15 * 60_000,
+    funding_tolerance_ms: int = 60_000,
+    bootstrap_samples: int = 10_000,
+    bootstrap_seed: int = 20_260_713,
+) -> dict[str, Any]:
+    """Audit a market-neutral pair formed from cross-market funding momentum."""
+    if len(markets) < 2:
+        raise ValueError("at least two markets are required")
+    if lookback_settlements < 1 or holding_settlements < 1:
+        raise ValueError("lookback and holding settlements must be positive")
+    if cost_pct < 0 or min_market_appearances < 0:
+        raise ValueError("cost and minimum market appearances must not be negative")
+    if candle_interval_ms < 1 or settlement_interval_ms % candle_interval_ms:
+        raise ValueError("candle interval must divide the settlement interval")
+
+    funding_by_market = {
+        name: normalize_funding_slots(
+            funding,
+            settlement_interval_ms=settlement_interval_ms,
+            tolerance_ms=funding_tolerance_ms,
+        )
+        for name, (funding, _) in markets.items()
+    }
+    common_slots = sorted(set.intersection(*(
+        set(points) for points in funding_by_market.values()
+    )))
+    candles_by_market = {
+        name: sorted(candles, key=lambda candle: candle.close_time_ms)
+        for name, (_, candles) in markets.items()
+    }
+    candle_times_by_market = {
+        name: [candle.close_time_ms for candle in candles]
+        for name, candles in candles_by_market.items()
+    }
+    candle_holding_ticks = (
+        holding_settlements * settlement_interval_ms // candle_interval_ms
+    )
+    appearances = {name: 0 for name in markets}
+    records: list[dict[str, Any]] = []
+    last_exit_time_ms = -1
+    discarded_gap_events = 0
+    discarded_overlap_events = 0
+    discarded_tail_events = 0
+
+    for index in range(lookback_settlements - 1, len(common_slots)):
+        signal_slot = common_slots[index]
+        lookback_start = index - lookback_settlements + 1
+        expected_lookback_start = signal_slot - (
+            lookback_settlements - 1
+        ) * settlement_interval_ms
+        target_slot = signal_slot + holding_settlements * settlement_interval_ms
+        if common_slots[lookback_start] != expected_lookback_start:
+            discarded_gap_events += 1
+            continue
+        if index + holding_settlements >= len(common_slots):
+            discarded_tail_events += 1
+            continue
+        if common_slots[index + holding_settlements] != target_slot:
+            discarded_gap_events += 1
+            continue
+
+        score_slots = common_slots[lookback_start:index + 1]
+        scores = {
+            name: sum(
+                funding_by_market[name][slot].funding_rate for slot in score_slots
+            ) / lookback_settlements
+            for name in markets
+        }
+        ranked = sorted(scores, key=lambda name: (scores[name], name))
+        short_market = ranked[0]
+        long_market = ranked[-1]
+        if scores[long_market] == scores[short_market]:
+            continue
+
+        selected = (long_market, short_market)
+        entries: dict[str, tuple[int, MarketCandle]] = {}
+        exits: dict[str, MarketCandle] = {}
+        complete = True
+        for name in selected:
+            entry_index = bisect_right(candle_times_by_market[name], signal_slot)
+            exit_index = entry_index + candle_holding_ticks
+            candles = candles_by_market[name]
+            if entry_index >= len(candles) or exit_index >= len(candles):
+                discarded_tail_events += 1
+                complete = False
+                break
+            entry = candles[entry_index]
+            exit_candle = candles[exit_index]
+            if entry.close_time_ms <= last_exit_time_ms:
+                discarded_overlap_events += 1
+                complete = False
+                break
+            if (
+                exit_candle.close_time_ms - entry.close_time_ms
+                != holding_settlements * settlement_interval_ms
+            ):
+                discarded_gap_events += 1
+                complete = False
+                break
+            entries[name] = (entry_index, entry)
+            exits[name] = exit_candle
+        if not complete:
+            continue
+
+        long_entry = entries[long_market][1]
+        short_entry = entries[short_market][1]
+        long_exit = exits[long_market]
+        short_exit = exits[short_market]
+        future_slots = common_slots[index + 1:index + holding_settlements + 1]
+        long_price_pct = (long_exit.close / long_entry.close - 1) * 100
+        short_price_pct = -(short_exit.close / short_entry.close - 1) * 100
+        long_funding_pct = -sum(
+            funding_by_market[long_market][slot].funding_rate for slot in future_slots
+        ) * 100
+        short_funding_pct = sum(
+            funding_by_market[short_market][slot].funding_rate for slot in future_slots
+        ) * 100
+        gross_return_pct = 0.5 * (
+            long_price_pct
+            + short_price_pct
+            + long_funding_pct
+            + short_funding_pct
+        )
+        net_return_pct = gross_return_pct - cost_pct
+        records.append({
+            "signal_slot_ms": signal_slot,
+            "scores": scores,
+            "long_market": long_market,
+            "short_market": short_market,
+            "long_entry_time_ms": long_entry.close_time_ms,
+            "short_entry_time_ms": short_entry.close_time_ms,
+            "exit_time_ms": max(long_exit.close_time_ms, short_exit.close_time_ms),
+            "long_price_return_pct": long_price_pct,
+            "short_price_return_pct": short_price_pct,
+            "long_funding_return_pct": long_funding_pct,
+            "short_funding_return_pct": short_funding_pct,
+            "gross_return_pct": gross_return_pct,
+            "net_return_pct": net_return_pct,
+        })
+        appearances[long_market] += 1
+        appearances[short_market] += 1
+        last_exit_time_ms = max(long_exit.close_time_ms, short_exit.close_time_ms)
+
+    net_returns = [float(record["net_return_pct"]) for record in records]
+    summary = extreme_funding_return_summary(
+        net_returns,
+        bootstrap_samples=bootstrap_samples,
+        bootstrap_seed=bootstrap_seed,
+    )
+    coverage_admitted = all(
+        count >= min_market_appearances for count in appearances.values()
+    )
+    price_returns = [
+        0.5 * (
+            float(record["long_price_return_pct"])
+            + float(record["short_price_return_pct"])
+        )
+        for record in records
+    ]
+    funding_returns = [
+        0.5 * (
+            float(record["long_funding_return_pct"])
+            + float(record["short_funding_return_pct"])
+        )
+        for record in records
+    ]
+    gross_returns = [float(record["gross_return_pct"]) for record in records]
+    return {
+        "lookback_settlements": lookback_settlements,
+        "holding_settlements": holding_settlements,
+        "holding_days": holding_settlements / 3,
+        "cost_pct": cost_pct,
+        "common_slots": len(common_slots),
+        "discarded_gap_events": discarded_gap_events,
+        "discarded_overlap_events": discarded_overlap_events,
+        "discarded_tail_events": discarded_tail_events,
+        "market_appearances": appearances,
+        "min_market_appearances": min_market_appearances,
+        "coverage_admitted": coverage_admitted,
+        "mean_price_return_pct": (
+            sum(price_returns) / len(price_returns) if price_returns else 0.0
+        ),
+        "mean_funding_return_pct": (
+            sum(funding_returns) / len(funding_returns) if funding_returns else 0.0
+        ),
+        "mean_gross_return_pct": (
+            sum(gross_returns) / len(gross_returns) if gross_returns else 0.0
+        ),
+        "net_returns_pct": net_returns,
+        "records": records,
+        **summary,
+        "statistical_admitted": summary["admitted"],
+        "admitted": summary["admitted"] and coverage_admitted,
     }
 
 
