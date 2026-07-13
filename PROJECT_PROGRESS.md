@@ -364,19 +364,21 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **验收结果**：管理员恢复后 state 为 `BALANCED`、风险基准归零且下一 tick 正常生成 `POSITION_REBUILD`；非 STOPPED、非管理员、空 reason 均拒绝且不写审计；API 成功路径返回恢复后的 snapshot。后端全量 `204 tests OK`，`npm run check` / `npm run build` 通过。
 - **验收结论（Claude，2026-07-13）：通过。** crux 端到端接线正确：`RiskContext.drawdown_pnl_usdt = total_pnl − baseline`、`effective_drawdown_budget`，`evaluate_risk`/引擎/`plans.symbol_risk_context` 一致消费；fresh/存量 symbol baseline=0、budget 回退，**行为与原先完全一致（无回归）**，旧状态 `.get(... ) or default` 平滑迁移。crux 被有效载荷证明——`test_admin_can_resume_stopped_symbol_and_reset_drawdown_baseline` 断言恢复后 `symbol_stopped==False` 且下一 `on_tick` 真的产出 `POSITION_REBUILD`、无 `MAX_SYMBOL_DRAWDOWN`、state≠STOPPED，非死锁复现。五条验收全覆盖（恢复→可交易/非STOPPED拒绝/审计/权限/snapshot 结构化）。HTTP 端 `Depends(require_admin)` + 服务层 `is_admin` 双重门控、成功才写审计、走事务。后端 `203 passed / 1 skipped`（+4）。合并在 `main`（`39b8a25`）。**小观察（非阻断）**：`RiskState.total_pnl_usdt` 现返回 baseline 调整后的值，仅对已恢复 symbol 与原始总 PnL 不同（对未恢复 symbol baseline=0 无差异），用于回撤语义更贴切，不影响正确性。
 
-### 任务 T2：风控 UI 完整投影（前端，优先级：中，依赖 T1）
+### 任务 T2：风控 UI 完整投影（已完成，2026-07-13）
 
 - **问题**：风控页无 per-symbol STOPPED 视图与复核恢复入口，GLOBAL_STOP 激活态不可见，`info` 级 blocked 决策与 material 告警混在一张表。
 - **涉及文件**：`backend/src/orbit/application/snapshot_queries.py` / `portfolio_views.py`（补结构化风控投影：`global_stop` 激活标志、`stopped_symbols`、blocked 决策摘要）；`frontend/src/pages/RiskPage.vue`；`frontend/src/stores/appStore.js`；`frontend/src/api/client.js`。
 - **改动**：① snapshot 暴露结构化 `risk_state`（`global_stop` 激活布尔、`stopped_symbols` 列表、`blocked_decisions` 摘要）；② `RiskPage` 增加 STOPPED symbols 面板，每行带「复核恢复」按钮（确认弹窗 + 必填 reason，调用 T1 endpoint）；GLOBAL_STOP 激活时顶部横幅告警；把 `info` 级 blocked 决策独立成一区，避免污染 material 告警表。
 - **验收**：① 后端测试——snapshot payload 含新的结构化 `risk_state` 字段（`global_stop`/`stopped_symbols`/`blocked_decisions`）；② 前端渲染 STOPPED 面板与恢复动作、GLOBAL_STOP 横幅、blocked 独立区（import/export 交叉验证 + 类名核对）；③ `npm run check/build` 需 Windows 侧复验并在本文件登记。
 - **约束**：恢复动作只经 T1 审计化 endpoint；只读/`plan_only` 语义不变；不新造后端未提供的数据。
+- **完成结果**：snapshot 新增结构化 `risk_state`，统一投影组合级 `global_stop`、按账户可见性过滤的 `stopped_symbols` 和 `info` 级 `blocked_decisions`。组合回撤判断抽成执行计划与风险快照共用函数，避免 UI 状态与内核计划分叉；保留原 `risk_events` 契约供既有页面兼容。风控页新增 GLOBAL_STOP 顶部横幅、STOPPED 币种复核面板、实质风险告警区和独立决策阻断区；每个 STOPPED 行仅在权限能力允许时提供「复核恢复」，确认对话框强制填写原因并只调用 T1 审计化 endpoint。HTTP 200 的业务拒绝不会覆盖当前应用状态。
+- **验收结果**：新增 snapshot 风险结构、组合回撤、blocked 分类与账户权限过滤测试；后端全量 `207 tests OK`。`npm run check`、`npm run build`、前端 import/export 交叉检查、关键类名核对及 `git diff --check` 均通过。未改变 `plan_only` / `read_only` 或 live 默认开关。
 
 ## 最近验证
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`204 tests OK`。
+- Python 单元测试及 API 契约测试：`207 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
@@ -411,7 +413,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 ### 策略逻辑已知缺口（详见技术方案 §21）
 
 - **趋势生命周期仍需继续完善（最高优先级）**：`StrategyLifecycle` 已接管事件后状态变更、恢复重锚、计数器清零、趋势进入的持续确认与可选速度门、趋势退出候选计数和亏损腿重建；速度门训练对照不支持翻默认，趋势退出参数的回测标定仍未完整落地。
-- **核心风控与 per-symbol 恢复已补齐，前端投影待完善**：`RiskGuard` 已覆盖 symbol `STOPPED` 拆对冲全平、gross `ONLY_REDUCE`、组合级回撤 `GLOBAL_STOP` 和 C7 自融资账本；`plan_only` 已按 `snapshot_max_age_seconds` 拦截陈旧快照，管理员可审计化恢复单个 STOPPED symbol（T1 已完成）。剩余项是 paper/live 组合态编排及完整 UI 投影（T2）。
+- **核心风控、per-symbol 恢复与前端投影已补齐**：`RiskGuard` 已覆盖 symbol `STOPPED` 拆对冲全平、gross `ONLY_REDUCE`、组合级回撤 `GLOBAL_STOP` 和 C7 自融资账本；`plan_only` 已按 `snapshot_max_age_seconds` 拦截陈旧快照，管理员可审计化恢复单个 STOPPED symbol，风控页已完整投影 GLOBAL_STOP、STOPPED 与 blocked 决策（T1/T2 已完成）。剩余项是 paper/live 组合态编排。
 - **趋势确认速度门默认关闭**：进入 TREND 已支持最近 `k` 个 close tick 的位移速度门；首个训练候选降低了趋势触发但损害净收益，因此默认保持中性，后续需按周期独立标定（S1 已完成）。
 - **利润搬运口径已澄清**：新 Δ* 模型不再使用 `restore_loss_side_only_to_base`；减盈利腿独立生成，加亏损腿按剩余目标差额与自融资预算可选追加，亏损腿已达或超过 base 不会阻止止盈（S3 已完成）。
 - **成本项仍需标定**：Funding 在失衡对冲中是方向性成本（当前恒为 0）；利润搬运已支持可选的加仓腿往返成本覆盖，但首轮训练窗没有触发差异，默认保持关闭（S2 已完成）。

@@ -66,8 +66,11 @@ class SnapshotQueryService:
         symbols = self.portfolio_views.runtime_symbols(symbol_states)
         totals = self.portfolio_views.totals(symbols)
         trade_events = self.event_history.trade_events()[:120] if include_internal_history else []
+        risk_events = self.event_history.risk_events()[:60]
         metric_history = self.metrics.all() if include_internal_history else []
         symbol_metric_history = self.metrics.by_symbol() if include_internal_history else {}
+        stopped_symbols = self.stopped_symbol_rows(symbol_states)
+        risk_state = self.risk_state(risk_events, stopped_symbols)
         payload = {
             "server_time": now_iso(),
             "running": running,
@@ -80,7 +83,7 @@ class SnapshotQueryService:
             "symbols": symbols,
             "strategy_events": deepcopy(self.event_history.strategy_events()[:80]),
             "trade_events": deepcopy(trade_events),
-            "risk_events": deepcopy(self.event_history.risk_events()[:60]),
+            "risk_events": deepcopy(risk_events),
             "admin_audit_logs": deepcopy(self.audits.all()[:60]),
             "daily_reports": deepcopy(self.reports.all()[:30]),
             "binance_account_snapshots": deepcopy(self.account_snapshots.all()),
@@ -92,7 +95,8 @@ class SnapshotQueryService:
             "storage": self.storage_status(),
             "market_feed": deepcopy(market_feed) if market_feed else None,
             "plan_symbol_states": self.plan_symbol_state_rows(symbol_states),
-            "stopped_symbols": self.stopped_symbol_rows(symbol_states),
+            "stopped_symbols": stopped_symbols,
+            "risk_state": risk_state,
         }
         if not current_user:
             return payload
@@ -139,6 +143,28 @@ class SnapshotQueryService:
                 "stopped_at": state.get("stopped_at"),
             })
         return sorted(rows, key=lambda item: (item["account_id"], item["symbol"]))
+
+    @staticmethod
+    def blocked_decision_rows(risk_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return deepcopy([
+            event for event in risk_events
+            if str(event.get("risk_level") or "").lower() == "info"
+            and (
+                str(event.get("status") or "").lower() == "blocked"
+                or event.get("action_taken") == "BLOCKED_NO_TRADE"
+            )
+        ])
+
+    def risk_state(
+        self,
+        risk_events: list[dict[str, Any]],
+        stopped_symbols: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "global_stop": self.portfolio_views.global_stop_active(),
+            "stopped_symbols": deepcopy(stopped_symbols),
+            "blocked_decisions": self.blocked_decision_rows(risk_events),
+        }
 
     def plan_symbol_state_rows(self, symbol_states: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         """账户级生命周期状态摘要：前端相位/Δ 可视化的直接数据源（脱离计划存在）。"""
@@ -243,6 +269,19 @@ class SnapshotQueryService:
             row for row in payload.get("stopped_symbols", [])
             if row.get("account_id") in account_ids
         ]
+        risk_state = payload.get("risk_state", {})
+        filtered["risk_state"] = {
+            "global_stop": bool(risk_state.get("global_stop")),
+            "stopped_symbols": [
+                row for row in risk_state.get("stopped_symbols", [])
+                if row.get("account_id") in account_ids
+            ],
+            "blocked_decisions": [
+                event for event in risk_state.get("blocked_decisions", [])
+                if event.get("exchange_account_id") in account_ids
+                or event.get("user_id") == user_id
+            ],
+        }
         filtered["execution_plans"] = [
             plan for plan in payload.get("execution_plans", [])
             if plan.get("account_id") in account_ids

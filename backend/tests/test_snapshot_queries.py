@@ -26,6 +26,9 @@ class FakePortfolioViews:
     def strategy_summary(self, symbols, totals, *, running, account_ids=None):
         return {"symbols": [item["symbol"] for item in symbols], "status": "read_only"}
 
+    def global_stop_active(self):
+        return True
+
 
 class SnapshotQueryServiceTests(unittest.TestCase):
     def setUp(self):
@@ -70,6 +73,17 @@ class SnapshotQueryServiceTests(unittest.TestCase):
             "strategy_events": [{"user_id": "user_001"}, {"user_id": "user_002"}],
             "trade_events": [{"user_id": "user_001"}, {"user_id": "user_002"}],
             "risk_events": [{"user_id": None}, {"user_id": "user_002"}],
+            "risk_state": {
+                "global_stop": True,
+                "stopped_symbols": [
+                    {"account_id": "acc_001", "symbol": "BTCUSDT"},
+                    {"account_id": "acc_002", "symbol": "ETHUSDT"},
+                ],
+                "blocked_decisions": [
+                    {"exchange_account_id": "acc_001"},
+                    {"exchange_account_id": "acc_002"},
+                ],
+            },
             "execution_plans": [
                 {"account_id": "acc_001"},
                 {"account_id": "acc_002"},
@@ -86,7 +100,44 @@ class SnapshotQueryServiceTests(unittest.TestCase):
         self.assertEqual(list(filtered["binance_account_snapshots"]), ["acc_001"])
         self.assertEqual(filtered["execution_plans"], [{"account_id": "acc_001"}])
         self.assertEqual(filtered["risk_events"], [{"user_id": None}])
+        self.assertTrue(filtered["risk_state"]["global_stop"])
+        self.assertEqual(
+            filtered["risk_state"]["stopped_symbols"],
+            [{"account_id": "acc_001", "symbol": "BTCUSDT"}],
+        )
+        self.assertEqual(
+            filtered["risk_state"]["blocked_decisions"],
+            [{"exchange_account_id": "acc_001"}],
+        )
         self.assertEqual(filtered["strategy"]["symbols"], ["BTCUSDT"])
+
+    def test_blocked_decisions_include_only_info_level_blocked_events(self):
+        rows = self.service.blocked_decision_rows([
+            {"id": "blocked-status", "risk_level": "info", "status": "blocked"},
+            {"id": "blocked-action", "risk_level": "info", "action_taken": "BLOCKED_NO_TRADE"},
+            {"id": "material", "risk_level": "high", "status": "blocked"},
+            {"id": "informational", "risk_level": "info", "status": "observed"},
+        ])
+
+        self.assertEqual([row["id"] for row in rows], ["blocked-status", "blocked-action"])
+
+    def test_risk_state_exposes_global_stop_stopped_symbols_and_blocked_decisions(self):
+        risk_state = self.service.risk_state(
+            [{
+                "id": "blocked",
+                "risk_level": "info",
+                "status": "blocked",
+                "action_taken": "BLOCKED_NO_TRADE",
+            }],
+            [{"account_id": "acc_001", "symbol": "BTCUSDT"}],
+        )
+
+        self.assertTrue(risk_state["global_stop"])
+        self.assertEqual(
+            risk_state["stopped_symbols"],
+            [{"account_id": "acc_001", "symbol": "BTCUSDT"}],
+        )
+        self.assertEqual([row["id"] for row in risk_state["blocked_decisions"]], ["blocked"])
 
 
 if __name__ == "__main__":

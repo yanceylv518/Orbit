@@ -4,12 +4,13 @@ import time
 from copy import deepcopy
 from typing import Any
 
-from orbit.application.permissions import PermissionPolicy
 from orbit.application.account_runtime import AccountRunConfigService
+from orbit.application.permissions import PermissionPolicy
 from orbit.application.ports.account_repository import AccountRepository
 from orbit.application.ports.account_snapshot_repository import AccountSnapshotRepository
 from orbit.application.ports.execution_plan_repository import ExecutionPlanRepository
 from orbit.application.ports.run_config_repository import RunConfigRepository
+from orbit.application.portfolio_views import portfolio_global_stop_active
 from orbit.application.symbol_states import SymbolStateService
 from orbit.domain.planning.plans import DEFAULT_PLAN_TTL_SECONDS, generate_account_execution_plans
 from orbit.domain.strategy.engine import now_iso
@@ -162,22 +163,7 @@ class ExecutionPlanService:
 
     def portfolio_stopped(self, strategy: dict[str, Any]) -> bool:
         """组合级回撤：全部已同步账户的合计未实现盈亏触及 max_total_drawdown_pct → 全局 STOP。"""
-        body = strategy.get("strategy", strategy)
-        limit_pct = float(body.get("risk", {}).get("max_total_drawdown_pct") or 0)
-        if limit_pct <= 0:
-            return False
-        basis = 0.0
-        pnl = 0.0
-        for snapshot in self.snapshots.all().values():
-            if snapshot.get("status") != "synced":
-                continue
-            equity = float(snapshot.get("total_margin_balance") or snapshot.get("total_wallet_balance") or 0)
-            unrealized = float(snapshot.get("total_unrealized_profit") or 0)
-            basis += equity - unrealized
-            pnl += unrealized
-        if basis <= 0:
-            return False
-        return pnl < -(basis * limit_pct / 100.0)
+        return portfolio_global_stop_active(self.snapshots.all(), strategy)
 
     def _confirm_price_drift_pct(self, plan: dict[str, Any]) -> float | None:
         if self.symbol_states is None:

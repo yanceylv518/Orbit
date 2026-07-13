@@ -37,6 +37,14 @@ export async function postJson(path, payload = {}) {
   return { response, data };
 }
 
+export function resumeStoppedSymbolRequest(accountId, symbol, reason) {
+  return postJson("/api/admin/stopped-symbols/resume", {
+    account_id: accountId,
+    symbol,
+    reason,
+  });
+}
+
 export async function loginRequest(login, password) {
   const response = await fetch("/api/login", {
     method: "POST",

@@ -6,6 +6,32 @@ from typing import Any
 from orbit.domain.strategy.engine import d
 
 
+def portfolio_global_stop_active(
+    snapshots: dict[str, dict[str, Any]],
+    strategy: dict[str, Any],
+) -> bool:
+    """Return whether synced account PnL breaches the portfolio drawdown limit."""
+    body = strategy.get("strategy", strategy)
+    limit_pct = float(body.get("risk", {}).get("max_total_drawdown_pct") or 0)
+    if limit_pct <= 0:
+        return False
+
+    basis = 0.0
+    pnl = 0.0
+    for snapshot in snapshots.values():
+        if snapshot.get("status") != "synced":
+            continue
+        equity = float(
+            snapshot.get("total_margin_balance")
+            or snapshot.get("total_wallet_balance")
+            or 0
+        )
+        unrealized = float(snapshot.get("total_unrealized_profit") or 0)
+        basis += equity - unrealized
+        pnl += unrealized
+    return basis > 0 and pnl < -(basis * limit_pct / 100.0)
+
+
 class PortfolioViewService:
     """Builds account, position and strategy read models from runtime repositories."""
 
@@ -230,6 +256,9 @@ class PortfolioViewService:
             risk for risk in self.event_history.risk_events()
             if str(risk.get("risk_level") or "").lower() != "info"
         ]
+
+    def global_stop_active(self) -> bool:
+        return portfolio_global_stop_active(self.account_snapshots.all(), self.strategy)
 
     def admin_overview(self, symbols: list[dict[str, Any]]) -> dict[str, Any]:
         business_users = self.account_directory.business_users()

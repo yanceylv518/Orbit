@@ -1,5 +1,11 @@
 import { computed, reactive } from "vue";
-import { fetchAppState, loginRequest, logoutRequest, postJson } from "../api/client.js";
+import {
+  fetchAppState,
+  loginRequest,
+  logoutRequest,
+  postJson,
+  resumeStoppedSymbolRequest,
+} from "../api/client.js";
 
 export const store = reactive({
   state: null,
@@ -10,6 +16,7 @@ export const store = reactive({
   loginError: "",
   stateError: "",
   syncAllBusy: false,
+  recoveringStoppedSymbolId: "",
 });
 
 export const isAuthenticated = computed(() => Boolean(store.state?.auth?.authenticated));
@@ -21,6 +28,11 @@ export const users = computed(() => store.state?.admin_overview?.users || []);
 export const executionPlans = computed(() => store.state?.execution_plans || []);
 export const exchangeAccounts = computed(() => store.state?.exchange_accounts || []);
 export const accountSnapshots = computed(() => store.state?.binance_account_snapshots || {});
+export const riskState = computed(() => store.state?.risk_state || {
+  global_stop: false,
+  stopped_symbols: [],
+  blocked_decisions: [],
+});
 // 账户级生命周期状态（行情循环实时驱动，独立于执行计划存在）
 export const planSymbolStates = computed(() => store.state?.plan_symbol_states || []);
 export const marketFeed = computed(() => store.state?.market_feed || null);
@@ -222,6 +234,27 @@ export async function emergencyStop() {
 
 export async function resumeSystem() {
   return post("/api/admin/resume");
+}
+
+export async function resumeStoppedSymbol(accountId, symbol, reason) {
+  const targetId = `${accountId}::${symbol}`;
+  if (store.recoveringStoppedSymbolId) return false;
+  store.recoveringStoppedSymbolId = targetId;
+  try {
+    const { response, data } = await resumeStoppedSymbolRequest(accountId, symbol, reason);
+    if (!response.ok || data.ok === false || data.error) {
+      alert(data.error || "复核恢复失败。");
+      await loadState();
+      return false;
+    }
+    store.state = data;
+    return true;
+  } catch (error) {
+    alert(error instanceof Error ? error.message : "复核恢复请求失败。");
+    return false;
+  } finally {
+    store.recoveringStoppedSymbolId = "";
+  }
 }
 
 export async function saveBusinessUser(payload) {

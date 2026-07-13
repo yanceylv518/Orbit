@@ -1,6 +1,6 @@
 import unittest
 
-from orbit.application.portfolio_views import PortfolioViewService
+from orbit.application.portfolio_views import PortfolioViewService, portfolio_global_stop_active
 
 
 class FakeAccountDirectory:
@@ -113,6 +113,31 @@ class PortfolioViewServiceTests(unittest.TestCase):
         self.assertEqual(summary["risk_status"], "normal")
         self.assertEqual(overview["accounts"][0]["risk_status"], "normal")
         self.assertIsNone(overview["accounts"][0]["last_risk_at"])
+
+    def test_portfolio_global_stop_uses_synced_account_drawdown(self):
+        strategy = {"risk": {"max_total_drawdown_pct": 5}}
+        stopped = portfolio_global_stop_active({
+            "acc_001": {
+                "status": "synced",
+                "total_margin_balance": "940",
+                "total_unrealized_profit": "-60",
+            },
+            "ignored": {
+                "status": "sync_failed",
+                "total_margin_balance": "1",
+                "total_unrealized_profit": "-1000",
+            },
+        }, strategy)
+        healthy = portfolio_global_stop_active({
+            "acc_001": {
+                "status": "synced",
+                "total_margin_balance": "960",
+                "total_unrealized_profit": "-40",
+            },
+        }, strategy)
+
+        self.assertTrue(stopped)
+        self.assertFalse(healthy)
 
 
 if __name__ == "__main__":
