@@ -375,6 +375,45 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **验收结果**：新增 snapshot 风险结构、组合回撤、blocked 分类与账户权限过滤测试；后端全量 `207 tests OK`。`npm run check`、`npm run build`、前端 import/export 交叉检查、关键类名核对及 `git diff --check` 均通过。未改变 `plan_only` / `read_only` 或 live 默认开关。
 - **验收结论（Claude，2026-07-13）：后端通过；前端静态通过、构建待 Windows 复验。** 后端结构化投影正确：`risk_state`={`global_stop`（从真实账户快照重算组合回撤，与执行计划共用函数）、`stopped_symbols`、`info` 级 `blocked_decisions`}，业务用户按账户可见性过滤；后端 `206 passed / 1 skipped`（+3）。前端静态核对：模板四要素齐全（GLOBAL_STOP 横幅 / STOPPED 面板+管理员限定「复核恢复」/ 实质告警 / blocked 独立区）；恢复 modal 强制 reason（前端 + 后端双校验）；`percent/displayTime/openRecovery/closeRecovery/confirmRecovery` 均已定义，`resumeStoppedSymbol`/`riskState`↔appStore↔`resumeStoppedSymbolRequest`↔client 的 import/export 交叉验证干净；`can_resume_stopped_symbol=is_admin` 已进 auth 载荷，且真正安全边界是 endpoint 的 `Depends(require_admin)`（前端 flag 仅控显隐）。合并在 `main`（`03ecbfc`）。**验证边界（诚实）**：本机无 node，无法执行 `npm run check/build`，也无法验证实际渲染；Codex 声称的「npm 构建通过」在同一 Linux 无-node 环境下无法坐实，**按项目约定仍需 Windows 侧复验后在本文件登记**，在此之前前端构建视为待确认。
 
+## 策略可行性判定（第一优先级，2026-07-13，交付 Codex 执行）
+
+**定位**：在为策略投入运营基础设施（运行模式状态机、Pydantic、testnet 连续运行）之前，先把「这套策略到底能不能过盈利门」判定清楚。**本计划交由 Codex 执行，Claude 逐条验收。**
+
+### 前置事实（已确认，避免重复劳动）
+
+- 准入判据已在 `backend/src/orbit/domain/calibration/estimators.py`：`pi_required`（π>1−(a−c)/θ）、`wilson_interval`、单市场 C8（`admitted = total≥30 且 Wilson 下界 > pi_required`）、matrix 组合门（盈利市场过半 + 组合正期望）。**缺的是成文预注册标准与明确 verdict，不是判据本身。**
+- Funding + OHLC 路径已在 `domain/calibration/replay.py` 全量回放标定内（M6，含真实 funding 的 20 折 `-5.93`）。**「funding 进标定」已完成**；剩余的 funding 进实时引擎属运营范畴、不 gate 本判定。
+- 已缓存数据仅 `var/calibration/{BTCUSDT_15m,BTCUSDT_1h,ETHUSDT_1h}.json`。**扩多币种/多周期需先 `fetch_klines/fetch_funding`（打 fapi），本机 451——数据获取是 V2 的前置约束，须在 Binance 可达网络完成。**
+- 全套 replay 标定在当前几何下反复 FAIL，模块消融定位**趋势减仓几何为主要负贡献**，且参数族扫描未找到可部署配置。
+
+### 全局约束
+
+1. 独立提交、测试保持绿（基线 `206 passed / 1 skipped`）。
+2. **严守 walk-forward 纪律**：候选只在训练窗选择，验证窗完全隔离判定；禁止为让某次验证/回放通过而调参。
+3. 任何改变交易触发的几何改动一律 config 门控、默认 off，零默认行为变更。
+4. 不动 live 默认开关；结论（含负结果）如实写回本文件。
+
+### 任务 V1：成文预注册 testnet 准入协议 + 现状 verdict（优先级：高，标准先行）
+
+- **问题**：准入门散在 `estimators.py`/`replay_matrix.py` 代码里，没有一份成文、预注册的「过什么线才允许进 testnet」标准；历次 FAIL 也没有对齐到一个明确 bar。
+- **涉及文件**：新增 `docs/design/ADMISSION.md`；`PROJECT_PROGRESS.md`；只读引用 `estimators.py`/`replay_matrix.py`。
+- **改动**：成文钉死准入协议——① 市场×周期×折数矩阵与训练/验证窗定义；② 准入指标与阈值（单市场 C8 Wilson 下界 > `pi_required`、组合正期望、盈利市场过半、最差折回撤上限、必须含 funding+OHLC 路径）；③ walk-forward 纪律与「训练窗选参、验证窗判定」流程；④ 用**现有缓存数据**跑一次，产出对照该 bar 的**明确 go/no-go verdict**（预期 no-go，如实记录，不粉饰）。
+- **验收**：ADMISSION.md 成文、阈值明确可复算；附现状 verdict 与逐项指标对照；无调参。
+- **约束**：不改代码行为，纯标准 + 判定。
+
+### 任务 V2：趋势减仓几何重设计候选 + walk-forward 判定（优先级：高，真正的可行性实验）
+
+- **问题**：负期望根因指向趋势减仓几何，且**参数族扫描已证明「调参数」不够**——需要一次**结构性**改动尝试。
+- **前置**：若要纳入 BTC/ETH 之外市场或 ETH-15m，须先在 Binance 可达网络用 `fetch_klines --ohlc` / `fetch_funding` 补 `var/calibration/` 数据；本机 451 无法获取，缺数据时先用现有 BTC/ETH 缓存跑。
+- **涉及文件**：`backend/src/orbit/domain/strategy/actions.py`（趋势减仓 sizing）/ `lifecycle.py` / `rules/event_rules.py`（趋势减仓触发）；`config/config.sample.json`（新几何旋钮，默认 off/中性）；`backend/tools/replay_matrix.py`；`backend/tests/`。
+- **改动**：在训练窗内**先诊断**哪个几何杠杆最能改善期望（如：把「阶梯逐步减仓」换成「确认后单次决断减仓」、θ_t 放宽使减仓更晚更少、减仓与 excursion+速度双确认绑定、非对称只在强趋势侧减仓），**预注册一个**候选，config 门控、默认 off 实现；在验证窗对照 V1 的 bar 出 go/no-go。
+- **验收**：① 单元测试锁定新几何在开启/关闭下的分支行为，默认 off 零行为变更（现有测试绿）；② 训练窗诊断 + 预注册候选 + 验证窗判定数据写回本文件，明确 PASS/FAIL；③ 若 PASS，给出可进入运营链路的结论；若 FAIL，量化说明差距还有多大、下一个几何方向。
+- **约束**：默认 off、零默认行为变更；候选只在训练窗选、验证窗判定；不据验证集反推。
+
+### 决策门
+
+V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运营链路（运行模式状态机 → 账户健壮性 → Pydantic → testnet 连续运行 → 小资金 live，即 Codex 建议的 #1/#5/#2/#6）；不过 bar → 继续几何迭代或重新评估策略，**不提前投入运营基础设施**。
+
 ## 最近验证
 
 - `npm run check` 通过。
