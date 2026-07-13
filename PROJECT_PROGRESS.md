@@ -464,6 +464,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 ### 任务 F1：Funding 经济性必要条件筛查（优先级：高，便宜先行，只用现有 perp+funding 数据）
 
+- **预注册（运行前）**：筛查协议已冻结于 `docs/design/FUNDING_CARRY.md`。窗口为 1/3/7/14/30 天，双腿建平成本 `0.38%`、每日再平衡成本 `0.02%`；使用非重叠连续窗口和固定种子 10,000 次 bootstrap。只有同一窗口至少 3/4 市场各自 `>=30` 事件、成本后均值及 bootstrap 下界均大于零，且组合下界大于零，才允许 F2。此时尚未运行 F1 数值结果。
+
 - **目标**：在投入 spot 数据/执行前，先判定 funding 本身是否「大到且稳到」有可能覆盖 carry 成本——若连必要条件都不过，立即 NO-GO 停在此处，成本极低。
 - **涉及文件**：`backend/src/orbit/domain/calibration/estimators.py`（新增 `funding_carry_screen` 纯估计器）；`backend/tools/`（新增 CLI）；`docs/design/`（新增 `FUNDING_CARRY.md` 预注册协议）；`backend/tests/test_calibration.py`。
 - **改动（先预注册、后跑）**：① 在 `FUNDING_CARRY.md` 预注册筛查定义——持有窗口集合（如 1/3/7/14/30 天，换算成结算次数）、成本口径（建+平两腿往返 + 每次再平衡，保守值成文）、事件采样为非重叠、判据（累计收集 funding − 摊销成本后单次期望 > 0 且 Wilson/自助下界过零）；② 实现纯计算 `funding_carry_screen`：给定历史 funding 序列与价格，逐持有窗口计算「按当时实际 funding 方向持有 delta-neutral 一单位、每结算收 `|rate|×notional`、扣成本」的成本后期望与置信下界（此阶段假设方向腿被 spot 完美对冲、价格 P&L≈0，仅作**必要条件上界**——真实 basis/spot 成本在 F2 才计，须在文档标注「此为上界、真实会更差」）；③ 用现有 BTC/ETH（及 Codex 可获取的 BNB/SOL）funding 数据跑，产出 go/no-go。
