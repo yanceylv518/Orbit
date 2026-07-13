@@ -128,6 +128,10 @@ class StrategyEventRules:
                     "trend entry needs consecutive confirming ticks",
                     trend_entry_candidate_count=entry_count,
                     trend_entry_confirm_ticks=required_ticks,
+                    trend_entry_velocity_pct_per_tick=state.get("trend_entry_velocity_pct_per_tick", 0),
+                    trend_entry_min_velocity_pct_per_tick=cfg.get("trigger", {}).get(
+                        "trend_entry_min_velocity_pct_per_tick", 0,
+                    ),
                 )
 
         tick_count = int(state.get("tick_count", 0))

@@ -299,13 +299,16 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 4. **凡改变「哪些交易会触发」的改动，一律 config 门控、默认保持现有行为（neutral/off）**；是否翻默认值必须由**训练窗**（非验证窗）walk-forward 对照数据决定，禁止为让某次回放/验证集通过而调参（沿用 R2 纪律）。用 `backend/tools/calibrate_matrix.py` / `replay_matrix.py` 出对照，结论写回本文件。
 5. 每个任务完成后在本文件对应条目登记结果（含关键数据）。
 
-### 任务 S1：趋势进入补斜率/时间维度（优先级：高）
+### 任务 S1：趋势进入补斜率/时间维度（已完成，2026-07-13）
 
 - **问题**：`backend/src/orbit/domain/strategy/lifecycle.py` 的 `is_trend_entry_candidate`（70–76 行）只判断单点 `|move| ≥ θ_t(trend_confirm_move_pct_from_base)`；`event_rules.py` 的 `loss_side_reduction_rule`（120–131 行）用「连续 N=trend_entry_confirm_ticks 满足该条件」做进入确认。**level + tick 计数，没有速度/斜率维度**：慢速阴跌只要在 base 之外磨够 N 根，就与快速暴跌同等触发亏损腿减仓。标定已多次指出趋势减仓几何是主要负贡献来源，进入过松是其一。
 - **涉及文件**：`backend/src/orbit/domain/strategy/lifecycle.py`（`is_trend_entry_candidate`）；`config/config.sample.json`（`events.loss_side_reduction.trigger`）；`backend/tests/test_engine.py` / 新增 `test_lifecycle`。
 - **改动**：为进入候选增加一个**速度/ATR 归一化维度**——例如要求最近 `k` 根的位移速率（`|move| / 窗口根数`，或用 `high_since_base/low_since_base` 与 ATR 的比值）达到阈值。新增 config 旋钮（如 `trend_entry_min_velocity_pct_per_tick` 或 `trend_entry_atr_mult`），**默认取中性值使当前行为不变**（旋钮未配置或取 0 时退回现有纯 level+tick 逻辑）。
 - **验收**：① 单元测试——同样越过 θ_t 的「慢磨 N 根」与「快速 N 根」两条路径，在速度旋钮开启时前者不进入、后者进入；旋钮关闭（默认）时两者行为与现状一致（现有 `test_loss_side_reduction_after_trend_confirm` 等保持绿）。② 训练窗 walk-forward 对照：默认（off）vs 开启速度门 的 RANGE/TREND 触发数、训练净收益、盈利折，写回本文件；据训练窗结论决定是否翻默认。
 - **约束**：默认零行为变更；不据验证集选参。
+- **完成结果**：趋势进入新增最近 `k` 个 close tick 的绝对位移速度 `|P_t/P_{t-k}-1|×100/k`，由 `trend_entry_velocity_window_ticks` 与 `trend_entry_min_velocity_pct_per_tick` 控制；阈值缺省或为 `0` 时仍执行原有纯 level + 连续 tick 逻辑。速度历史独立于 Regime Gate 维护，并随初始化、存量状态补全和重锚正确建立或清零；阻断上下文同步暴露当前速度与要求阈值。新增慢磨/快速路径及默认中性行为测试。
+- **训练窗对照**：预注册候选为 off（`min_velocity=0`）与开启（`k=3`、`min_velocity=0.5%/tick`）。使用 BTCUSDT/ETHUSDT × 15m/1h 各 5 折，15m 训练/验证窗为 5760/1920 根、1h 为 2880/960 根，仅回放 20 个训练窗。off：RANGE 搬运 `207` 次、TREND 减仓 `469` 次、训练净收益 `+10.545 USDT`、盈利折 `10/20`、手续费/滑点 `3.583/1.433 USDT`；开启：RANGE 搬运 `233` 次、TREND 减仓 `431` 次、训练净收益 `+5.710 USDT`、盈利折 `10/20`、手续费/滑点 `3.659/1.464 USDT`。
+- **决策**：速度门确实过滤了 `38` 次趋势减仓，但训练净收益下降 `4.835 USDT`，盈利折无改善且成本略升，因此不翻默认值。保留该能力供后续按周期独立标定，样例配置默认 `trend_entry_min_velocity_pct_per_tick=0.0`，无 live 默认行为变化；未使用验证窗选参。
 
 ### 任务 S2：利润搬运可行性纳入加仓腿往返成本（优先级：中）
 
@@ -327,7 +330,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`196 tests OK`。
+- Python 单元测试及 API 契约测试：`198 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
@@ -361,9 +364,9 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 ### 策略逻辑已知缺口（详见技术方案 §21）
 
-- **趋势生命周期仍需继续完善（最高优先级）**：`StrategyLifecycle` 已接管事件后状态变更、恢复重锚、计数器清零、趋势退出候选计数和亏损腿重建；但趋势进入的持续确认、斜率/波动率维度、趋势退出参数的回测标定仍未完整落地。
+- **趋势生命周期仍需继续完善（最高优先级）**：`StrategyLifecycle` 已接管事件后状态变更、恢复重锚、计数器清零、趋势进入的持续确认与可选速度门、趋势退出候选计数和亏损腿重建；速度门训练对照不支持翻默认，趋势退出参数的回测标定仍未完整落地。
 - **风控剩余维度未补齐**：`RiskGuard` 已接入 `plan_only` 计划生成和 dry-run 引擎，`MAX_SYMBOL_DRAWDOWN` 会转为 `STOPPED` 拆对冲全平，gross 超限会进入 `ONLY_REDUCE`；但组合级回撤、C7 自融资账本、快照新鲜度/暂停态仍未落地。
-- **趋势确认进入条件仍无斜率/时间维度**：趋势退出已有连续 tick 确认，但进入 TREND 仍主要依赖相对 base 的单点位移；慢速阴跌与暴跌仍可能被同等对待。
+- **趋势确认速度门默认关闭**：进入 TREND 已支持最近 `k` 个 close tick 的位移速度门；首个训练候选降低了趋势触发但损害净收益，因此默认保持中性，后续需按周期独立标定（S1 已完成）。
 - **利润搬运口径待澄清**：`restore_loss_side_only_to_base=true` 且亏损腿已到 base 时，整次搬运（含减盈利腿止盈）被跳过；「用利润恢复亏损腿」是仓位定量口径而非资金划转。
 - **成本项待补**：Funding 在失衡对冲中是方向性成本（当前恒为 0）；高频小额搬运有手续费 churn 风险，`min_net_profit` 应覆盖下一次反向平仓成本。
 - **Regime Gate 审查发现（2026-07-13，修复计划见上方「Regime Gate 审查修复计划」）**：

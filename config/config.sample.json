@@ -138,6 +138,8 @@
             "priority": 20,
             "trigger": {
               "trend_confirm_move_pct_from_base": 4.0,
+              "trend_entry_velocity_window_ticks": 3,
+              "trend_entry_min_velocity_pct_per_tick": 0.0,
               "reduce_step_pct": 1.0
             },
             "sizing": {

@@ -39,6 +39,7 @@ class StrategyLifecycle:
             self.apply_position_recovery(state, price, decision)
 
     def update_trend_tracking(self, state: dict[str, Any], price: Decimal) -> None:
+        self.update_trend_entry_history(state, price)
         current = str(state.get("state") or "")
         if current == "TREND_UP":
             state["trend_extreme_price"] = str(max(
@@ -71,9 +72,35 @@ class StrategyLifecycle:
         base_price = dec(state.get("base_price"))
         if base_price <= ZERO or price <= ZERO:
             return False
-        theta_t = dec(self.events["loss_side_reduction"]["trigger"]["trend_confirm_move_pct_from_base"])
+        trigger = self.events["loss_side_reduction"]["trigger"]
+        theta_t = dec(trigger["trend_confirm_move_pct_from_base"])
         move_abs = abs((price / base_price - Decimal("1")) * Decimal("100"))
-        return theta_t > ZERO and move_abs >= theta_t
+        if theta_t <= ZERO or move_abs < theta_t:
+            return False
+
+        minimum_velocity = dec(trigger.get("trend_entry_min_velocity_pct_per_tick"))
+        if minimum_velocity <= ZERO:
+            return True
+        velocity = dec(state.get("trend_entry_velocity_pct_per_tick"))
+        history = state.get("trend_entry_price_history") or []
+        window = self.trend_entry_velocity_window_ticks()
+        return len(history) >= window + 1 and velocity >= minimum_velocity
+
+    def update_trend_entry_history(self, state: dict[str, Any], price: Decimal) -> None:
+        window = self.trend_entry_velocity_window_ticks()
+        history = [dec(item) for item in state.get("trend_entry_price_history", []) if dec(item) > ZERO]
+        history.append(price)
+        history = history[-(window + 1):]
+        state["trend_entry_price_history"] = [str(item) for item in history]
+        if len(history) < window + 1 or history[0] <= ZERO:
+            state["trend_entry_velocity_pct_per_tick"] = "0"
+            return
+        velocity = abs((price / history[0] - Decimal("1")) * Decimal("100")) / Decimal(window)
+        state["trend_entry_velocity_pct_per_tick"] = str(velocity)
+
+    def trend_entry_velocity_window_ticks(self) -> int:
+        trigger = self.events["loss_side_reduction"]["trigger"]
+        return max(1, int(trigger.get("trend_entry_velocity_window_ticks", 3)))
 
     def trend_entry_confirm_ticks(self) -> int:
         guard = self.events["loss_side_reduction"].get("guard", {})
@@ -183,6 +210,8 @@ class StrategyLifecycle:
         state["recovery_count_in_trend"] = 0
         state["trend_exit_candidate_count"] = 0
         state["trend_entry_candidate_count"] = 0
+        state["trend_entry_price_history"] = [str(price)]
+        state["trend_entry_velocity_pct_per_tick"] = "0"
         state["last_transfer_tick"] = -999999
         state["last_loss_reduce_tick"] = -999999
         state["last_transfer_price"] = None

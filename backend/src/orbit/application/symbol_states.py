@@ -149,6 +149,8 @@ class SymbolStateService:
         state.setdefault("recovery_count_in_trend", 0)
         state.setdefault("trend_exit_candidate_count", 0)
         state.setdefault("trend_entry_candidate_count", 0)
+        state.setdefault("trend_entry_price_history", [str(mark_price)])
+        state.setdefault("trend_entry_velocity_pct_per_tick", "0")
         state.setdefault("harvested_profit_usdt", "0")
         state.setdefault("averaging_spent_usdt", "0")
         state.setdefault("last_transfer_tick", -999999)

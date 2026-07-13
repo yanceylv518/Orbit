@@ -78,6 +78,8 @@ class EventEngine:
             "recovery_count_in_trend": 0,
             "trend_exit_candidate_count": 0,
             "trend_entry_candidate_count": 0,
+            "trend_entry_price_history": [str(price)],
+            "trend_entry_velocity_pct_per_tick": "0",
             "harvested_profit_usdt": "0",
             "averaging_spent_usdt": "0",
             "last_transfer_tick": -999999,

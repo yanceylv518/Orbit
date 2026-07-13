@@ -1,4 +1,5 @@
 import unittest
+from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -115,6 +116,36 @@ class StrategyLifecycleTest(unittest.TestCase):
 
         self.assertEqual(self.lifecycle.resolve_state(state), "TREND_UP")
 
+    def test_velocity_gate_distinguishes_slow_drift_from_fast_move(self):
+        strategy = deepcopy(self.strategy)
+        trigger = strategy["strategy"]["events"]["loss_side_reduction"]["trigger"]
+        trigger["trend_entry_velocity_window_ticks"] = 2
+        trigger["trend_entry_min_velocity_pct_per_tick"] = 0.5
+        lifecycle = StrategyLifecycle(strategy)
+
+        slow = self.state()
+        fast = self.state()
+        for price in (Decimal("103.5"), Decimal("104"), Decimal("104.1")):
+            lifecycle.update_trend_tracking(slow, price)
+        for price in (Decimal("100.5"), Decimal("104"), Decimal("104.1")):
+            lifecycle.update_trend_tracking(fast, price)
+
+        self.assertEqual(slow["trend_entry_candidate_count"], 0)
+        self.assertEqual(fast["trend_entry_candidate_count"], 2)
+        self.assertLess(Decimal(slow["trend_entry_velocity_pct_per_tick"]), Decimal("0.5"))
+        self.assertGreater(Decimal(fast["trend_entry_velocity_pct_per_tick"]), Decimal("0.5"))
+
+    def test_default_zero_velocity_gate_preserves_level_only_behavior(self):
+        slow = self.state()
+        fast = self.state()
+        for price in (Decimal("103"), Decimal("104"), Decimal("104.1")):
+            self.lifecycle.update_trend_tracking(slow, price)
+        for price in (Decimal("100.5"), Decimal("104"), Decimal("104.1")):
+            self.lifecycle.update_trend_tracking(fast, price)
+
+        self.assertEqual(slow["trend_entry_candidate_count"], 2)
+        self.assertEqual(fast["trend_entry_candidate_count"], 2)
+
     def state(self):
         return {
             "state": "BALANCED",
@@ -130,6 +161,9 @@ class StrategyLifecycleTest(unittest.TestCase):
             "loss_side_reduce_count_in_trend": 0,
             "recovery_count_in_trend": 0,
             "trend_exit_candidate_count": 0,
+            "trend_entry_candidate_count": 0,
+            "trend_entry_price_history": ["100"],
+            "trend_entry_velocity_pct_per_tick": "0",
             "last_transfer_tick": -999999,
             "last_loss_reduce_tick": -999999,
             "last_transfer_price": None,
