@@ -84,6 +84,7 @@ class EventEngine:
             "last_loss_reduce_tick": -999999,
             "last_transfer_price": None,
             "last_loss_reduce_price": None,
+            "last_block_code": None,
             "tick_count": 0,
             "regime": "UNKNOWN",
             "regime_stable": "UNKNOWN",
@@ -130,8 +131,10 @@ class EventEngine:
         risk_events: list[dict[str, Any]] = []
 
         if state.get("state") == "STOPPED":
+            self.clear_blocked_decision(state)
             risk_events = self.risk_events_for_state(state, price, risk_state)
         elif risk_state.symbol_stopped:
+            self.clear_blocked_decision(state)
             risk_events.append(self.execute_stop_unwind(state, price, risk_state))
         else:
             risk_events = self.risk_events_for_state(state, price, risk_state)
@@ -156,8 +159,10 @@ class EventEngine:
         strategy_events: list[dict[str, Any]] = []
         risk_state = self.current_risk_state(state, price)
         if state.get("state") == "STOPPED":
+            self.clear_blocked_decision(state)
             risk_events = self.risk_events_for_state(state, price, risk_state)
         elif risk_state.symbol_stopped:
+            self.clear_blocked_decision(state)
             risk_events = [self.execute_stop_unwind(state, price, risk_state)]
         else:
             risk_events = self.risk_events_for_state(state, price, risk_state)
@@ -446,6 +451,7 @@ class EventEngine:
             strategy=self.config,
         )
         if not decision.has_action:
+            self.clear_blocked_decision(state)
             return None, None
 
         rule_result = self.event_rules.evaluate(decision, state, price)
@@ -455,6 +461,7 @@ class EventEngine:
         if not rule_result.allowed:
             return None, self.blocked_decision_event(state, price, decision, rule_result, "event_rule")
 
+        self.clear_blocked_decision(state)
         action_set = self.strategy_action_set(state, price, decision)
         if action_set is None:
             return None, None
@@ -468,7 +475,10 @@ class EventEngine:
         decision: TargetExposureDecision,
         result: EventRuleResult | RegimeGateResult,
         source: str,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
+        if state.get("last_block_code") == result.code:
+            return None
+        state["last_block_code"] = result.code
         trigger = {
             **decision.context(),
             "price": f(price),
@@ -495,6 +505,9 @@ class EventEngine:
             }],
             "trades": [],
         }
+
+    def clear_blocked_decision(self, state: dict[str, Any]) -> None:
+        state["last_block_code"] = None
 
     def apply_trade(self, state: dict[str, Any], price: Decimal, action: str, qty: Decimal, event_type: str, reason: str) -> dict[str, Any]:
         qty = q(qty, QTY_STEP)

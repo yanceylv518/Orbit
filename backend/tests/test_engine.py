@@ -66,6 +66,18 @@ class EventEngineTest(unittest.TestCase):
             before,
         )
 
+        _, repeated_risks = engine.execute_paper_tick(updated, Decimal("61500"))
+        self.assertEqual(repeated_risks, [])
+        self.assertEqual(updated["last_block_code"], "REGIME_TRENDING_BLOCKED")
+
+        updated["regime"] = "RANGE"
+        engine.execute_paper_tick(updated, Decimal("60000"))
+        self.assertIsNone(updated["last_block_code"])
+        updated["regime"] = "TRENDING"
+        _, reentered_risks = engine.execute_paper_tick(updated, Decimal("61500"))
+        self.assertEqual(len(reentered_risks), 1)
+        self.assertEqual(reentered_risks[0]["risk_type"], "REGIME_TRENDING_BLOCKED")
+
     def test_loss_side_reduction_after_trend_confirm(self):
         # trend_entry_confirm_ticks=2：第一根确认 K 线只计数不动作
         state, events, risks = self.engine.on_tick(self.state, Decimal("62500"))
