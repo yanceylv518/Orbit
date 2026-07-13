@@ -36,6 +36,8 @@ class RiskContext:
     # C7 自融资账本：加亏损腿的预算只能来自已收割利润
     harvested_profit_usdt: Decimal = ZERO
     averaging_spent_usdt: Decimal = ZERO
+    drawdown_baseline_pnl_usdt: Decimal = ZERO
+    drawdown_budget_usdt: Decimal = ZERO
 
     @property
     def net_qty(self) -> Decimal:
@@ -52,6 +54,14 @@ class RiskContext:
     @property
     def total_pnl_usdt(self) -> Decimal:
         return self.realized_pnl + self.long_unrealized_pnl + self.short_unrealized_pnl
+
+    @property
+    def drawdown_pnl_usdt(self) -> Decimal:
+        return self.total_pnl_usdt - self.drawdown_baseline_pnl_usdt
+
+    @property
+    def effective_drawdown_budget_usdt(self) -> Decimal:
+        return self.drawdown_budget_usdt if self.drawdown_budget_usdt > ZERO else self.budget_usdt
 
 
 @dataclass(frozen=True)
@@ -126,13 +136,13 @@ class RiskGuardResult:
 def evaluate_risk(context: RiskContext, policy: RiskPolicy) -> RiskState:
     gross_limit = context.budget_usdt * policy.max_gross_exposure_ratio
     gross_exceeded = policy.max_gross_exposure_ratio > ZERO and context.gross_exposure_usdt > gross_limit
-    drawdown_limit = context.budget_usdt * pct(policy.max_symbol_drawdown_pct)
-    symbol_stopped = policy.max_symbol_drawdown_pct > ZERO and context.total_pnl_usdt < -drawdown_limit
+    drawdown_limit = context.effective_drawdown_budget_usdt * pct(policy.max_symbol_drawdown_pct)
+    symbol_stopped = policy.max_symbol_drawdown_pct > ZERO and context.drawdown_pnl_usdt < -drawdown_limit
     return RiskState(
         gross_exposure_usdt=context.gross_exposure_usdt,
         gross_limit_usdt=gross_limit,
         gross_exceeded=gross_exceeded,
-        total_pnl_usdt=context.total_pnl_usdt,
+        total_pnl_usdt=context.drawdown_pnl_usdt,
         drawdown_limit_usdt=drawdown_limit,
         symbol_stopped=symbol_stopped,
     )

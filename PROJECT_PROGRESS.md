@@ -352,13 +352,16 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 4. 前端改动本机无 node，`npm run check/build` 需 Windows 侧复验（沿用既有前端验证约定）。
 5. 完成后在本文件对应条目登记结果。
 
-### 任务 T1：per-symbol STOPPED 人工复核恢复流程（后端，优先级：高）
+### 任务 T1：per-symbol STOPPED 人工复核恢复流程（已完成，2026-07-13）
 
 - **问题**：见上「背景」——STOPPED 是永久死锁，无管理员复核恢复路径。
 - **涉及文件**：`backend/src/orbit/application/strategy_control.py`（或新 `SymbolRecoveryService`）；`backend/src/orbit/application/symbol_states.py` / `domain/strategy/lifecycle.py`（复用 `reanchor` 语义）；对应 FastAPI router（系统控制组）；`backend/src/orbit/application/snapshot_queries.py`（暴露 STOPPED 列表）；`backend/tests/`。
 - **改动**：新增管理员用例 `resume_stopped_symbol(account_id, symbol, *, actor, reason)`：① 校验该 `account_id::symbol` 当前确为 `STOPPED`，否则拒绝；② 以当前价重锚（复用 `StrategyLifecycle.reanchor` 语义）→ `BALANCED`，并**重置回撤基准**（如把 `budget_usdt` 基线对齐到当前 equity，使 `symbol_stopped` 不会因锁定的历史已实现亏损立即再触发），使该 symbol 下个 tick 可正常参与决策；③ 写 `admin_audit_logs`（before/after 状态、operator、reason）。snapshot 结构化暴露 `stopped_symbols`（`account_id::symbol`、回撤、已实现亏损、`stopped_at`）。
 - **验收**：应用层测试——① 恢复一个 STOPPED symbol 后其 `state` 回到 `BALANCED` 且下一 tick 不再被首分支短路（可正常生成动作）；② 恢复非 STOPPED symbol 被拒绝；③ 写入了管理员审计；④ 权限校验（非管理员拒绝）；⑤ snapshot 含 `stopped_symbols` 结构化字段。
 - **约束**：仅在显式管理员动作下恢复、必审计；不绕过 `plan_only`；不改交易实现的正常路径。
+- **完成结果**：新增独立 `SymbolRecoveryService` 与 `POST /api/admin/stopped-symbols/resume`。用例要求管理员、明确 `account_id::symbol` 和必填 reason；仅接受当前 `STOPPED` 状态。恢复时复用 `StrategyLifecycle.reanchor()` 回到 `BALANCED`，保留累计已实现盈亏和账户账务历史，以恢复时总 PnL 写入 `risk_drawdown_baseline_pnl_usdt`、恢复时权益写入 `risk_drawdown_budget_usdt`，后续 symbol 回撤只计算恢复后的新增损益；gross、C7、plan_only 和 live 开关不变。恢复动作写 `RESUME_STOPPED_SYMBOL` 管理员审计并进入持久化白名单。
+- **结构化投影**：STOP 拆平时记录 `stopped_at`；snapshot 新增 `stopped_symbols`，逐项包含 `account_id::symbol`、回撤金额/比例、已实现亏损、权益和停止时间，并按账户权限过滤。管理员权限能力新增 `can_resume_stopped_symbol`。
+- **验收结果**：管理员恢复后 state 为 `BALANCED`、风险基准归零且下一 tick 正常生成 `POSITION_REBUILD`；非 STOPPED、非管理员、空 reason 均拒绝且不写审计；API 成功路径返回恢复后的 snapshot。后端全量 `204 tests OK`，`npm run check` / `npm run build` 通过。
 
 ### 任务 T2：风控 UI 完整投影（前端，优先级：中，依赖 T1）
 
@@ -372,7 +375,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`200 tests OK`。
+- Python 单元测试及 API 契约测试：`204 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
@@ -407,7 +410,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 ### 策略逻辑已知缺口（详见技术方案 §21）
 
 - **趋势生命周期仍需继续完善（最高优先级）**：`StrategyLifecycle` 已接管事件后状态变更、恢复重锚、计数器清零、趋势进入的持续确认与可选速度门、趋势退出候选计数和亏损腿重建；速度门训练对照不支持翻默认，趋势退出参数的回测标定仍未完整落地。
-- **核心风控维度已补齐，恢复与投影待完善**：`RiskGuard` 已覆盖 symbol `STOPPED` 拆对冲全平、gross `ONLY_REDUCE`、组合级回撤 `GLOBAL_STOP` 和 C7 自融资账本；`plan_only` 已按 `snapshot_max_age_seconds` 拦截陈旧快照。剩余项是 STOP 后人工复核恢复流程、paper/live 组合态编排及完整 UI 投影。
+- **核心风控与 per-symbol 恢复已补齐，前端投影待完善**：`RiskGuard` 已覆盖 symbol `STOPPED` 拆对冲全平、gross `ONLY_REDUCE`、组合级回撤 `GLOBAL_STOP` 和 C7 自融资账本；`plan_only` 已按 `snapshot_max_age_seconds` 拦截陈旧快照，管理员可审计化恢复单个 STOPPED symbol（T1 已完成）。剩余项是 paper/live 组合态编排及完整 UI 投影（T2）。
 - **趋势确认速度门默认关闭**：进入 TREND 已支持最近 `k` 个 close tick 的位移速度门；首个训练候选降低了趋势触发但损害净收益，因此默认保持中性，后续需按周期独立标定（S1 已完成）。
 - **利润搬运口径已澄清**：新 Δ* 模型不再使用 `restore_loss_side_only_to_base`；减盈利腿独立生成，加亏损腿按剩余目标差额与自融资预算可选追加，亏损腿已达或超过 base 不会阻止止盈（S3 已完成）。
 - **成本项仍需标定**：Funding 在失衡对冲中是方向性成本（当前恒为 0）；利润搬运已支持可选的加仓腿往返成本覆盖，但首轮训练窗没有触发差异，默认保持关闭（S2 已完成）。
@@ -456,7 +459,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 1. 为 FastAPI routers 增加 Pydantic 请求模型、统一业务错误映射和更完整的账户级权限契约测试。
 2. 按 interval 独立标定趋势退出、速度门和恢复参数，不跨周期复用 tick 参数。
-3. 补 `STOPPED` 后人工复核恢复、paper/live 组合态编排，以及风控状态的完整 UI 投影。
+3. 完成 T2 风控 UI 投影，并继续补 paper/live 组合态编排。
 4. 接入 Funding 实际结算数据，并在交易成本或最低利润参数变化时重新标定利润搬运成本门。
 
 ### 前端页面重构

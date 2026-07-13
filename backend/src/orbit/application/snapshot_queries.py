@@ -92,6 +92,7 @@ class SnapshotQueryService:
             "storage": self.storage_status(),
             "market_feed": deepcopy(market_feed) if market_feed else None,
             "plan_symbol_states": self.plan_symbol_state_rows(symbol_states),
+            "stopped_symbols": self.stopped_symbol_rows(symbol_states),
         }
         if not current_user:
             return payload
@@ -103,6 +104,41 @@ class SnapshotQueryService:
             "permissions": self.permissions.capabilities(current_user),
         }
         return filtered
+
+    def stopped_symbol_rows(self, symbol_states: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        rows = []
+        for key, state in symbol_states.items():
+            if state.get("state") != "STOPPED":
+                continue
+            account_id = state.get("account_id") or state.get("exchange_account_id")
+            if not account_id:
+                continue
+            symbol = str(state.get("symbol") or key.split("::")[-1]).upper()
+            realized_pnl = float(state.get("realized_pnl") or 0)
+            unrealized_pnl = (
+                float(state.get("long_unrealized_pnl") or 0)
+                + float(state.get("short_unrealized_pnl") or 0)
+            )
+            baseline_pnl = float(state.get("risk_drawdown_baseline_pnl_usdt") or 0)
+            drawdown_usdt = max(0.0, -(realized_pnl + unrealized_pnl - baseline_pnl))
+            drawdown_budget = float(
+                state.get("risk_drawdown_budget_usdt")
+                or state.get("budget_usdt")
+                or 0
+            )
+            rows.append({
+                "id": f"{account_id}::{symbol}",
+                "account_id": account_id,
+                "symbol": symbol,
+                "state": "STOPPED",
+                "drawdown_usdt": drawdown_usdt,
+                "drawdown_pct": drawdown_usdt / drawdown_budget * 100 if drawdown_budget > 0 else 0.0,
+                "realized_pnl_usdt": realized_pnl,
+                "realized_loss_usdt": max(0.0, -realized_pnl),
+                "equity_usdt": float(state.get("equity") or 0),
+                "stopped_at": state.get("stopped_at"),
+            })
+        return sorted(rows, key=lambda item: (item["account_id"], item["symbol"]))
 
     def plan_symbol_state_rows(self, symbol_states: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         """账户级生命周期状态摘要：前端相位/Δ 可视化的直接数据源（脱离计划存在）。"""
@@ -183,6 +219,7 @@ class SnapshotQueryService:
                 "can_view_all_accounts": False,
                 "can_emergency_stop": False,
                 "can_resume_dry_run": False,
+                "can_resume_stopped_symbol": False,
                 "can_view_secret": False,
             },
         }
@@ -200,6 +237,10 @@ class SnapshotQueryService:
         ]
         filtered["plan_symbol_states"] = [
             row for row in payload.get("plan_symbol_states", [])
+            if row.get("account_id") in account_ids
+        ]
+        filtered["stopped_symbols"] = [
+            row for row in payload.get("stopped_symbols", [])
             if row.get("account_id") in account_ids
         ]
         filtered["execution_plans"] = [

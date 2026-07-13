@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 import sys
 
@@ -35,6 +36,100 @@ class AppStateAdminTest(unittest.TestCase):
         config_path.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
         app = create_app_state(str(config_path))
         return tmp, app
+
+    def install_stopped_symbol(self, app, *, state_name="STOPPED"):
+        account_id = "binance_dry_run_001"
+        symbol = "BTCUSDT"
+        state = app.engine.initialize_symbol(symbol, Decimal("60000"), Decimal("100"))
+        state.update({
+            "account_id": account_id,
+            "exchange_account_id": account_id,
+            "state": state_name,
+            "long_qty": "0",
+            "short_qty": "0",
+            "realized_pnl": "-20",
+            "last_price": "60000",
+            "stopped_at": "2026-07-13T10:00:00+00:00",
+        })
+        app.engine.mark_to_market(state, Decimal("60000"))
+        app.symbol_state_repository.replace_all({f"{account_id}::{symbol}": state})
+        return account_id, symbol
+
+    def test_admin_can_resume_stopped_symbol_and_reset_drawdown_baseline(self):
+        tmp, app = self.make_app()
+        try:
+            account_id, symbol = self.install_stopped_symbol(app)
+            before = app.snapshot(app.user_by_id("admin_001"))
+            self.assertEqual(before["stopped_symbols"][0]["id"], f"{account_id}::{symbol}")
+            self.assertEqual(before["stopped_symbols"][0]["drawdown_usdt"], 20.0)
+
+            result = app.resume_stopped_symbol(
+                account_id,
+                symbol,
+                actor="admin_001",
+                reason="已复核账户权益与持仓，允许重新运行。",
+            )
+
+            self.assertTrue(result["ok"])
+            recovered = app.symbol_state_repository.all()[f"{account_id}::{symbol}"]
+            self.assertEqual(recovered["state"], "BALANCED")
+            self.assertEqual(Decimal(recovered["risk_drawdown_baseline_pnl_usdt"]), Decimal("-20"))
+            self.assertEqual(Decimal(recovered["risk_drawdown_budget_usdt"]), Decimal("80"))
+            self.assertFalse(app.engine.current_risk_state(recovered, Decimal("60000")).symbol_stopped)
+
+            advanced, events, risks = app.engine.on_tick(recovered, Decimal("60000"))
+            self.assertTrue(events)
+            self.assertEqual(events[0]["event_type"], "POSITION_REBUILD")
+            self.assertFalse(any(item.get("risk_type") == "MAX_SYMBOL_DRAWDOWN" for item in risks))
+            self.assertNotEqual(advanced["state"], "STOPPED")
+
+            audit = app.audit_repository.all()[0]
+            self.assertEqual(audit["action_type"], "RESUME_STOPPED_SYMBOL")
+            self.assertEqual(audit["admin_user_id"], "admin_001")
+            self.assertEqual(audit["before_value"]["state"], "STOPPED")
+            self.assertEqual(audit["after_value"]["state"], "BALANCED")
+            self.assertEqual(app.snapshot(app.user_by_id("admin_001"))["stopped_symbols"], [])
+        finally:
+            tmp.cleanup()
+
+    def test_resume_stopped_symbol_rejects_non_stopped_state(self):
+        tmp, app = self.make_app()
+        try:
+            account_id, symbol = self.install_stopped_symbol(app, state_name="BALANCED")
+
+            result = app.resume_stopped_symbol(
+                account_id, symbol, actor="admin_001", reason="复核通过。",
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertIn("不是 STOPPED", result["error"])
+            self.assertEqual(app.audit_repository.all(), [])
+        finally:
+            tmp.cleanup()
+
+    def test_resume_stopped_symbol_requires_admin_and_reason(self):
+        tmp, app = self.make_app()
+        try:
+            account_id, symbol = self.install_stopped_symbol(app)
+
+            denied = app.resume_stopped_symbol(
+                account_id, symbol, actor="user_001", reason="尝试恢复。",
+            )
+            missing_reason = app.resume_stopped_symbol(
+                account_id, symbol, actor="admin_001", reason="",
+            )
+
+            self.assertFalse(denied["ok"])
+            self.assertIn("只有管理员", denied["error"])
+            self.assertFalse(missing_reason["ok"])
+            self.assertIn("必须填写原因", missing_reason["error"])
+            self.assertEqual(
+                app.symbol_state_repository.all()[f"{account_id}::{symbol}"]["state"],
+                "STOPPED",
+            )
+            self.assertEqual(app.audit_repository.all(), [])
+        finally:
+            tmp.cleanup()
 
     def test_admin_overview_and_emergency_stop(self):
         tmp, app = self.make_app(mock_data_enabled=True)

@@ -59,3 +59,23 @@ def resume(request: Request, payload: dict[str, Any], user: dict[str, Any] = Dep
     app = app_state(request)
     app.admin_resume(actor=user["id"], reason=payload.get("reason"))
     return app.snapshot(user)
+
+
+@router.post("/admin/stopped-symbols/resume")
+def resume_stopped_symbol(
+    request: Request,
+    payload: dict[str, Any],
+    user: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    app = app_state(request)
+    result = app.resume_stopped_symbol(
+        str(payload.get("account_id") or ""),
+        str(payload.get("symbol") or ""),
+        actor=user["id"],
+        reason=str(payload.get("reason") or ""),
+    )
+    if not result.get("ok"):
+        return result
+    snapshot = app.snapshot(user)
+    snapshot["recovered_symbol"] = result["recovered_symbol"]
+    return snapshot

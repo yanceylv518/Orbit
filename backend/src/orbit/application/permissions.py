@@ -35,6 +35,7 @@ class PermissionPolicy:
             "can_view_all_accounts": is_admin,
             "can_manage_users": is_admin,
             "can_emergency_stop": is_admin,
+            "can_resume_stopped_symbol": is_admin,
             "can_update_strategy": is_admin,
             "can_generate_report": is_admin,
             "can_update_account_run_config": True,

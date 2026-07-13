@@ -82,6 +82,9 @@ class EventEngine:
             "trend_entry_velocity_pct_per_tick": "0",
             "harvested_profit_usdt": "0",
             "averaging_spent_usdt": "0",
+            "risk_drawdown_baseline_pnl_usdt": "0",
+            "risk_drawdown_budget_usdt": str(budget_usdt),
+            "stopped_at": None,
             "last_transfer_tick": -999999,
             "last_loss_reduce_tick": -999999,
             "last_transfer_price": None,
@@ -233,6 +236,8 @@ class EventEngine:
             short_unrealized_pnl=d(state["short_unrealized_pnl"]),
             harvested_profit_usdt=d(state.get("harvested_profit_usdt") or 0),
             averaging_spent_usdt=d(state.get("averaging_spent_usdt") or 0),
+            drawdown_baseline_pnl_usdt=d(state.get("risk_drawdown_baseline_pnl_usdt") or 0),
+            drawdown_budget_usdt=d(state.get("risk_drawdown_budget_usdt") or state.get("budget_usdt") or 0),
         )
 
     def risk_policy(self) -> RiskPolicy:
@@ -288,6 +293,7 @@ class EventEngine:
             for item in guard_result.planned_actions
         ]
         state["state"] = "STOPPED"
+        state["stopped_at"] = now_iso()
 
         return {
             "id": self.uid("risk"),

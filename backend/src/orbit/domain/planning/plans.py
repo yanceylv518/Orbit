@@ -494,6 +494,8 @@ def symbol_risk_context(
         short_unrealized_pnl=short["pnl"],
         harvested_profit_usdt=dec(state.get("harvested_profit_usdt")),
         averaging_spent_usdt=dec(state.get("averaging_spent_usdt")),
+        drawdown_baseline_pnl_usdt=dec(state.get("risk_drawdown_baseline_pnl_usdt")),
+        drawdown_budget_usdt=dec(state.get("risk_drawdown_budget_usdt") or budget),
     )
 
 

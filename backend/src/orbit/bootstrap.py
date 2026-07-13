@@ -22,6 +22,7 @@ from orbit.application.snapshot_queries import SnapshotQueryService
 from orbit.application.strategy_config import StrategyEventConfigService
 from orbit.application.strategy_control import StrategyControlService
 from orbit.application.symbol_states import SymbolStateService
+from orbit.application.symbol_recovery import SymbolRecoveryService
 from orbit.infrastructure.credentials.account_connection import VaultAccountConnectionInspector
 from orbit.infrastructure.credentials.local_vault import LocalCredentialVault
 from orbit.infrastructure.exchange.binance import BinanceFuturesClient
@@ -63,6 +64,7 @@ class ApplicationContainer:
     daily_report_service: Any
     strategy_runtime_repository: Any
     strategy_control_service: Any
+    symbol_recovery_service: Any
     strategy_config_service: Any
     metric_repository: Any
     metric_service: Any
@@ -170,6 +172,12 @@ def build_application_container(
     daily_report_service = DailyReportService(DailyReportBuilder(root), report_repository)
     strategy_runtime_repository = InMemoryStrategyRuntimeRepository(strategy, runtime_state)
     strategy_control_service = StrategyControlService(strategy_runtime_repository, account_repository)
+    symbol_recovery_service = SymbolRecoveryService(
+        permissions,
+        account_repository,
+        symbol_state_repository,
+        engine,
+    )
     strategy_config_service = StrategyEventConfigService(strategy_runtime_repository)
     metric_repository = InMemoryMetricHistoryRepository(metric_history, symbol_metric_history)
     metric_service = MetricHistoryService(metric_repository)
@@ -283,6 +291,7 @@ def build_application_container(
         daily_report_service=daily_report_service,
         strategy_runtime_repository=strategy_runtime_repository,
         strategy_control_service=strategy_control_service,
+        symbol_recovery_service=symbol_recovery_service,
         strategy_config_service=strategy_config_service,
         metric_repository=metric_repository,
         metric_service=metric_service,

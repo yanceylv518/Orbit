@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 import sys
 
@@ -97,6 +98,49 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.json()["auth"]["authenticated"])
             self.assertEqual(response.json()["auth"]["current_user"]["id"], "admin_001")
+        finally:
+            tmp.cleanup()
+
+    async def test_admin_can_resume_stopped_symbol_through_api(self):
+        tmp, api = self.make_api()
+        try:
+            app = api.state.orbit
+            account_id = "binance_dry_run_001"
+            symbol = "BTCUSDT"
+            state = app.engine.initialize_symbol(symbol, Decimal("60000"), Decimal("100"))
+            state.update({
+                "account_id": account_id,
+                "exchange_account_id": account_id,
+                "state": "STOPPED",
+                "long_qty": "0",
+                "short_qty": "0",
+                "realized_pnl": "-20",
+                "last_price": "60000",
+                "stopped_at": "2026-07-13T10:00:00+00:00",
+            })
+            app.engine.mark_to_market(state, Decimal("60000"))
+            app.symbol_state_repository.replace_all({f"{account_id}::{symbol}": state})
+
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                await client.post(
+                    "/api/login",
+                    json={"login": "admin_001", "password": "admin123456"},
+                )
+                response = await client.post(
+                    "/api/admin/stopped-symbols/resume",
+                    json={
+                        "account_id": account_id,
+                        "symbol": symbol,
+                        "reason": "已复核账户权益与持仓。",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["recovered_symbol"]["state"], "BALANCED")
+            self.assertEqual(response.json()["stopped_symbols"], [])
         finally:
             tmp.cleanup()
 

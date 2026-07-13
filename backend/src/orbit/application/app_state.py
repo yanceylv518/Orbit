@@ -167,7 +167,7 @@ class AppState:
         self.execution_plans = list(payload.get("execution_plans", []))[:300]
         self.admin_audit_logs = [
             item for item in payload.get("admin_audit_logs", [])
-            if item.get("action_type") == "SYNC_BINANCE_ACCOUNT"
+            if item.get("action_type") in {"SYNC_BINANCE_ACCOUNT", "RESUME_STOPPED_SYMBOL"}
         ][:60]
 
     def reset(self) -> dict[str, Any]:
@@ -210,6 +210,30 @@ class AppState:
             self.audit_service.record(**audit)
             uow.commit()
             return self.snapshot()
+
+    def resume_stopped_symbol(
+        self,
+        account_id: str,
+        symbol: str,
+        *,
+        actor: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        with self.lock, self.app_uow as uow:
+            result = self.symbol_recovery_service.resume_stopped_symbol(
+                account_id,
+                symbol,
+                actor=actor,
+                actor_user=self.user_by_id(actor),
+                reason=reason,
+            )
+            audit = result.pop("_audit", None)
+            if not result.get("ok"):
+                return result
+            if audit:
+                self.audit_service.record(**audit)
+            uow.commit()
+            return result
 
     def control_state(self) -> dict[str, Any]:
         return self.strategy_control_service.state()
