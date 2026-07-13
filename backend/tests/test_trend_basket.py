@@ -10,9 +10,12 @@ from orbit.domain.calibration.history import FundingPoint, MarketCandle
 from orbit.domain.calibration.trend_basket import (
     trend_basket_data_quality,
     trend_basket_report,
+    trend_basket_robustness_report,
     trend_basket_tb3_walk_forward,
     trend_basket_walk_forward,
+    trend_ensemble_signal,
     trend_performance_summary,
+    trend_robustness_smoothness,
     trend_tb3_admission,
 )
 
@@ -77,6 +80,43 @@ class TrendBasketTest(unittest.TestCase):
         self.assertEqual(first["signals"]["DOWN"], -1)
         self.assertGreater(first["target_weights"]["UP"], 0)
         self.assertLess(first["target_weights"]["DOWN"], 0)
+
+    def test_equal_weight_ensemble_signal_preserves_disagreement_magnitude(self):
+        closes = [120.0, 110.0, 70.0, 80.0, 90.0, 100.0]
+
+        signal = trend_ensemble_signal(closes, 5, [1, 2, 3, 4, 5])
+
+        self.assertAlmostEqual(signal, 0.2)
+
+    def test_ensemble_disagreement_scales_target_weight(self):
+        prices = [120.0, 110.0, 70.0, 80.0, 90.0, 100.0, 101.0, 102.0, 103.0]
+        last_time = (len(prices) - 1) * DAY_MS
+        markets = {
+            name: (candles(prices), funding(last_time))
+            for name in ("A", "B")
+        }
+
+        single_rebalances = report(
+            markets,
+            momentum_lookback=1,
+            volatility_lookback=3,
+            rebalance_ticks=1,
+        )["rebalances"]
+        ensemble_rebalance = report(
+            markets,
+            momentum_lookback=1,
+            momentum_lookbacks=[1, 2, 3, 4, 5],
+            volatility_lookback=3,
+            rebalance_ticks=1,
+        )["rebalances"][0]
+        single_rebalance = next(
+            item for item in single_rebalances
+            if item["signal_time_ms"] == ensemble_rebalance["signal_time_ms"]
+        )
+        single = single_rebalance["target_weights"]["A"]
+        ensemble = ensemble_rebalance["target_weights"]["A"]
+
+        self.assertAlmostEqual(abs(ensemble / single), 0.2)
 
     def test_inverse_volatility_gives_quieter_market_more_weight(self):
         volatile = price_path([0.05, -0.01, 0.05, -0.01] * 12)
@@ -424,6 +464,99 @@ class TrendBasketTest(unittest.TestCase):
                 min_markets=2,
                 min_span_days=1,
             )
+
+    def test_robustness_smoothness_accepts_supported_neighbors_and_rejects_spike(self):
+        def surface_item(lookback, rebalance, *, annualized=10.0, admitted=True):
+            return {
+                "id": f"mom{lookback}_reb{rebalance}",
+                "lookback_days": lookback,
+                "rebalance_days": rebalance,
+                "admitted": admitted,
+                "aggregate": {
+                    "total_net_return_pct": 20.0,
+                    "annualized_net_return_pct": annualized,
+                    "max_drawdown_pct": 15.0,
+                    "calmar": 0.8,
+                    "sortino": 1.0,
+                    "worst_rolling_return_pct": -5.0,
+                    "positive_rolling_window_ratio": 0.7,
+                    "max_drawdown_duration_months": 8.0,
+                },
+            }
+
+        surface = [
+            surface_item(28, 7),
+            surface_item(14, 7),
+            surface_item(56, 7),
+            surface_item(28, 3),
+            surface_item(28, 14),
+            surface_item(7, 7),
+        ]
+
+        smooth = trend_robustness_smoothness(surface)
+        surface[0] = surface_item(28, 7, annualized=25.0)
+        spiked = trend_robustness_smoothness(surface)
+
+        self.assertTrue(smooth["smooth"])
+        self.assertEqual(smooth["supportive_axis_count"], 4)
+        self.assertFalse(spiked["smooth"])
+        self.assertFalse(spiked["conditions"]["no_two_x_spike"])
+
+    def test_robustness_scan_has_18_cells_and_earlier_oos_ignores_future(self):
+        original = trending_markets(length=450)
+        changed = {}
+        for name, (market_candles, points) in original.items():
+            future_changed = [
+                MarketCandle(
+                    item.close_time_ms,
+                    item.close * 2,
+                    item.close * 2,
+                    item.close * 2,
+                    item.close * 2,
+                )
+                if item.close_time_ms >= 300 * DAY_MS else item
+                for item in market_candles
+            ]
+            changed[name] = (future_changed, points)
+        windows = [
+            {
+                "id": "WF1",
+                "oos_start_ms": 200 * DAY_MS,
+                "oos_end_ms": 299 * DAY_MS,
+            },
+            {
+                "id": "WF2",
+                "oos_start_ms": 300 * DAY_MS,
+                "oos_end_ms": 399 * DAY_MS,
+            },
+        ]
+        kwargs = {
+            "interval_ms": DAY_MS,
+            "min_markets": 2,
+            "min_span_days": 1,
+        }
+
+        before = trend_basket_robustness_report(
+            original, windows, **kwargs,
+        )
+        after = trend_basket_robustness_report(
+            changed, windows, **kwargs,
+        )
+
+        self.assertEqual(before["sensitivity_grid_count"], 18)
+        self.assertEqual(
+            before["ensemble"]["lookback_days"], [14, 28, 56, 84, 168],
+        )
+        self.assertEqual(
+            [
+                item["steps"][0]["report"]["total_net_return_pct"]
+                for item in before["sensitivity_surface"]
+            ],
+            [
+                item["steps"][0]["report"]["total_net_return_pct"]
+                for item in after["sensitivity_surface"]
+            ],
+        )
 
 
 if __name__ == "__main__":

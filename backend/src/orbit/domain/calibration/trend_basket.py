@@ -11,6 +11,22 @@ from orbit.domain.calibration.history import FundingPoint, MarketCandle
 MarketHistory = tuple[Sequence[MarketCandle], Sequence[FundingPoint]]
 
 
+def trend_ensemble_signal(
+    closes: Sequence[float],
+    index: int,
+    lookbacks: Sequence[int],
+) -> float:
+    if not lookbacks or any(lookback < 1 for lookback in lookbacks):
+        raise ValueError("trend ensemble lookbacks must be positive")
+    if index < max(lookbacks) or index >= len(closes):
+        raise ValueError("insufficient prices for trend ensemble signal")
+    components = []
+    for lookback in lookbacks:
+        momentum = closes[index] / closes[index - lookback] - 1
+        components.append(1 if momentum > 0 else -1 if momentum < 0 else 0)
+    return sum(components) / len(components)
+
+
 def _longest_contiguous_run(times: Sequence[int], interval_ms: int) -> list[int]:
     best: list[int] = []
     current: list[int] = []
@@ -301,6 +317,7 @@ def trend_basket_report(
     drawdown_risk_scale: float = 0.5,
     rolling_window_days: int | None = None,
     rolling_step_days: int = 1,
+    momentum_lookbacks: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     if len(markets) < 2:
         raise ValueError("at least two markets are required")
@@ -316,6 +333,14 @@ def trend_basket_report(
         raise ValueError("rolling window days must be positive")
     if rolling_step_days < 1:
         raise ValueError("rolling step days must be positive")
+    effective_momentum_lookbacks = tuple(
+        momentum_lookbacks if momentum_lookbacks is not None else (momentum_lookback,)
+    )
+    if (
+        not effective_momentum_lookbacks
+        or any(value < 1 for value in effective_momentum_lookbacks)
+    ):
+        raise ValueError("momentum lookbacks must be positive")
 
     quality = trend_basket_data_quality(
         markets,
@@ -330,7 +355,7 @@ def trend_basket_report(
         for name in usable_names
     ))
     times = _longest_contiguous_run(sorted(common_times), interval_ms)
-    warmup = max(momentum_lookback, volatility_lookback)
+    warmup = max(max(effective_momentum_lookbacks), volatility_lookback)
     if len(times) <= warmup + 2:
         raise ValueError("insufficient common candle history for trend lookbacks")
 
@@ -452,8 +477,9 @@ def trend_basket_report(
             signals = {}
             annualized_volatility = {}
             for name in usable_names:
-                momentum = closes[name][index] / closes[name][index - momentum_lookback] - 1
-                signals[name] = 1 if momentum > 0 else -1 if momentum < 0 else 0
+                signals[name] = trend_ensemble_signal(
+                    closes[name], index, effective_momentum_lookbacks,
+                )
                 log_returns = [
                     math.log(closes[name][offset] / closes[name][offset - 1])
                     for offset in range(index - volatility_lookback + 1, index + 1)
@@ -530,6 +556,7 @@ def trend_basket_report(
     admitted = quality["admitted"] and performance["performance_bar_pass"]
     return {
         "momentum_lookback": momentum_lookback,
+        "momentum_lookbacks": list(effective_momentum_lookbacks),
         "volatility_lookback": volatility_lookback,
         "rebalance_ticks": rebalance_ticks,
         "target_portfolio_vol": target_portfolio_vol,
@@ -940,4 +967,254 @@ def trend_basket_tb3_walk_forward(
         },
         "admitted": admitted,
         "verdict": "TB3_PASS" if admitted else "TB3_FAIL",
+    }
+
+
+def trend_robustness_smoothness(
+    sensitivity_surface: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    by_config = {
+        (int(item["lookback_days"]), int(item["rebalance_days"])): item
+        for item in sensitivity_surface
+    }
+    required = {
+        (28, 7), (14, 7), (56, 7), (28, 3), (28, 14), (7, 7),
+    }
+    if not required.issubset(by_config):
+        raise ValueError("sensitivity surface is missing frozen smoothness cells")
+
+    def supportive(item: Mapping[str, Any]) -> tuple[bool, dict[str, bool]]:
+        aggregate = item["aggregate"]
+        conditions = {
+            "positive_net_return": aggregate["total_net_return_pct"] > 0,
+            "max_drawdown": aggregate["max_drawdown_pct"] <= 30,
+            "calmar": aggregate["calmar"] is not None and aggregate["calmar"] >= 0.40,
+            "sortino": aggregate["sortino"] is not None and aggregate["sortino"] >= 0.56,
+            "worst_rolling_12m": (
+                aggregate["worst_rolling_return_pct"] is not None
+                and aggregate["worst_rolling_return_pct"] >= -30
+            ),
+            "positive_rolling_12m_ratio": (
+                aggregate["positive_rolling_window_ratio"] is not None
+                and aggregate["positive_rolling_window_ratio"] >= 0.50
+            ),
+            "max_drawdown_duration": (
+                aggregate["max_drawdown_duration_months"] <= 18
+            ),
+        }
+        return all(conditions.values()), conditions
+
+    central = by_config[(28, 7)]
+    axis_keys = ((14, 7), (56, 7), (28, 3), (28, 14))
+    axis = [by_config[key] for key in axis_keys]
+    support_details = {}
+    for key in set(axis_keys) | {(7, 7)}:
+        is_supportive, conditions = supportive(by_config[key])
+        support_details[f"mom{key[0]}_reb{key[1]}"] = {
+            "supportive": is_supportive,
+            "conditions": conditions,
+        }
+    supportive_axis_count = sum(
+        support_details[f"mom{key[0]}_reb{key[1]}"]["supportive"]
+        for key in axis_keys
+    )
+    short_side_support = (
+        support_details["mom7_reb7"]["supportive"]
+        or support_details["mom14_reb7"]["supportive"]
+    )
+    central_aggregate = central["aggregate"]
+    median_neighbors = {
+        "annualized_net_return_pct": statistics.median(
+            item["aggregate"]["annualized_net_return_pct"] for item in axis
+        ),
+        "calmar": statistics.median(
+            item["aggregate"]["calmar"] for item in axis
+            if item["aggregate"]["calmar"] is not None
+        ),
+        "sortino": statistics.median(
+            item["aggregate"]["sortino"] for item in axis
+            if item["aggregate"]["sortino"] is not None
+        ),
+    }
+    spike_ratios = {}
+    no_two_x_spike = True
+    for name, neighbor_median in median_neighbors.items():
+        central_value = central_aggregate[name]
+        ratio = (
+            central_value / neighbor_median
+            if central_value is not None and neighbor_median > 0
+            else math.inf
+        )
+        spike_ratios[name] = ratio
+        no_two_x_spike = no_two_x_spike and ratio <= 2.0
+    conditions = {
+        "central_tb3_pass": bool(central["admitted"]),
+        "axis_support": supportive_axis_count >= 3,
+        "short_side_support": short_side_support,
+        "no_two_x_spike": no_two_x_spike,
+    }
+    smooth = all(conditions.values())
+    return {
+        "central_id": central["id"],
+        "axis_neighbor_ids": [item["id"] for item in axis],
+        "supportive_axis_count": supportive_axis_count,
+        "short_side_support": short_side_support,
+        "support_details": support_details,
+        "median_axis_metrics": median_neighbors,
+        "central_to_axis_median_ratios": spike_ratios,
+        "conditions": conditions,
+        "smooth": smooth,
+        "verdict": "SMOOTH" if smooth else "SPIKE_OR_BOUNDARY_RISK",
+    }
+
+
+def trend_basket_robustness_report(
+    markets: Mapping[str, MarketHistory],
+    windows: Sequence[Mapping[str, int | str]],
+    *,
+    interval_ms: int,
+    sensitivity_lookback_days: Sequence[int] = (7, 14, 28, 56, 84, 168),
+    sensitivity_rebalance_days: Sequence[int] = (3, 7, 14),
+    ensemble_lookback_days: Sequence[int] = (14, 28, 56, 84, 168),
+    volatility_lookback_days: int = 28,
+    ensemble_rebalance_days: int = 7,
+    target_portfolio_vol: float = 0.10,
+    gross_cap: float = 1.0,
+    roundtrip_cost_pct: float = 0.14,
+    min_markets: int = 10,
+    min_span_days: int = 1_095,
+    min_funding_coverage: float = 0.99,
+) -> dict[str, Any]:
+    if not windows:
+        raise ValueError("TB-R windows are required")
+    previous_oos_end: int | None = None
+    for window in windows:
+        oos_start = int(window["oos_start_ms"])
+        oos_end = int(window["oos_end_ms"])
+        if oos_start >= oos_end:
+            raise ValueError("TB-R OOS start must precede end")
+        if previous_oos_end is not None and oos_start <= previous_oos_end:
+            raise ValueError("TB-R OOS windows must not overlap")
+        previous_oos_end = oos_end
+
+    def days_to_ticks(days: int) -> int:
+        duration_ms = days * 86_400_000
+        if days < 1 or duration_ms % interval_ms:
+            raise ValueError("TB-R days must align to the candle interval")
+        return duration_ms // interval_ms
+
+    quality = trend_basket_data_quality(
+        markets,
+        interval_ms=interval_ms,
+        min_markets=min_markets,
+        min_span_days=min_span_days,
+        min_funding_coverage=min_funding_coverage,
+    )
+    volatility_lookback = days_to_ticks(volatility_lookback_days)
+    report_args = {
+        "interval_ms": interval_ms,
+        "target_portfolio_vol": target_portfolio_vol,
+        "gross_cap": gross_cap,
+        "roundtrip_cost_pct": roundtrip_cost_pct,
+        "min_markets": min_markets,
+        "min_span_days": min_span_days,
+        "min_funding_coverage": min_funding_coverage,
+        "fold_days": 365,
+        "rolling_window_days": 365,
+        "rolling_step_days": 1,
+    }
+
+    def evaluate(
+        lookback_days: Sequence[int],
+        rebalance_days: int,
+    ) -> dict[str, Any]:
+        lookback_ticks = tuple(days_to_ticks(value) for value in lookback_days)
+        rebalance_ticks = days_to_ticks(rebalance_days)
+        steps = []
+        aggregate_returns: list[float] = []
+        for window in windows:
+            oos = trend_basket_report(
+                markets,
+                lookback_ticks[0],
+                volatility_lookback,
+                rebalance_ticks,
+                momentum_lookbacks=lookback_ticks,
+                evaluation_start_ms=int(window["oos_start_ms"]),
+                evaluation_end_ms=int(window["oos_end_ms"]),
+                **report_args,
+            )
+            admission = trend_tb3_admission(oos)
+            aggregate_returns.extend(oos["net_returns_pct"])
+            steps.append({
+                "id": str(window["id"]),
+                "oos_start_ms": int(window["oos_start_ms"]),
+                "oos_end_ms": int(window["oos_end_ms"]),
+                "report": oos,
+                "admission": admission,
+                "verdict": "PASS" if admission["admitted"] else "FAIL",
+            })
+        periods_per_year = 365 * 86_400_000 / interval_ms
+        rolling_window_periods = days_to_ticks(365)
+        aggregate = trend_performance_summary(
+            aggregate_returns,
+            periods_per_year=periods_per_year,
+            fold_periods=rolling_window_periods,
+            rolling_window_periods=rolling_window_periods,
+            rolling_step_periods=days_to_ticks(1),
+        )
+        aggregate_admission = trend_tb3_admission(aggregate)
+        admitted = (
+            quality["admitted"]
+            and all(step["admission"]["admitted"] for step in steps)
+            and aggregate_admission["admitted"]
+        )
+        return {
+            "lookback_days": list(lookback_days),
+            "rebalance_days": rebalance_days,
+            "steps": steps,
+            "aggregate_net_returns_pct": aggregate_returns,
+            "aggregate": aggregate,
+            "aggregate_admission": aggregate_admission,
+            "admitted": admitted,
+            "verdict": "PASS" if admitted else "FAIL",
+        }
+
+    sensitivity_surface = []
+    for lookback_days in sensitivity_lookback_days:
+        for rebalance_days in sensitivity_rebalance_days:
+            result = evaluate((lookback_days,), rebalance_days)
+            sensitivity_surface.append({
+                "id": f"mom{lookback_days}_reb{rebalance_days}",
+                **result,
+                "lookback_days": lookback_days,
+            })
+    smoothness = trend_robustness_smoothness(sensitivity_surface)
+
+    ensemble = evaluate(tuple(ensemble_lookback_days), ensemble_rebalance_days)
+    ensemble = {
+        "id": "equal_weight_multi_horizon",
+        **ensemble,
+    }
+    admitted = quality["admitted"] and ensemble["admitted"] and smoothness["smooth"]
+    return {
+        "evidence_level": "BACKTEST_CONFIRMATION",
+        "data_quality": quality,
+        "sensitivity_grid_count": len(sensitivity_surface),
+        "sensitivity_surface": sensitivity_surface,
+        "smoothness": smoothness,
+        "ensemble": ensemble,
+        "tb4_candidate": (
+            {
+                "signal": "equal_weight_multi_horizon",
+                "lookback_days": list(ensemble_lookback_days),
+                "volatility_lookback_days": volatility_lookback_days,
+                "target_portfolio_vol": target_portfolio_vol,
+                "rebalance_days": ensemble_rebalance_days,
+                "gross_cap": gross_cap,
+                "roundtrip_cost_pct": roundtrip_cost_pct,
+            }
+            if admitted else None
+        ),
+        "admitted": admitted,
+        "verdict": "TB_R_PASS" if admitted else "TB_R_FAIL",
     }
