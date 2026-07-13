@@ -446,6 +446,39 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运营链路（运行模式状态机 → 账户健壮性 → Pydantic → testnet 连续运行 → 小资金 live，即 Codex 建议的 #1/#5/#2/#6）；不过 bar → 继续几何迭代或重新评估策略，**不提前投入运营基础设施**。
 
+## Alpha 候选 F 系列：Funding Carry 审计（2026-07-13，交付 Codex 执行）
+
+承接 MODEL_REASSESSMENT：无条件锚点回归 alpha 已证伪，恢复策略开发前必须先有一个**成本后正期望、置信下界过零、可预注册**的独立 alpha（MODEL_REASSESSMENT §5）。第一个候选是 **Funding Carry（永续资金费套利）**——理由：funding 是真实、持续、可测量的现金流，不依赖「猜价格回归」；且已有 funding 数据与回放框架，审计成本低。**本计划交由 Codex 执行，Claude 逐条验收。**
+
+### 关键前提（必须写清，决定可审计性）
+
+- 真正的 delta-neutral carry 需要一条 **spot（或第二）腿**对冲方向敞口；当前系统是**纯 USDT 永续**。因此本系列**先用现有 perp+funding 数据做便宜的「必要条件筛查」（F1）**，通过后再补 spot 数据做完整两腿审计（F2）。**不在必要条件成立前建 spot 执行。**
+- M0 已知：约 22/32 图形组合「毛期望为正、被成本吃掉」，即成本(0.14%/往返)是主要杀手。Funding carry 的核心问题同样是「funding 是否大到、稳到能覆盖建/平/再平衡成本」。
+
+### 全局约束
+
+1. 独立提交、测试保持绿（基线 `215 passed / 1 skipped`）。
+2. 纯离线研究估计器（像 `horizon_reversion_report` 一样纯计算），不碰交易/live 开关。
+3. 严守 M0 §5：成本诚实、≥30 非重叠事件、成本后单次期望为正、Wilson 下界过零、参数在开新锁箱前冻结、不依赖恢复旧亏损腿。
+4. 结论（含负结果）如实写回本文件；FAIL 原样记录，禁止调阈值/窗/成本追求 PASS。
+
+### 任务 F1：Funding 经济性必要条件筛查（优先级：高，便宜先行，只用现有 perp+funding 数据）
+
+- **目标**：在投入 spot 数据/执行前，先判定 funding 本身是否「大到且稳到」有可能覆盖 carry 成本——若连必要条件都不过，立即 NO-GO 停在此处，成本极低。
+- **涉及文件**：`backend/src/orbit/domain/calibration/estimators.py`（新增 `funding_carry_screen` 纯估计器）；`backend/tools/`（新增 CLI）；`docs/design/`（新增 `FUNDING_CARRY.md` 预注册协议）；`backend/tests/test_calibration.py`。
+- **改动（先预注册、后跑）**：① 在 `FUNDING_CARRY.md` 预注册筛查定义——持有窗口集合（如 1/3/7/14/30 天，换算成结算次数）、成本口径（建+平两腿往返 + 每次再平衡，保守值成文）、事件采样为非重叠、判据（累计收集 funding − 摊销成本后单次期望 > 0 且 Wilson/自助下界过零）；② 实现纯计算 `funding_carry_screen`：给定历史 funding 序列与价格，逐持有窗口计算「按当时实际 funding 方向持有 delta-neutral 一单位、每结算收 `|rate|×notional`、扣成本」的成本后期望与置信下界（此阶段假设方向腿被 spot 完美对冲、价格 P&L≈0，仅作**必要条件上界**——真实 basis/spot 成本在 F2 才计，须在文档标注「此为上界、真实会更差」）；③ 用现有 BTC/ETH（及 Codex 可获取的 BNB/SOL）funding 数据跑，产出 go/no-go。
+- **验收**：① 单元测试锁定估计器（含成本扣减、非重叠、Wilson 下界）；② `FUNDING_CARRY.md` 预注册在跑数前冻结；③ 逐市场成本后期望/下界对照写回本文件，明确 PASS/FAIL；④ 明确标注这是**乐观上界**（未计 basis/spot 成本）。
+- **约束**：纯离线；不建 spot 执行；不据结果回调阈值。
+
+### 任务 F2（条件触发：仅当 F1 必要条件通过）：完整 perp+spot carry 审计
+
+- **前提**：F1 PASS 才启动；F1 FAIL 则不做 F2，直接把 Funding Carry 记为 NO-GO 并考虑其他 alpha 或停止。
+- **改动**：在 Binance 可达网络补 spot 价格数据（`fetch_*` 打 fapi，本机 451 无法获取——数据前置）；估计器计入两腿建/平/再平衡成本、basis（perp−spot）收敛/漂移、spot 腿费用；在**全新锁箱**上按 M0 §5 完整判据出 go/no-go。
+- **验收**：真实两腿 MTM 成本后期望、≥30 非重叠事件、Wilson 下界过零、全新锁箱、参数冻结；结论写回。
+- **约束**：同 F1；新锁箱数据在开箱前不得用于选参。
+
+**说明（诚实）**：Funding carry 天花板低、且加密 funding 常在平静期很小/围绕零波动——F1 很可能直接 NO-GO。但它便宜、可证伪快，且过了就是一个有结构支撑的真起点；不过也照样记为负结果、转下一个 alpha 或停止。
+
 ## 最近验证
 
 - `npm run check` 通过。
