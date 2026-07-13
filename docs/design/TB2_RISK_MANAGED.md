@@ -1,7 +1,7 @@
 # TB2 风险管理版趋势篮子预注册
 
 预注册时间：2026-07-14  
-状态：协议已冻结，尚未运行 TB2 overlay 或读取任何 TB2 OOS 结果
+状态：正式 walk-forward 已完成，TB2 FAIL；不进入 paper/testnet/live
 
 ## 1. 研究问题
 
@@ -96,3 +96,30 @@ overlay_weight_i(t) = base_target_weight_i(t) * risk_scale(t)
 - 预注册提交后才能运行正式 TB2；运行后只允许记录结果和修复不改变候选的实现错误；
 - 不修改 EventEngine、API、数据库、前端、策略运行配置或 live 默认开关；
 - TB2 PASS 最多允许进入更多 sleeve 组合研究或 paper 前向验证，不直接授权 testnet/live。
+
+## 8. 正式 walk-forward 结果（2026-07-14）
+
+正式运行复用了 TB1 已冻结的 12 市场输入及其 SHA-256，12/12 市场通过数据质量门。TB1 从 `2025-07-13 15:59:59.999 UTC` 开始的末 365 天锁箱被完整排除，没有进入 TB2 的训练、选择或 OOS 评分。
+
+### WF1
+
+WF1 expanding training 按冻结排序选中 `vol06_dd10`：训练年化净收益 `+10.556%`、Sharpe `0.755`、最大回撤 `10.664%`、盈利年度折 `1/1`。它与 `vol06_none` 的训练指标相同，最终按候选 ID 字典序决胜。
+
+紧随其后的 365 天 OOS 结果：
+
+| 指标 | `vol06_dd10` | TB1 10% 基线 | 差异 |
+|---|---:|---:|---:|
+| 年化净收益 | +23.390% | +40.196% | -16.806pp |
+| Sharpe | 1.371 | 1.387 | -0.016 |
+| 最大回撤 | 9.355% | 15.211% | 降低 5.856pp |
+| 盈利年度折 | 1/1 | 1/1 | — |
+
+WF1 OOS 判定为 PASS。但回撤节流触发次数为 `0`，因此虽然候选类型按协议记录为 `THROTTLED`，其实际行为完全等同于 `vol06_none`：这只是把目标波动从 10% 缩到 6% 的规模控制，Sharpe 基本不变，**没有证据证明回撤节流改善了收益/回撤形状**。
+
+### WF2 与最终判定
+
+WF2 expanding training 的 8 个候选均为正年化净收益，Sharpe 均高于 `0.5`，最大回撤均低于 `20%`；但每个候选的盈利年度折都只有 `1/2`，没有严格超过一半。训练池因此为空，按预注册纪律记为 `TRAINING_FAIL`，WF2 OOS 保持 `NOT_OPENED`，不得用该窗口补选候选。
+
+WF1 的已评分序列单独为正，不能替代预注册要求的两个完整 OOS 窗口。由于 WF2 未通过历史训练稳定性门，聚合证据不完整，最终 verdict 为 **`TB2_FAIL`**。本轮失败不再是回撤超过 20%，而是年度盈利稳定性不足；不得据此放宽“严格过半”门、删除亏损年度或打开 WF2 OOS。
+
+正式报告：`var/calibration/tb2_risk_managed_walk_forward.json`，实际文件 SHA-256 `9ef092c5f428182aaed19896c72933d9fdbf13fd43c523a77e04c043ea35e439`。首次 CLI 输出的 `53814bf5bc12ec7f0ea8da7b75f26a425af78608de56cb8264ca16b31ded2271` 是 Windows 换行转换前的内存文本哈希，不是落盘文件哈希；该审计字段已纠正，研究数值和 verdict 未改变。一次性运行标记：`var/research/tb2_walk_forward_run.json`。

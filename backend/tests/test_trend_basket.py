@@ -10,6 +10,7 @@ from orbit.domain.calibration.history import FundingPoint, MarketCandle
 from orbit.domain.calibration.trend_basket import (
     trend_basket_data_quality,
     trend_basket_report,
+    trend_basket_walk_forward,
     trend_performance_summary,
 )
 
@@ -120,6 +121,52 @@ class TrendBasketTest(unittest.TestCase):
             without_extra["funding_contribution_pct"]["UP"],
         )
 
+    def test_drawdown_throttle_scales_only_future_targets(self):
+        prices = [100, 101, 102, 103, 104, 90, 89, 88, 87, 86, 85, 84]
+        last_time = (len(prices) - 1) * DAY_MS
+        markets = {
+            name: (candles(prices), funding(last_time))
+            for name in ("A", "B")
+        }
+
+        result = report(
+            markets,
+            rebalance_ticks=1,
+            drawdown_threshold_pct=1,
+            drawdown_risk_scale=0.5,
+        )
+
+        self.assertEqual(result["rebalances"][0]["risk_scale"], 1.0)
+        throttled = [
+            item for item in result["rebalances"]
+            if item["risk_scale"] == 0.5
+        ]
+        self.assertTrue(throttled)
+        self.assertTrue(all(
+            item["drawdown_at_signal_pct"] >= 1 for item in throttled
+        ))
+        self.assertEqual(result["throttle_trigger_count"], len(throttled))
+
+    def test_evaluation_window_resets_drawdown_state(self):
+        prices = [100, 101, 102, 103, 104, 90, 89, 88, 90, 92, 94, 96]
+        last_time = (len(prices) - 1) * DAY_MS
+        markets = {
+            name: (candles(prices), funding(last_time))
+            for name in ("A", "B")
+        }
+
+        result = report(
+            markets,
+            rebalance_ticks=1,
+            evaluation_start_ms=8 * DAY_MS,
+            drawdown_threshold_pct=1,
+            drawdown_risk_scale=0.5,
+        )
+
+        first = result["rebalances"][0]
+        self.assertEqual(first["risk_scale"], 1.0)
+        self.assertEqual(first["drawdown_at_signal_pct"], 0.0)
+
     def test_future_prices_do_not_change_first_signal_or_target(self):
         original = trending_markets()
         altered = {}
@@ -176,6 +223,85 @@ class TrendBasketTest(unittest.TestCase):
         self.assertFalse(quality["interval_admitted"])
         self.assertFalse(quality["admitted"])
         self.assertEqual(result["verdict"], "DATA_LIMITED_NON_CONCLUSIVE")
+
+    def test_walk_forward_selection_does_not_read_future_prices(self):
+        original = trending_markets(length=70)
+        changed = {}
+        cutoff = 40 * DAY_MS
+        for name, (market_candles, points) in original.items():
+            future_changed = [
+                MarketCandle(
+                    item.close_time_ms,
+                    item.close * 3,
+                    item.close * 3,
+                    item.close * 3,
+                    item.close * 3,
+                )
+                if item.close_time_ms >= cutoff else item
+                for item in market_candles
+            ]
+            changed[name] = (future_changed, points)
+        candidates = [
+            {"id": "vol06_none", "target_portfolio_vol": 0.06},
+            {"id": "vol08_none", "target_portfolio_vol": 0.08},
+        ]
+        windows = [{
+            "id": "WF1",
+            "training_end_ms": 29 * DAY_MS,
+            "oos_start_ms": 30 * DAY_MS,
+            "oos_end_ms": 39 * DAY_MS,
+        }]
+        kwargs = {
+            "interval_ms": DAY_MS,
+            "momentum_lookback": 3,
+            "volatility_lookback": 3,
+            "rebalance_ticks": 5,
+            "min_markets": 2,
+            "min_span_days": 1,
+            "fold_days": 5,
+        }
+
+        before = trend_basket_walk_forward(original, candidates, windows, **kwargs)
+        after = trend_basket_walk_forward(changed, candidates, windows, **kwargs)
+
+        self.assertEqual(
+            before["steps"][0]["selected_candidate"],
+            after["steps"][0]["selected_candidate"],
+        )
+        self.assertTrue(all(
+            item["report"]["evaluation_end_ms"] <= 29 * DAY_MS
+            for item in before["steps"][0]["training_candidates"]
+        ))
+
+    def test_walk_forward_rejects_overlapping_oos_windows(self):
+        candidates = [{"id": "vol06_none", "target_portfolio_vol": 0.06}]
+        windows = [
+            {
+                "id": "WF1",
+                "training_end_ms": 10,
+                "oos_start_ms": 20,
+                "oos_end_ms": 40,
+            },
+            {
+                "id": "WF2",
+                "training_end_ms": 30,
+                "oos_start_ms": 40,
+                "oos_end_ms": 50,
+            },
+        ]
+
+        with self.assertRaisesRegex(ValueError, "must not overlap"):
+            trend_basket_walk_forward(
+                trending_markets(),
+                candidates,
+                windows,
+                interval_ms=DAY_MS,
+                momentum_lookback=3,
+                volatility_lookback=3,
+                rebalance_ticks=5,
+                min_markets=2,
+                min_span_days=1,
+            )
 
 
 if __name__ == "__main__":

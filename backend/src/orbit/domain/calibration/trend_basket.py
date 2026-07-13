@@ -191,6 +191,8 @@ def trend_basket_report(
     min_span_days: int = 1_095,
     min_funding_coverage: float = 0.99,
     fold_days: int = 365,
+    drawdown_threshold_pct: float | None = None,
+    drawdown_risk_scale: float = 0.5,
 ) -> dict[str, Any]:
     if len(markets) < 2:
         raise ValueError("at least two markets are required")
@@ -198,6 +200,10 @@ def trend_basket_report(
         raise ValueError("trend lookbacks, rebalance ticks, and interval must be positive")
     if target_portfolio_vol <= 0 or gross_cap <= 0 or roundtrip_cost_pct < 0:
         raise ValueError("trend risk and cost settings are invalid")
+    if drawdown_threshold_pct is not None and not 0 < drawdown_threshold_pct < 100:
+        raise ValueError("drawdown threshold must be in (0, 100)")
+    if not 0 < drawdown_risk_scale <= 1:
+        raise ValueError("drawdown risk scale must be in (0, 1]")
 
     quality = trend_basket_data_quality(
         markets,
@@ -256,6 +262,9 @@ def trend_basket_report(
     total_cost_pct = 0.0
     price_contributions = {name: 0.0 for name in usable_names}
     funding_contributions = {name: 0.0 for name in usable_names}
+    risk_equity = 1.0
+    risk_peak = 1.0
+    current_drawdown_pct = 0.0
 
     for index in range(1, len(times)):
         previous_time = times[index - 1]
@@ -306,11 +315,20 @@ def trend_basket_report(
                 "gross_exposure": sum(abs(value) for value in target_weights.values()),
                 "turnover": turnover,
                 "cost_pct": cost_return * 100,
+                "drawdown_at_signal_pct": pending["drawdown_at_signal_pct"],
+                "risk_scale": pending["risk_scale"],
             })
             pending = None
 
         if evaluation_start <= current_time <= evaluation_end:
             net_returns_pct.append(period_return * 100)
+            risk_equity *= 1 + period_return
+            risk_peak = max(risk_peak, risk_equity)
+            current_drawdown_pct = (
+                (risk_peak - risk_equity) / risk_peak * 100
+                if risk_peak > 0
+                else 100.0
+            )
 
         can_schedule = (
             index >= warmup
@@ -351,12 +369,27 @@ def trend_basket_report(
                     target_weights = {
                         name: value * scale for name, value in target_weights.items()
                     }
+            overlay_scale = (
+                drawdown_risk_scale
+                if (
+                    drawdown_threshold_pct is not None
+                    and current_drawdown_pct >= drawdown_threshold_pct
+                )
+                else 1.0
+            )
+            if overlay_scale < 1:
+                target_weights = {
+                    name: value * overlay_scale
+                    for name, value in target_weights.items()
+                }
             pending = {
                 "signal_time_ms": current_time,
                 "execution_index": index + 1,
                 "signals": signals,
                 "annualized_volatility": annualized_volatility,
                 "target_weights": target_weights,
+                "drawdown_at_signal_pct": current_drawdown_pct,
+                "risk_scale": overlay_scale,
             }
 
     if net_returns_pct:
@@ -382,6 +415,8 @@ def trend_basket_report(
         "target_portfolio_vol": target_portfolio_vol,
         "gross_cap": gross_cap,
         "roundtrip_cost_pct": roundtrip_cost_pct,
+        "drawdown_threshold_pct": drawdown_threshold_pct,
+        "drawdown_risk_scale": drawdown_risk_scale,
         "evaluation_start_ms": evaluation_start,
         "evaluation_end_ms": evaluation_end,
         "data_quality": quality,
@@ -389,6 +424,9 @@ def trend_basket_report(
         "markets": usable_names,
         "rebalances": rebalances,
         "rebalance_count": len(rebalances),
+        "throttle_trigger_count": sum(
+            item["risk_scale"] < 1 for item in rebalances
+        ),
         "total_turnover": total_turnover,
         "total_transaction_cost_pct": total_cost_pct,
         "liquidation_turnover": liquidation_turnover,
@@ -403,4 +441,186 @@ def trend_basket_report(
             else "FAIL" if quality["admitted"]
             else "DATA_LIMITED_NON_CONCLUSIVE"
         ),
+    }
+
+
+def trend_basket_walk_forward(
+    markets: Mapping[str, MarketHistory],
+    candidates: Sequence[Mapping[str, Any]],
+    windows: Sequence[Mapping[str, int | str]],
+    *,
+    interval_ms: int,
+    momentum_lookback: int,
+    volatility_lookback: int,
+    rebalance_ticks: int,
+    gross_cap: float = 1.0,
+    roundtrip_cost_pct: float = 0.14,
+    min_markets: int = 10,
+    min_span_days: int = 1_095,
+    min_funding_coverage: float = 0.99,
+    fold_days: int = 365,
+) -> dict[str, Any]:
+    if not candidates or not windows:
+        raise ValueError("walk-forward candidates and windows are required")
+    candidate_ids = [str(candidate["id"]) for candidate in candidates]
+    if len(candidate_ids) != len(set(candidate_ids)):
+        raise ValueError("walk-forward candidate ids must be unique")
+
+    previous_oos_end: int | None = None
+    for window in windows:
+        training_end = int(window["training_end_ms"])
+        oos_start = int(window["oos_start_ms"])
+        oos_end = int(window["oos_end_ms"])
+        if not training_end < oos_start <= oos_end:
+            raise ValueError("training must end before its OOS window")
+        if previous_oos_end is not None and oos_start <= previous_oos_end:
+            raise ValueError("walk-forward OOS windows must not overlap")
+        previous_oos_end = oos_end
+
+    report_args = {
+        "interval_ms": interval_ms,
+        "gross_cap": gross_cap,
+        "roundtrip_cost_pct": roundtrip_cost_pct,
+        "min_markets": min_markets,
+        "min_span_days": min_span_days,
+        "min_funding_coverage": min_funding_coverage,
+        "fold_days": fold_days,
+    }
+    quality = trend_basket_data_quality(
+        markets,
+        interval_ms=interval_ms,
+        min_markets=min_markets,
+        min_span_days=min_span_days,
+        min_funding_coverage=min_funding_coverage,
+    )
+    steps = []
+    aggregate_returns: list[float] = []
+    for window in windows:
+        training_reports = []
+        for candidate in candidates:
+            training = trend_basket_report(
+                markets,
+                momentum_lookback,
+                volatility_lookback,
+                rebalance_ticks,
+                target_portfolio_vol=float(candidate["target_portfolio_vol"]),
+                evaluation_end_ms=int(window["training_end_ms"]),
+                drawdown_threshold_pct=candidate.get("drawdown_threshold_pct"),
+                drawdown_risk_scale=float(candidate.get("drawdown_risk_scale", 0.5)),
+                **report_args,
+            )
+            training_reports.append({
+                "candidate": dict(candidate),
+                "report": training,
+            })
+
+        eligible = [
+            item for item in training_reports
+            if item["report"]["admitted"]
+        ]
+        eligible.sort(key=lambda item: (
+            item["report"]["max_drawdown_pct"],
+            -item["report"]["sharpe"],
+            -item["report"]["annualized_net_return_pct"],
+            str(item["candidate"]["id"]),
+        ))
+        selected = eligible[0] if eligible else None
+        step: dict[str, Any] = {
+            "id": str(window["id"]),
+            "training_end_ms": int(window["training_end_ms"]),
+            "oos_start_ms": int(window["oos_start_ms"]),
+            "oos_end_ms": int(window["oos_end_ms"]),
+            "training_candidates": training_reports,
+            "selected_candidate": (
+                dict(selected["candidate"]) if selected else None
+            ),
+            "training_verdict": "PASS" if selected else "TRAINING_FAIL",
+            "oos": None,
+            "baseline": None,
+            "oos_verdict": "NOT_OPENED",
+            "overlay_class": None,
+            "sharpe_delta_vs_baseline": None,
+            "drawdown_reduction_vs_baseline_pp": None,
+        }
+        if selected is not None:
+            candidate = selected["candidate"]
+            oos = trend_basket_report(
+                markets,
+                momentum_lookback,
+                volatility_lookback,
+                rebalance_ticks,
+                target_portfolio_vol=float(candidate["target_portfolio_vol"]),
+                evaluation_start_ms=int(window["oos_start_ms"]),
+                evaluation_end_ms=int(window["oos_end_ms"]),
+                drawdown_threshold_pct=candidate.get("drawdown_threshold_pct"),
+                drawdown_risk_scale=float(candidate.get("drawdown_risk_scale", 0.5)),
+                **report_args,
+            )
+            baseline = trend_basket_report(
+                markets,
+                momentum_lookback,
+                volatility_lookback,
+                rebalance_ticks,
+                target_portfolio_vol=0.10,
+                evaluation_start_ms=int(window["oos_start_ms"]),
+                evaluation_end_ms=int(window["oos_end_ms"]),
+                drawdown_threshold_pct=None,
+                **report_args,
+            )
+            aggregate_returns.extend(oos["net_returns_pct"])
+            step.update({
+                "oos": oos,
+                "baseline": baseline,
+                "oos_verdict": "PASS" if oos["admitted"] else "FAIL",
+                "overlay_class": (
+                    "SCALE_ONLY"
+                    if candidate.get("drawdown_threshold_pct") is None
+                    else "THROTTLED"
+                ),
+                "sharpe_delta_vs_baseline": oos["sharpe"] - baseline["sharpe"],
+                "drawdown_reduction_vs_baseline_pp": (
+                    baseline["max_drawdown_pct"] - oos["max_drawdown_pct"]
+                ),
+            })
+        steps.append(step)
+
+    periods_per_year = 365 * 86_400_000 / interval_ms
+    fold_periods = max(1, round(fold_days * 86_400_000 / interval_ms))
+    aggregate = trend_performance_summary(
+        aggregate_returns,
+        periods_per_year=periods_per_year,
+        fold_periods=fold_periods,
+    )
+    scored_steps = [step for step in steps if step["oos"] is not None]
+    all_steps_pass = (
+        len(scored_steps) == len(steps)
+        and all(step["oos_verdict"] == "PASS" for step in steps)
+    )
+    admitted = quality["admitted"] and all_steps_pass and aggregate["performance_bar_pass"]
+    return {
+        "data_quality": quality,
+        "momentum_lookback": momentum_lookback,
+        "volatility_lookback": volatility_lookback,
+        "rebalance_ticks": rebalance_ticks,
+        "candidate_count": len(candidates),
+        "candidates": [dict(candidate) for candidate in candidates],
+        "steps": steps,
+        "aggregate_net_returns_pct": aggregate_returns,
+        "aggregate": aggregate,
+        "worst_oos": {
+            "return": min(
+                scored_steps,
+                key=lambda step: step["oos"]["annualized_net_return_pct"],
+            )["id"] if scored_steps else None,
+            "sharpe": min(
+                scored_steps,
+                key=lambda step: step["oos"]["sharpe"],
+            )["id"] if scored_steps else None,
+            "drawdown": max(
+                scored_steps,
+                key=lambda step: step["oos"]["max_drawdown_pct"],
+            )["id"] if scored_steps else None,
+        },
+        "admitted": admitted,
+        "verdict": "TB2_PASS" if admitted else "TB2_FAIL",
     }
