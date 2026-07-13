@@ -287,6 +287,42 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 - **regime 冷启动静默期**：累计到 `min_samples`(默认 20) 根收盘前，regime 为 `UNKNOWN`，而 `UNKNOWN / TRANSITION / TRENDING` 均禁止利润搬运与双腿重建。`interval=1h` 时新 symbol 约 20 小时内不会有搬运；`regime_price_history` 存入 state，重启不丢，但新初始化的 symbol 会重新预热。此为**预期行为**，paper/live 上线首日需据此设期望（见下方「策略逻辑已知缺口」）。
 
+## 策略逻辑下一批缺口修复计划（2026-07-13，交付 Codex 执行）
+
+承接 Regime Gate 修复计划，处理「策略逻辑已知缺口」里的下一批。**本计划交由 Codex 执行，每个任务完成后由 Claude 对其提交做 review。**
+
+### 全局约束（所有任务通用）
+
+1. 每个任务独立提交，conventional commits。
+2. 全程保持测试绿：`cd backend && python3 -m pytest tests/ -q`（当前基线 195 passed / 1 skipped）。
+3. 不改动 live 通道任何默认开关。
+4. **凡改变「哪些交易会触发」的改动，一律 config 门控、默认保持现有行为（neutral/off）**；是否翻默认值必须由**训练窗**（非验证窗）walk-forward 对照数据决定，禁止为让某次回放/验证集通过而调参（沿用 R2 纪律）。用 `backend/tools/calibrate_matrix.py` / `replay_matrix.py` 出对照，结论写回本文件。
+5. 每个任务完成后在本文件对应条目登记结果（含关键数据）。
+
+### 任务 S1：趋势进入补斜率/时间维度（优先级：高）
+
+- **问题**：`backend/src/orbit/domain/strategy/lifecycle.py` 的 `is_trend_entry_candidate`（70–76 行）只判断单点 `|move| ≥ θ_t(trend_confirm_move_pct_from_base)`；`event_rules.py` 的 `loss_side_reduction_rule`（120–131 行）用「连续 N=trend_entry_confirm_ticks 满足该条件」做进入确认。**level + tick 计数，没有速度/斜率维度**：慢速阴跌只要在 base 之外磨够 N 根，就与快速暴跌同等触发亏损腿减仓。标定已多次指出趋势减仓几何是主要负贡献来源，进入过松是其一。
+- **涉及文件**：`backend/src/orbit/domain/strategy/lifecycle.py`（`is_trend_entry_candidate`）；`config/config.sample.json`（`events.loss_side_reduction.trigger`）；`backend/tests/test_engine.py` / 新增 `test_lifecycle`。
+- **改动**：为进入候选增加一个**速度/ATR 归一化维度**——例如要求最近 `k` 根的位移速率（`|move| / 窗口根数`，或用 `high_since_base/low_since_base` 与 ATR 的比值）达到阈值。新增 config 旋钮（如 `trend_entry_min_velocity_pct_per_tick` 或 `trend_entry_atr_mult`），**默认取中性值使当前行为不变**（旋钮未配置或取 0 时退回现有纯 level+tick 逻辑）。
+- **验收**：① 单元测试——同样越过 θ_t 的「慢磨 N 根」与「快速 N 根」两条路径，在速度旋钮开启时前者不进入、后者进入；旋钮关闭（默认）时两者行为与现状一致（现有 `test_loss_side_reduction_after_trend_confirm` 等保持绿）。② 训练窗 walk-forward 对照：默认（off）vs 开启速度门 的 RANGE/TREND 触发数、训练净收益、盈利折，写回本文件；据训练窗结论决定是否翻默认。
+- **约束**：默认零行为变更；不据验证集选参。
+
+### 任务 S2：利润搬运可行性纳入加仓腿往返成本（优先级：中）
+
+- **问题**：`backend/src/orbit/domain/strategy/actions.py` 的 `inverse_skew_actions`（约 100–134 行）用 `projected.net_realized`（只扣**减盈利腿**这一腿的手续费）与 `min_net_profit_usdt(0.05)` 比较来判定搬运是否可行。但同一次搬运还会**加一条亏损腿**（`ADD_LOSS_SIDE`），这条腿将来平仓要再吃一轮手续费+滑点。当前判据没算这条，导致「减腿看着赚 0.05，但配对的加腿未来平仓成本 > 0.05」的高频小额搬运仍会通过——手续费 churn。
+- **涉及文件**：`backend/src/orbit/domain/strategy/actions.py`（`inverse_skew_actions`、`preview_reduce`）；`config/config.sample.json`（`events.profit_transfer.sizing`）；`backend/tests/`（actions/engine 测试）。
+- **改动**：可行性判据改为 `net_realized ≥ min_net_profit_usdt + 预估加仓腿往返成本`（加仓 notional × (taker_fee_rate×2 + slippage)）。用 config 旗标门控（如 `require_add_leg_roundtrip_coverage`，**默认 false 保持现有行为**）。
+- **验收**：① 单元测试——构造「减腿净利略高于 min_net_profit 但不足以覆盖加腿往返成本」的场景，旗标开启时搬运被拒、关闭时通过。② 训练窗对照：开/关旗标的搬运次数、手续费拖累、训练净收益，写回本文件。
+- **约束**：默认零行为变更；不据验证集选参。
+
+### 任务 S3：清理死配置 + 对账陈旧缺口（优先级：低，文档/清理）
+
+- **问题**：① `restore_loss_side_only_to_base` 配置键在新 Δ* 模型下已无任何代码引用（`grep` 确认 `exposure.py`/`actions.py` 均不读它），属死键；且「已知缺口」里「利润搬运口径待澄清（该键 + 整次搬运被跳过）」在新模型下已不成立——新模型 `inverse_skew_actions` 中减盈利腿恒执行、加亏损腿才是可选，止盈不会被跳过。② 「已知缺口」里「风控剩余维度未补齐（组合级回撤/C7/快照新鲜度）」与上文「实盘化推进」的「内核风控补全」（C7、`snapshot_max_age_seconds` 600s、`max_total_drawdown_pct`→GLOBAL_STOP 均已落地）自相矛盾。
+- **涉及文件**：`config/config.sample.json`；`PROJECT_PROGRESS.md`；如有其他 config 样例。
+- **改动**：删除或注释弃用 `restore_loss_side_only_to_base` 死键；补一条回归测试锁定「亏损腿已达/超 base 时，止盈（减盈利腿）仍会执行」；订正「已知缺口」两条陈旧描述（搬运口径、风控维度）与实际代码一致。
+- **验收**：新增回归测试通过；文档缺口与代码对齐、无自相矛盾；无 live 开关变更。
+- **约束**：纯清理与对账，不改变任何交易行为。
+
 ## 最近验证
 
 - `npm run check` 通过。
