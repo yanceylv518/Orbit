@@ -467,6 +467,7 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **预注册（运行前）**：筛查协议已冻结于 `docs/design/FUNDING_CARRY.md`。窗口为 1/3/7/14/30 天，双腿建平成本 `0.38%`、每日再平衡成本 `0.02%`；使用非重叠连续窗口和固定种子 10,000 次 bootstrap。只有同一窗口至少 3/4 市场各自 `>=30` 事件、成本后均值及 bootstrap 下界均大于零，且组合下界大于零，才允许 F2。此时尚未运行 F1 数值结果。
 - **完成结果**：BTC/ETH/BNB/SOL x 1/3/7/14/30 天共 20 个组合全部成本后负期望，通过市场均为 `0/4`。组合平均净 carry 分别为 `-0.3849/-0.3947/-0.4143/-0.4493/-0.5269%`，bootstrap 下界全部更低；最好的 SOL 30 天毛 Funding `+0.7090%` 仍低于冻结总成本 `0.98%`，且仅 12 个事件。
 - **决策**：**F1 FAIL / Funding Carry NO-GO，F2 不启动**。不获取 spot 锁箱、不建设 spot 执行，也不调整成本/窗口追求 PASS。完整结果见 `docs/design/FUNDING_CARRY.md`。
+- **验收结论（Claude，2026-07-13）：通过。** 纪律：预注册协议在跑数前冻结，evaluate 提交（`3410d99`）只追加结果、未回改窗口/成本/判据（`git show | grep '^-'` 为空）；成本口径诚实且明标乐观上界（`gross=Σ|rate|` 假设每次都收到 funding + spot 完美对冲，未计 basis/借币/翻向）。估计器核验 sound：`bootstrap_mean_interval`（固定种子 20260713、10000 重采样、2.5/97.5 分位）、Wilson、percentile 线性插值均正确；`27 passed`。**结论稳健**——乐观上界下 20/20 组合仍成本后为负、通过市场 0/4，真实 carry 只会更差；且长窗口(14/30d)事件数 25/12 本就不过 30 门。合理拒绝了「换 maker 费率/调窗重跑」。合并在 `main`（`a6ef735..3410d99`）。**验证边界（诚实）**：funding 数据 gitignored、本机 fapi 451，未重算数值；但 verdict 为 NO-GO（无造假动机）、乐观上界仍失败、估计器逻辑已验证，故结论可信。
 
 - **目标**：在投入 spot 数据/执行前，先判定 funding 本身是否「大到且稳到」有可能覆盖 carry 成本——若连必要条件都不过，立即 NO-GO 停在此处，成本极低。
 - **涉及文件**：`backend/src/orbit/domain/calibration/estimators.py`（新增 `funding_carry_screen` 纯估计器）；`backend/tools/`（新增 CLI）；`docs/design/`（新增 `FUNDING_CARRY.md` 预注册协议）；`backend/tests/test_calibration.py`。
