@@ -321,6 +321,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **完成结果**：`inverse_skew_actions` 在算出实际 `ADD_LOSS_SIDE` 数量后，按 `add_notional × (taker_fee_rate×2 + slippage_bps/10000)` 估算加仓腿往返成本；`require_add_leg_roundtrip_coverage=true` 时要求 `projected.net_realized ≥ min_net_profit_usdt + estimated_roundtrip_cost`，默认 `false` 时仍使用原门槛。action sizing 新增 `estimated_add_leg_roundtrip_cost` 与 `required_net_profit`，便于计划和事件审计。新增边界测试确认原门槛刚通过但成本覆盖不足时，仅开启旗标会拒绝搬运。
 - **训练窗对照**：使用与 S1 相同的 BTCUSDT/ETHUSDT × 15m/1h 共 20 个训练窗，仅切换 `require_add_leg_roundtrip_coverage`。off 与 on 均为搬运 `207` 次、训练净收益 `+10.545 USDT`、盈利折 `10/20`、手续费 `3.583 USDT`、滑点 `1.433 USDT`，四个市场逐项结果完全一致。
 - **决策**：当前 `min_net_profit_usdt=0.05` 的训练样本没有落入“原门槛通过但加腿成本覆盖不足”的边际区间，训练数据不支持翻默认；样例配置保持 `false`，零默认行为变化。该开关作为更严格的实盘成本保护保留，后续只有在交易成本或最小利润参数改变时再独立标定；未使用验证窗选参。
+- **验收结论（Claude，2026-07-13）：通过。** 判据 reorder 到 add_qty 之后（成本需 add_qty），off 时 `required=min_net_profit`、行为与原先一致（无副作用）；`test_profit_transfer_can_require_add_leg_roundtrip_coverage` 是有效载荷（净利介于 `min_net_profit` 与 `min_net_profit+往返成本` 之间，off 过、on 拒）。训练窗 off/on 逐市场完全一致——诚实反映当前 `min_net_profit=0.05` 下无样本落入边际带，符合「latent 保护、不翻默认」的结论。后端 `198 passed / 1 skipped`。合并在 `main`（`acefab9`）。**非阻断小提示（供未来翻默认时修正）**：`estimate_add_leg_roundtrip_cost` 用 `2×taker_fee + 1×slippage`，而真实往返（开+平加仓腿）滑点应计两腿，当前少算 1×slippage（`slippage_bps=2` 时约 0.02% notional，影响极小）；默认 off 不影响现状，若日后据成本标定开启，建议改为 `2×(taker_fee + slippage)`。
 
 ### 任务 S3：清理死配置 + 对账陈旧缺口（优先级：低，文档/清理）
 
