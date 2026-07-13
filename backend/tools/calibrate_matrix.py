@@ -15,6 +15,7 @@ from orbit.domain.calibration.estimators import (  # noqa: E402
     portfolio_calibration_summary,
     walk_forward_compare,
 )
+from orbit.domain.calibration.history import load_candles  # noqa: E402
 
 
 A_GRID = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
@@ -30,8 +31,7 @@ def parse_dataset(value: str) -> tuple[str, Path, int, int]:
 
 
 def load_closes(path: Path) -> list[float]:
-    rows = json.loads(path.read_text(encoding="utf-8"))
-    return [float(row[1]) for row in rows]
+    return [candle.close for candle in load_candles(path)]
 
 
 def main() -> None:

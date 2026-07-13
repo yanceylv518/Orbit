@@ -25,6 +25,9 @@ def strategy_variant(strategy_config: dict[str, Any], variant: str) -> dict[str,
         events["profit_transfer"]["sizing"]["use_realized_profit_ratio_for_loss_side"] = 0
     elif variant == "first_rung_loss_side_add_only":
         events["profit_transfer"]["sizing"]["first_rung_loss_side_add_only"] = True
+    elif variant == "bounded_counter_trend_cycle":
+        events["profit_transfer"]["sizing"]["first_rung_loss_side_add_only"] = True
+        events["loss_side_reduction"]["sizing"]["neutralize_counter_trend_skew_only"] = True
     elif variant == "no_profit_transfer":
         events["profit_transfer"]["enabled"] = False
     elif variant == "no_recovery":

@@ -219,6 +219,26 @@ class EventEngineReplayTest(unittest.TestCase):
             ["first_rung_loss_side_add_only"]
         )
 
+    def test_bounded_cycle_variant_combines_frozen_geometry_flags(self):
+        original = strategy()
+        configured = strategy_variant(original, "bounded_counter_trend_cycle")
+        events = configured["strategy"]["events"]
+
+        self.assertTrue(
+            events["profit_transfer"]["sizing"]["first_rung_loss_side_add_only"]
+        )
+        self.assertTrue(
+            events["loss_side_reduction"]["sizing"]["neutralize_counter_trend_skew_only"]
+        )
+        self.assertFalse(
+            original["strategy"]["events"]["profit_transfer"]["sizing"]
+            ["first_rung_loss_side_add_only"]
+        )
+        self.assertFalse(
+            original["strategy"]["events"]["loss_side_reduction"]["sizing"]
+            ["neutralize_counter_trend_skew_only"]
+        )
+
     def test_profit_transfer_only_disables_trend_reduction_and_recovery(self):
         configured = strategy_variant(strategy(), "profit_transfer_only")
         events = configured["strategy"]["events"]
