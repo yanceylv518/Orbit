@@ -15,6 +15,7 @@ from orbit.domain.calibration.estimators import (
     expected_value_per_bet,
     gated_estimate,
     geometry_scan,
+    horizon_reversion_report,
     max_drawdown,
     pi_required,
     portfolio_calibration_summary,
@@ -43,6 +44,38 @@ class EstimatorTest(unittest.TestCase):
     def test_expected_value_zero_at_required_pi(self):
         required = pi_required(1.5, 4.0, 0.14)
         self.assertAlmostEqual(expected_value_per_bet(required, 1.5, 4.0, 0.14), 0.0, places=9)
+
+    def test_horizon_report_marks_reverting_series_profitable(self):
+        report = horizon_reversion_report(
+            sine_series(cycles=20), 1.5, 4.0, 0.14, max_holding_ticks=24,
+        )
+
+        self.assertGreater(report["reversions"], 10)
+        self.assertGreater(report["expected_value_pct"], 0)
+        self.assertEqual(report["extensions"], 0)
+
+    def test_horizon_report_marks_monotone_extensions_unprofitable(self):
+        report = horizon_reversion_report(
+            monotone_series(ticks=400), 1.5, 4.0, 0.14, max_holding_ticks=24,
+        )
+
+        self.assertGreater(report["extensions"], 5)
+        self.assertLess(report["expected_value_pct"], 0)
+
+    def test_horizon_report_accounts_for_timeout_costs(self):
+        report = horizon_reversion_report(
+            [100, 102, 102.1, 102.2, 102.3],
+            1.5,
+            4.0,
+            0.14,
+            max_holding_ticks=2,
+        )
+
+        self.assertEqual(report["timeouts"], 1)
+        self.assertAlmostEqual(
+            report["gross_return_pct"] - report["cost_drag_pct"],
+            report["net_return_pct"],
+        )
 
     def test_sine_market_reverts_every_excursion(self):
         reversions, extensions = excursion_outcomes(sine_series(), a_pct=1.5, theta_pct=4.0)

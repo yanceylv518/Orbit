@@ -80,6 +80,92 @@ def expected_value_per_bet(pi: float, a_pct: float, theta_pct: float, cost_pct: 
     return pi * a_pct - (1 - pi) * (theta_pct - a_pct) - cost_pct
 
 
+def horizon_reversion_report(
+    closes: Sequence[float],
+    a_pct: float,
+    theta_pct: float,
+    cost_pct: float,
+    max_holding_ticks: int,
+    *,
+    reversion_pct: float = 0.25,
+) -> dict[str, Any]:
+    """Mark counter-trend excursions to market at a fixed holding horizon."""
+    if a_pct <= 0 or theta_pct <= a_pct:
+        raise ValueError("需要 0 < a < θ")
+    if max_holding_ticks < 1:
+        raise ValueError("max_holding_ticks must be positive")
+
+    anchor: float | None = None
+    active: tuple[int, float, int] | None = None
+    records: list[dict[str, Any]] = []
+    for index, raw_price in enumerate(closes):
+        price = float(raw_price)
+        if price <= 0:
+            continue
+        if anchor is None:
+            anchor = price
+            continue
+
+        move_pct = (price / anchor - 1) * 100
+        if active is None:
+            if abs(move_pct) >= a_pct:
+                direction = 1 if move_pct > 0 else -1
+                active = (direction, price, index)
+            continue
+
+        direction, entry_price, entry_index = active
+        directed_from_anchor = move_pct * direction
+        holding_ticks = index - entry_index
+        outcome = None
+        if directed_from_anchor >= theta_pct:
+            outcome = "extension"
+        elif directed_from_anchor <= reversion_pct:
+            outcome = "reversion"
+        elif holding_ticks >= max_holding_ticks:
+            outcome = "timeout"
+        if outcome is None:
+            continue
+
+        gross_return_pct = -direction * (price / entry_price - 1) * 100
+        records.append({
+            "outcome": outcome,
+            "holding_ticks": holding_ticks,
+            "gross_return_pct": gross_return_pct,
+            "net_return_pct": gross_return_pct - cost_pct,
+        })
+        anchor = price
+        active = None
+
+    net_returns = [float(record["net_return_pct"]) for record in records]
+    gross_returns = [float(record["gross_return_pct"]) for record in records]
+    profitable = sum(value > 0 for value in net_returns)
+    low, high = wilson_interval(profitable, len(records))
+    return {
+        "a_pct": a_pct,
+        "theta_pct": theta_pct,
+        "cost_pct": cost_pct,
+        "max_holding_ticks": max_holding_ticks,
+        "trades": len(records),
+        "reversions": sum(record["outcome"] == "reversion" for record in records),
+        "extensions": sum(record["outcome"] == "extension" for record in records),
+        "timeouts": sum(record["outcome"] == "timeout" for record in records),
+        "open_excursions": int(active is not None),
+        "profitable_trades": profitable,
+        "win_rate": profitable / len(records) if records else 0.0,
+        "win_rate_ci_low": low,
+        "win_rate_ci_high": high,
+        "average_holding_ticks": (
+            sum(int(record["holding_ticks"]) for record in records) / len(records)
+            if records else 0.0
+        ),
+        "gross_return_pct": sum(gross_returns),
+        "cost_drag_pct": len(records) * cost_pct,
+        "net_return_pct": sum(net_returns),
+        "expected_value_pct": sum(net_returns) / len(records) if records else 0.0,
+        "max_drawdown_pct": max_drawdown(net_returns),
+    }
+
+
 def estimate(
     closes: Sequence[float],
     a_pct: float,
