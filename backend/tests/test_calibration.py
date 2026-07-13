@@ -9,12 +9,14 @@ sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
 from orbit.domain.calibration.estimators import (
     aggregate_reports,
+    bootstrap_mean_interval,
     default_gate_config_grid,
     estimate,
     excursion_outcomes,
     expected_value_per_bet,
     gated_estimate,
     geometry_scan,
+    funding_carry_screen,
     horizon_reversion_report,
     max_drawdown,
     pi_required,
@@ -23,6 +25,7 @@ from orbit.domain.calibration.estimators import (
     walk_forward_compare,
     wilson_interval,
 )
+from orbit.domain.calibration.history import FundingPoint
 
 
 def sine_series(base=100.0, amplitude_pct=2.5, cycles=20, ticks_per_cycle=48):
@@ -37,6 +40,12 @@ def monotone_series(base=100.0, step_pct=0.2, ticks=400):
 
 
 class EstimatorTest(unittest.TestCase):
+    def funding_points(self, rates, *, start=0, step=8 * 3_600_000):
+        return [
+            FundingPoint(start + index * step, rate)
+            for index, rate in enumerate(rates)
+        ]
+
     def test_pi_required_matches_strategy_logic_formula(self):
         # STRATEGY_LOGIC §2：a=1.5, θ=4, c=0.14 → π_req = 1 − 1.36/4 = 0.66
         self.assertAlmostEqual(pi_required(1.5, 4.0, 0.14), 0.66, places=3)
@@ -76,6 +85,60 @@ class EstimatorTest(unittest.TestCase):
             report["gross_return_pct"] - report["cost_drag_pct"],
             report["net_return_pct"],
         )
+
+    def test_funding_carry_screen_uses_non_overlapping_windows_and_costs(self):
+        report = funding_carry_screen(
+            self.funding_points([0.001] * 7),
+            3,
+            entry_exit_cost_pct=0.1,
+            rebalance_cost_pct_per_day=0,
+            bootstrap_samples=100,
+        )
+
+        self.assertEqual(report["events"], 2)
+        self.assertEqual(report["discarded_points"], 1)
+        self.assertAlmostEqual(report["mean_gross_funding_pct"], 0.3)
+        self.assertAlmostEqual(report["mean_net_carry_pct"], 0.2)
+
+    def test_funding_carry_screen_does_not_cross_data_gaps(self):
+        first = self.funding_points([0.001] * 3)
+        second = self.funding_points([0.001] * 3, start=first[-1].funding_time_ms + 24 * 3_600_000)
+        report = funding_carry_screen(
+            first + second,
+            3,
+            entry_exit_cost_pct=0,
+            rebalance_cost_pct_per_day=0,
+            bootstrap_samples=100,
+        )
+
+        self.assertEqual(report["contiguous_runs"], 2)
+        self.assertEqual(report["events"], 2)
+
+    def test_funding_carry_screen_requires_sample_and_positive_lower_bound(self):
+        positive = funding_carry_screen(
+            self.funding_points([0.001] * 90),
+            3,
+            entry_exit_cost_pct=0.1,
+            rebalance_cost_pct_per_day=0,
+            bootstrap_samples=200,
+        )
+        sparse = funding_carry_screen(
+            self.funding_points([0.001] * 87),
+            3,
+            entry_exit_cost_pct=0.1,
+            rebalance_cost_pct_per_day=0,
+            bootstrap_samples=200,
+        )
+
+        self.assertTrue(positive["admitted"])
+        self.assertGreater(positive["bootstrap_mean_ci_low"], 0)
+        self.assertFalse(sparse["admitted"])
+
+    def test_bootstrap_mean_interval_is_deterministic(self):
+        first = bootstrap_mean_interval([0.1, 0.2, 0.3], samples=100, seed=7)
+        second = bootstrap_mean_interval([0.1, 0.2, 0.3], samples=100, seed=7)
+
+        self.assertEqual(first, second)
 
     def test_sine_market_reverts_every_excursion(self):
         reversions, extensions = excursion_outcomes(sine_series(), a_pct=1.5, theta_pct=4.0)

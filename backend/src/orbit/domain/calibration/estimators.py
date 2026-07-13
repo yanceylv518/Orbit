@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import math
+import random
+import statistics
 from typing import Any, Sequence
 
+from orbit.domain.calibration.history import FundingPoint
 from orbit.domain.strategy.regime import DEFAULT_REGIME_CONFIG, RANGE, RegimeGate
 
 """π̂ 估计与几何扫描（STRATEGY_LOGIC §2 / §10.1 的离线标定内核）。
@@ -163,6 +166,122 @@ def horizon_reversion_report(
         "net_return_pct": sum(net_returns),
         "expected_value_pct": sum(net_returns) / len(records) if records else 0.0,
         "max_drawdown_pct": max_drawdown(net_returns),
+    }
+
+
+def bootstrap_mean_interval(
+    values: Sequence[float],
+    *,
+    samples: int = 10_000,
+    seed: int = 20_260_713,
+) -> tuple[float, float]:
+    if samples < 1:
+        raise ValueError("bootstrap samples must be positive")
+    clean = [float(value) for value in values]
+    if not clean:
+        return 0.0, 0.0
+    rng = random.Random(seed)
+    size = len(clean)
+    means = sorted(sum(rng.choices(clean, k=size)) / size for _ in range(samples))
+    return percentile(means, 0.025), percentile(means, 0.975)
+
+
+def percentile(sorted_values: Sequence[float], quantile: float) -> float:
+    if not sorted_values:
+        return 0.0
+    position = (len(sorted_values) - 1) * quantile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return float(sorted_values[lower])
+    weight = position - lower
+    return float(sorted_values[lower]) * (1 - weight) + float(sorted_values[upper]) * weight
+
+
+def funding_carry_return_summary(
+    net_returns_pct: Sequence[float],
+    *,
+    bootstrap_samples: int = 10_000,
+    bootstrap_seed: int = 20_260_713,
+) -> dict[str, Any]:
+    returns = [float(value) for value in net_returns_pct]
+    profitable = sum(value > 0 for value in returns)
+    win_low, win_high = wilson_interval(profitable, len(returns))
+    mean_low, mean_high = bootstrap_mean_interval(
+        returns,
+        samples=bootstrap_samples,
+        seed=bootstrap_seed,
+    )
+    mean = sum(returns) / len(returns) if returns else 0.0
+    return {
+        "events": len(returns),
+        "profitable_events": profitable,
+        "win_rate": profitable / len(returns) if returns else 0.0,
+        "win_rate_ci_low": win_low,
+        "win_rate_ci_high": win_high,
+        "mean_net_carry_pct": mean,
+        "median_net_carry_pct": statistics.median(returns) if returns else 0.0,
+        "total_net_carry_pct": sum(returns),
+        "worst_window_pct": min(returns) if returns else 0.0,
+        "bootstrap_mean_ci_low": mean_low,
+        "bootstrap_mean_ci_high": mean_high,
+        "max_drawdown_pct": max_drawdown(returns),
+        "admitted": len(returns) >= 30 and mean > 0 and mean_low > 0,
+    }
+
+
+def funding_carry_screen(
+    funding_points: Sequence[FundingPoint],
+    window_settlements: int,
+    *,
+    entry_exit_cost_pct: float = 0.38,
+    rebalance_cost_pct_per_day: float = 0.02,
+    settlements_per_day: int = 3,
+    max_gap_ms: int = 12 * 3_600_000,
+    bootstrap_samples: int = 10_000,
+    bootstrap_seed: int = 20_260_713,
+) -> dict[str, Any]:
+    """Optimistic funding-only upper bound for a perfectly hedged carry."""
+    if window_settlements < 1 or settlements_per_day < 1:
+        raise ValueError("window_settlements and settlements_per_day must be positive")
+    if entry_exit_cost_pct < 0 or rebalance_cost_pct_per_day < 0:
+        raise ValueError("carry costs must not be negative")
+
+    ordered = sorted(funding_points, key=lambda point: point.funding_time_ms)
+    runs: list[list[FundingPoint]] = []
+    for point in ordered:
+        if not runs or point.funding_time_ms - runs[-1][-1].funding_time_ms > max_gap_ms:
+            runs.append([point])
+        else:
+            runs[-1].append(point)
+
+    holding_days = window_settlements / settlements_per_day
+    total_cost_pct = entry_exit_cost_pct + rebalance_cost_pct_per_day * holding_days
+    gross_returns = []
+    for run in runs:
+        for start in range(0, len(run) - window_settlements + 1, window_settlements):
+            window = run[start:start + window_settlements]
+            gross_returns.append(sum(abs(point.funding_rate) for point in window) * 100)
+    net_returns = [gross - total_cost_pct for gross in gross_returns]
+    summary = funding_carry_return_summary(
+        net_returns,
+        bootstrap_samples=bootstrap_samples,
+        bootstrap_seed=bootstrap_seed,
+    )
+    return {
+        "window_settlements": window_settlements,
+        "holding_days": holding_days,
+        "entry_exit_cost_pct": entry_exit_cost_pct,
+        "rebalance_cost_pct_per_day": rebalance_cost_pct_per_day,
+        "total_cost_pct": total_cost_pct,
+        "contiguous_runs": len(runs),
+        "discarded_points": sum(len(run) % window_settlements for run in runs),
+        "mean_gross_funding_pct": (
+            sum(gross_returns) / len(gross_returns) if gross_returns else 0.0
+        ),
+        "median_gross_funding_pct": statistics.median(gross_returns) if gross_returns else 0.0,
+        "net_returns_pct": net_returns,
+        **summary,
     }
 
 
