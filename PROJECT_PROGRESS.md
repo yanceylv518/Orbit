@@ -433,6 +433,13 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - BTC/ETH/BNB/SOL x 15m/1h x 1h/4h/8h/24h 共 32 个组合，**成本后正期望为 0/32**；最佳为 SOLUSDT 1h/24h，仍只有 `-0.046136%/次`。22/32 组合毛期望为正，但最高 `+0.093864%`，仍不足覆盖成本。
 - **决策**：当前无条件锚点回归收益假设不成立，策略进入研究暂停；停止 V5 式仓位几何开发，不进入 testnet/paper/live。平台型账户、快照、计划、风控和回放能力继续保留。恢复策略开发前必须先有成本后正期望且置信下界过零的独立 alpha，并使用全新锁箱。完整结论见 `docs/design/MODEL_REASSESSMENT.md`。
 
+### 验收结论（Claude，2026-07-13）：V1–V4 + M0 整批通过；策略研究暂停结论成立
+
+- **纪律（重点核验）**：ADMISSION.md 在候选验证前冻结阈值/矩阵/路径，并明文「FAIL 原样记录、禁止调窗/路径/成本/市场追求 PASS」。提交序列每个候选均「先 `docs: preregister`、后 `feat: evaluate`」；抽查 V2 evaluate 提交（`4446f71`）**未删改已冻结候选 spec，只追加结果**（`git show | grep '^-'` 为空）→ 候选在见到验证结果后未被改。V4 识别到 20 折已被 V1–V3 消耗、专门拉全新 BNB/SOL 作锁箱外样本——数据卫生到位。各候选 config 默认 off（`neutralize_counter_trend_skew_only`/`first_rung_loss_side_add_only` 等 = false），零默认行为变更。
+- **根因测量 sound**：核验 `horizon_reversion_report` 逻辑正确——逆势押注方向（`gross=-direction*(price/entry-1)`）、reversion/extension/timeout 判定、成本扣减、退出重锚不重叠均无误。结论 32 组合成本后 0/32 为正，与解析事实一致：对冲双腿 `dPnL=Δ·dPrice−costs−funding` 本身不产生收益，唯一 alpha 是锚点回归，而回归成本后为负。**这是真 NO-GO，不是测量假阴性。**
+- **决策门解析**：本计划内置的 go/no-go 决策门现解析为 **NO-GO** → 按约定**不投入运营链路**（运行模式状态机 / Pydantic / testnet 均暂缓）。这正是可行性判定前移的价值——在建运营机器前拦住了负期望策略。
+- 后端 `215 passed / 1 skipped`。合并在 `main`（`ee9bd88..9d473c6`）。**验证边界（诚实）**：`var/` 标定数据 gitignored、本机不全且 fapi 451，我未在本机重算数值结果；但 verdict 为 NO-GO（无过门造假动机）、输入 SHA-256 已记档、且结论有独立解析支撑，故结论稳健。
+
 ### 决策门
 
 **V2 完成记录（2026-07-13）**：预注册候选 `neutralize_counter_trend_skew` 已实现并完成隔离验证。fixed OHLC / fixed OLHC / myopic 分别为 `+0.500907 / -1.924124 / -0.655463 USDT`，盈利市场 `2/4、1/4、1/4`，盈利折 `9/20、6/20、9/20`；Funding 完整且最差折回撤均低于 1%，但收益、市场覆盖、折覆盖及沿用的 C8 统计门未同时通过。结论为 **FAIL / NO-GO**，开关保持默认关闭，不进入 testnet/paper/live。完整实验记录见 `docs/design/V2_CANDIDATE.md`。
