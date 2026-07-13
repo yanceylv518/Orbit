@@ -26,6 +26,9 @@ class FakeSnapshots:
 
 
 class FakeEvents:
+    def __init__(self, risks=None):
+        self.risks = risks or []
+
     def strategy_events(self):
         return [{
             "exchange_account_id": "acc_001",
@@ -33,7 +36,7 @@ class FakeEvents:
         }]
 
     def risk_events(self):
-        return []
+        return self.risks
 
 
 class PortfolioViewServiceTests(unittest.TestCase):
@@ -95,6 +98,21 @@ class PortfolioViewServiceTests(unittest.TestCase):
         self.assertEqual(overview["accounts"][0]["user_id"], "user_001")
         self.assertEqual(overview["accounts"][0]["symbols"], ["BTCUSDT"])
         self.assertEqual(overview["accounts"][0]["last_event_at"], "2026-07-10T10:00:00Z")
+
+    def test_info_decision_block_does_not_raise_portfolio_risk_status(self):
+        self.service.event_history = FakeEvents([{
+            "exchange_account_id": "acc_001",
+            "timestamp": "2026-07-10T11:00:00Z",
+            "risk_level": "info",
+            "risk_type": "REGIME_TRENDING_BLOCKED",
+        }])
+
+        summary = self.service.strategy_summary([], {}, running=False)
+        overview = self.service.admin_overview(self.service.real_symbol_views())
+
+        self.assertEqual(summary["risk_status"], "normal")
+        self.assertEqual(overview["accounts"][0]["risk_status"], "normal")
+        self.assertIsNone(overview["accounts"][0]["last_risk_at"])
 
 
 if __name__ == "__main__":

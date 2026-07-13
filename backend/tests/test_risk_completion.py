@@ -127,6 +127,54 @@ class SnapshotStalenessTest(unittest.TestCase):
         )
         self.assertNotEqual(plans[0]["event_type"], "SYNC_STALE")
 
+    def test_regime_blocked_plan_contains_gate_reason_and_features(self):
+        fresh_ms = int(time.time() * 1000) - 30_000
+        snapshot = self.snapshot(fresh_ms)
+        snapshot["positions"].append({
+            "symbol": "BTCUSDT",
+            "position_side": "SHORT",
+            "position_amt": -0.001,
+            "entry_price": 60000,
+            "mark_price": 61500,
+            "unrealized_profit": -1.5,
+            "notional": -61.5,
+        })
+        snapshot["positions"][0]["mark_price"] = 61500
+        snapshot["positions"][0]["unrealized_profit"] = 1.5
+        snapshot["positions"][0]["notional"] = 61.5
+        symbol_state = {
+            "symbol": "BTCUSDT",
+            "state": "BALANCED",
+            "base_price": "60000",
+            "base_qty": "0.001",
+            "regime": "TRENDING",
+            "regime_raw": "TRENDING",
+            "regime_stable": "TRENDING",
+            "regime_features": {
+                "sample_count": 30,
+                "efficiency_ratio": 0.8,
+                "return_autocorrelation": 0.4,
+                "volatility_pct": 0.2,
+            },
+        }
+
+        plans = generate_account_execution_plans(
+            self.account,
+            self.run_config,
+            self.strategy,
+            snapshot,
+            symbol_states={"BTCUSDT": symbol_state},
+            snapshot_max_age_seconds=600,
+        )
+
+        plan = plans[0]
+        self.assertEqual(plan["status"], "blocked")
+        self.assertEqual(plan["trigger"]["event_rule"], "REGIME_TRENDING_BLOCKED")
+        self.assertEqual(plan["trigger"]["regime"], "TRENDING")
+        self.assertEqual(plan["trigger"]["efficiency_ratio"], "0.8")
+        self.assertEqual(plan["trigger"]["return_autocorrelation"], "0.4")
+        self.assertEqual(plan["trigger"]["volatility_pct"], "0.2")
+
 
 if __name__ == "__main__":
     unittest.main()

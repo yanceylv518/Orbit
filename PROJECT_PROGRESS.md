@@ -242,13 +242,14 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 4. 遵守 walk-forward 纪律：**禁止为“让某次回放/验证集通过”而调参**；阈值只能在训练窗/历史样本上选择。
 5. 每个任务完成后，在本文件对应条目登记结果（含关键数据），保持进度不滞后于代码。
 
-### 任务 R1：为被 regime / 规则拦截的决策补审计痕迹（优先级：高）
+### 任务 R1：为被 regime / 规则拦截的决策补审计痕迹（已完成，2026-07-13）
 
 - **问题**：`backend/src/orbit/domain/strategy/engine.py` 的 `apply_target_exposure_event`（约 431–454 行）在 `regime_result.allowed=False` 或 `rule_result.allowed=False` 时静默 `return None`，且 `regime_result.context` 被丢弃。复盘时看不到“本该产生动作，但被 regime/规则拦截”，违反“每次决策可解释、可复盘”的验收目标。
 - **涉及文件**：`backend/src/orbit/domain/strategy/engine.py`；`backend/src/orbit/application/runtime_events.py`（或现有 blocked-plan / risk_event 记录路径）；`backend/src/orbit/domain/planning/plans.py`（plan_only 计划详情）。
 - **改动**：当 `decision.has_action` 为真但被 regime 或 event_rule 拦截时，产出一条轻量 blocked 记录（复用现有 blocked plan / risk_event 结构，不新造模型），携带 `code`、`reason`，以及 regime 上下文（`regime` / `regime_raw` / `regime_stable`、ER、自相关、波动率）或规则拦截原因。该记录进入 dry_run/paper 事件历史与 `plan_only` 计划详情。**不产生任何成交。**
 - **验收**：新增测试——① 在 TRENDING regime 且存在目标动作时，`on_tick` 结果包含一条 regime-blocked 记录，且 `long_qty` / `short_qty` / `realized_pnl` 不变；② `plan_only` 生成的计划详情中含 regime 拦截原因字段。
 - **约束**：只补记录，不改变实际成交/仓位行为。
+- **完成结果**：`EventEngine` 在目标动作被 Regime Gate 或 EventRule 拦截时生成 `info` 级 `risk_event`，统一标记 `status=blocked`、`action_taken=BLOCKED_NO_TRADE`，携带目标敞口、阻断来源/代码、regime 三态、ER、自相关和波动率，且 `trades=[]`；`RuntimeEventService` 沿既有风险事件通道入历史。`plan_only` blocked plan 同步暴露上述 Gate 特征。`PortfolioViewService` 排除 `info` 级决策痕迹，避免把正常 Gate 阻断误报为组合 `watch`。新增领域、计划和投影测试，确认仓位、已实现盈亏与成交行为不变。
 
 ### 任务 R2：厘清并修正 RANGE 自相关阈值语义（优先级：中，先出结论再改）
 
@@ -276,7 +277,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`189 tests OK`。
+- Python 单元测试及 API 契约测试：`192 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
@@ -316,7 +317,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **利润搬运口径待澄清**：`restore_loss_side_only_to_base=true` 且亏损腿已到 base 时，整次搬运（含减盈利腿止盈）被跳过；「用利润恢复亏损腿」是仓位定量口径而非资金划转。
 - **成本项待补**：Funding 在失衡对冲中是方向性成本（当前恒为 0）；高频小额搬运有手续费 churn 风险，`min_net_profit` 应覆盖下一次反向平仓成本。
 - **Regime Gate 审查发现（2026-07-13，修复计划见上方「Regime Gate 审查修复计划」）**：
-  - 被 regime / 规则拦截的决策静默返回、无审计痕迹（待办 R1）。
+  - 被 regime / 规则拦截的决策已写入 `info` 级 blocked 风险事件，且不产生成交（R1 已完成）。
   - RANGE 自相关阈值 `0.95` 近乎恒真，RANGE 退化为仅看效率比（待办 R2）。
   - regime 冷启动静默期：`min_samples` 根收盘前禁止利润搬运/重建（`interval=1h` 约 20 小时），属预期行为，paper/live 上线首日需据此设期望。
   - paper 收盘推进（`advance_state_with_price`）与引擎 `_on_price` 逻辑重复、`tick_count` 自增条件已有差异，需收敛单一入口（待办 R3）。

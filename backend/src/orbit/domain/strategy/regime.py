@@ -159,6 +159,10 @@ class RegimeGate:
             "regime_raw": str(state.get("regime_raw") or UNKNOWN),
             "regime_stable": str(state.get("regime_stable") or UNKNOWN),
         }
+        features = state.get("regime_features") or {}
+        for key in ("sample_count", "efficiency_ratio", "return_autocorrelation", "volatility_pct"):
+            if key in features:
+                context[key] = str(features[key])
         if event_type.startswith("LOSS_SIDE_REDUCTION"):
             return RegimeGateResult(True, "REGIME_RISK_REDUCTION_ALLOWED", "risk reduction remains allowed", context)
         if event_type.startswith("POSITION_RECOVERY"):

@@ -31,6 +31,41 @@ class EventEngineTest(unittest.TestCase):
         self.assertTrue(any(t["action"] == "REDUCE_LONG" for t in events[0]["trades"]))
         self.assertTrue(any(t["action"] == "ADD_SHORT" for t in events[0]["trades"]))
 
+    def test_regime_block_is_recorded_without_mutating_positions_or_pnl(self):
+        self.strategy["strategy"]["regime_gate"]["enabled"] = True
+        engine = EventEngine(self.strategy)
+        state = engine.initialize_symbol("BTCUSDT", Decimal("60000"), Decimal("100"))
+        state.update({
+            "regime": "TRENDING",
+            "regime_raw": "TRENDING",
+            "regime_stable": "TRENDING",
+            "regime_price_history": [57000 + index * 100 for index in range(30)],
+            "regime_features": {
+                "sample_count": 30,
+                "efficiency_ratio": 0.8,
+                "return_autocorrelation": 0.4,
+                "volatility_pct": 0.2,
+            },
+        })
+        before = {key: state[key] for key in ("long_qty", "short_qty", "realized_pnl")}
+
+        updated, events, risks = engine.on_tick(state, Decimal("61500"))
+
+        self.assertFalse(events)
+        self.assertEqual(len(risks), 1)
+        blocked = risks[0]
+        self.assertEqual(blocked["risk_type"], "REGIME_TRENDING_BLOCKED")
+        self.assertEqual(blocked["action_taken"], "BLOCKED_NO_TRADE")
+        self.assertEqual(blocked["status"], "blocked")
+        self.assertEqual(blocked["trades"], [])
+        self.assertEqual(blocked["trigger"]["block_source"], "regime_gate")
+        self.assertEqual(blocked["trigger"]["regime"], "TRENDING")
+        self.assertIn("efficiency_ratio", blocked["trigger"])
+        self.assertEqual(
+            {key: updated[key] for key in before},
+            before,
+        )
+
     def test_loss_side_reduction_after_trend_confirm(self):
         # trend_entry_confirm_ticks=2：第一根确认 K 线只计数不动作
         state, events, risks = self.engine.on_tick(self.state, Decimal("62500"))
@@ -85,7 +120,10 @@ class EventEngineTest(unittest.TestCase):
         })
 
         first_tick, first_events, risks = self.engine.on_tick(state, Decimal("60700"))
-        self.assertFalse(risks)
+        self.assertEqual(len(risks), 1)
+        self.assertEqual(risks[0]["risk_type"], "TREND_EXIT_NOT_CONFIRMED")
+        self.assertEqual(risks[0]["action_taken"], "BLOCKED_NO_TRADE")
+        self.assertEqual(risks[0]["trigger"]["block_source"], "event_rule")
         self.assertFalse(first_events)
         self.assertEqual(first_tick["state"], "TREND_UP")
         self.assertEqual(first_tick["trend_exit_candidate_count"], 1)

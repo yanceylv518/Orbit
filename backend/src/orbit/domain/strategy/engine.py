@@ -10,7 +10,7 @@ from orbit.domain.risk.guards import RiskContext, RiskGuardResult, RiskPolicy, R
 from orbit.domain.strategy.actions import StrategyAction, StrategyActionSet, StrategyLeg, StrategyPosition, build_strategy_action_set
 from orbit.domain.strategy.exposure import TargetExposureDecision, decide_target_exposure
 from orbit.domain.strategy.lifecycle import StrategyLifecycle
-from orbit.domain.strategy.regime import RegimeGate
+from orbit.domain.strategy.regime import RegimeGate, RegimeGateResult
 from orbit.domain.strategy.rules.event_rules import EventRuleResult, StrategyEventRules
 
 
@@ -135,9 +135,11 @@ class EventEngine:
             risk_events.append(self.execute_stop_unwind(state, price, risk_state))
         else:
             risk_events = self.risk_events_for_state(state, price, risk_state)
-            event = self.apply_target_exposure_event(state, price)
+            event, blocked = self.apply_target_exposure_event(state, price)
             if event is not None:
                 strategy_events.append(event)
+            if blocked is not None:
+                risk_events.append(blocked)
 
         state["state"] = self.lifecycle.resolve_state(state)
         state["updated_at"] = now_iso()
@@ -159,9 +161,11 @@ class EventEngine:
             risk_events = [self.execute_stop_unwind(state, price, risk_state)]
         else:
             risk_events = self.risk_events_for_state(state, price, risk_state)
-            event = self.apply_target_exposure_event(state, price)
+            event, blocked = self.apply_target_exposure_event(state, price)
             if event is not None:
                 strategy_events.append(event)
+            if blocked is not None:
+                risk_events.append(blocked)
         state["state"] = self.lifecycle.resolve_state(state)
         state["updated_at"] = now_iso()
         self.mark_to_market(state, price)
@@ -428,7 +432,11 @@ class EventEngine:
             }
         return {}
 
-    def apply_target_exposure_event(self, state: dict[str, Any], price: Decimal) -> dict[str, Any] | None:
+    def apply_target_exposure_event(
+        self,
+        state: dict[str, Any],
+        price: Decimal,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         decision = decide_target_exposure(
             price=price,
             base_price=d(state["base_price"]),
@@ -438,20 +446,55 @@ class EventEngine:
             strategy=self.config,
         )
         if not decision.has_action:
-            return None
+            return None, None
 
         rule_result = self.event_rules.evaluate(decision, state, price)
         regime_result = self.regime_gate.evaluate(decision, state)
         if not regime_result.allowed:
-            return None
+            return None, self.blocked_decision_event(state, price, decision, regime_result, "regime_gate")
         if not rule_result.allowed:
-            return None
+            return None, self.blocked_decision_event(state, price, decision, rule_result, "event_rule")
 
         action_set = self.strategy_action_set(state, price, decision)
         if action_set is None:
-            return None
+            return None, None
 
-        return self.execute_strategy_event(state, price, decision, action_set, rule_result)
+        return self.execute_strategy_event(state, price, decision, action_set, rule_result), None
+
+    def blocked_decision_event(
+        self,
+        state: dict[str, Any],
+        price: Decimal,
+        decision: TargetExposureDecision,
+        result: EventRuleResult | RegimeGateResult,
+        source: str,
+    ) -> dict[str, Any]:
+        trigger = {
+            **decision.context(),
+            "price": f(price),
+            "block_source": source,
+            "block_code": result.code,
+            **result.context,
+        }
+        return {
+            "id": self.uid("risk"),
+            "timestamp": now_iso(),
+            "symbol": state["symbol"],
+            "risk_level": "info",
+            "risk_type": result.code,
+            "action_taken": "BLOCKED_NO_TRADE",
+            "message": result.reason,
+            "status": "blocked",
+            "trigger": trigger,
+            "context": trigger,
+            "risk_checks": [{
+                "name": result.code,
+                "ok": False,
+                "message": result.reason,
+                **result.context,
+            }],
+            "trades": [],
+        }
 
     def apply_trade(self, state: dict[str, Any], price: Decimal, action: str, qty: Decimal, event_type: str, reason: str) -> dict[str, Any]:
         qty = q(qty, QTY_STEP)

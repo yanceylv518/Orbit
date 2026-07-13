@@ -209,6 +209,7 @@ class PortfolioViewService:
             status = "paused"
         if not self.mock_data_enabled:
             status = "read_only"
+        material_risks = self.material_risk_events()
         return {
             "id": self.strategy["id"],
             "scope": "system",
@@ -221,8 +222,14 @@ class PortfolioViewService:
             "today_pnl": display_totals["today_pnl"],
             "today_pnl_pct": display_totals["today_pnl_pct"],
             "total_equity": display_totals["total_equity"],
-            "risk_status": "normal" if not self.event_history.risk_events() else "watch",
+            "risk_status": "normal" if not material_risks else "watch",
         }
+
+    def material_risk_events(self) -> list[dict[str, Any]]:
+        return [
+            risk for risk in self.event_history.risk_events()
+            if str(risk.get("risk_level") or "").lower() != "info"
+        ]
 
     def admin_overview(self, symbols: list[dict[str, Any]]) -> dict[str, Any]:
         business_users = self.account_directory.business_users()
@@ -234,7 +241,7 @@ class PortfolioViewService:
                 continue
             account_totals = self.real_account_totals(account["id"])
             account_risks = [
-                risk for risk in self.event_history.risk_events()
+                risk for risk in self.material_risk_events()
                 if risk.get("exchange_account_id") == account["id"]
             ]
             account_events = [
