@@ -257,6 +257,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
   - **验收**：新增测试——同一 symbol 在 TRENDING 下连续多个 tick 只应产生 1 条 blocked 风险事件（拦截未变时后续 tick 不再追加）；连续注入 200+ tick 的持续拦截后，先前写入的 material 风险事件仍保留在历史中。
   - **约束**：不改变成交/仓位行为；plan_only 单次生成的 blocked plan 行为不受影响。
   - **完成结果**：symbol state 新增 `last_block_code`，只在首次进入阻断态或 code 变化时生成 blocked 审计；无目标动作、恢复允许或进入 STOPPED 时清空，离开后重新进入会再次记录。250 次持续 TRENDING paper 决策仅 emit 1 条 `info` 记录，历史中预先存在的 critical material 风险仍保留；仓位、已实现盈亏、成交及 plan_only 行为均未改变。该字段随现有 `app_runtime_state.payload_json` 持久化，无需新增 MySQL 投影列。
+  - **验收结论（Claude，2026-07-13）：通过。** 去重按拦截码转换实现，`clear_blocked_decision` 在放行/无动作/STOP 三处清零，重入趋势会重新记一次（`block_code` 变化也会重记）——语义正确。`test_sustained_block_does_not_evict_material_risk_history`（250 tick 仅 1 条、material 事件仍在）直接验证修复目的。仓位/成交行为不变，后端 `195 passed / 1 skipped`。合并在 `main`（`74d1ad6`）。
 
 ### 任务 R2：厘清并修正 RANGE 自相关阈值语义（已完成，2026-07-13）
 
@@ -280,6 +281,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **验收**：现有 paper 相关测试（`test_market_data` / `test_account_runtime` / paper 执行）保持绿；新增测试断言 `advance_state_with_price` 与引擎收盘推进对 `regime_*` / 生命周期字段结果一致。
 - **约束**：不改变 paper 决策与成交时序。
 - **完成结果**：`EventEngine.advance_close()` 统一负责 close tick、价格/极值、K 线时间、Regime Gate、mark-to-market、趋势跟踪和生命周期解析；`SymbolStateService.advance_state_with_price()` 已收敛为单行委托。dry_run/replay 的 `_on_price` 复用同一入口，并通过延后生命周期最终解析保持原有“收盘推进 → 决策/成交 → 最终解析”时序；paper 仍由 MarketFeed 推进后交给 `execute_paper_tick` 决策。新增字段对照测试确认应用层与引擎投影一致且仓位/PnL 不变。
+- **验收结论（Claude，2026-07-13）：通过。** 行为保持型重构：`_on_price` 收盘路径用 `resolve_lifecycle=False`，状态仍在决策后 resolve，时序不变；`tick_count` 漂移（原 `advance_state_with_price` 每次自增 vs `_on_price` 仅收盘自增）已收敛为单一入口一次自增。`mark_to_market` 与 `update_trend_tracking` 顺序微调不影响结果（两者字段互不依赖）。等价性测试 + 全套 `195 passed / 1 skipped` 确认无回归。合并在 `main`（`7d28698`）。
 
 ### 已在本文档登记、无需 Codex 改码的观察
 
