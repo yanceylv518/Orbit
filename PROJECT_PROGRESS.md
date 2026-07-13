@@ -534,30 +534,31 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 这条是平台价值的命根子，任何阶段实现都不得给出绕过它的后门。
 
-### 必须先拍板的范围叉（决定 P2 体量）
+### 范围决定（2026-07-13 已拍板）
 
-UI 要不要**在服务器端触发标定运行**？
-- **触发运行**：需要 server 端 job runner + 数据管道 + Binance 可达网络（本机 fapi 451）——重；
-- **viewer + 预注册创作为主**：重活仍由 CLI 在可达网络跑、产物导入展示——轻很多。
-- **建议**：先 viewer/creator，触发运行放到确有必要时再上。
+- **自己用**（内部工具，非对外产品）→ 保持精简：单管理员操作即可，不做多用户/权限/精致视觉，够看清、够操作即止；不过度工程。
+- **点一下就跑**（UI 服务器端触发运行）→ 需要后台 job runner，但因自己用可做得简单（进程内后台任务、单人、无队列）。
+- **关键现实**：绝大多数标定只读本地缓存 `var/calibration/*.json`、**不碰网络**——「在缓存数据上跑评估」任何机器可跑（本机 451 也行）；**只有「拉新数据」需 Binance 可达网络**。二者在 UI/后端明确分开，拉数据失败时清晰报错、不影响跑评估。
 
-### 阶段计划（P0/P1 与范围叉无关，可先做；P2 依赖上面拍板）
+### 交付给 Codex 的任务（P0/P1 先做，P2 随后；每个 Claude 逐条验收）
 
-**P0：后端把研究能力结构化 + 只读 API（不改 CLI 计算逻辑）**
-- 数据目录读模型：已缓存数据集（市场/周期/行数/区间/SHA-256）；
-- 候选注册表：把 M0/F1/G1/G2 等预注册协议 + verdict 结构化为「只追加」的候选履历；
-- 结果读模型：`var/calibration/*.json` 报告的结构化读取。
-- 只做「读」的 API，复用现有 estimators/replay，不重写策略逻辑。
+**全局约束**：焊死上面「首要设计律」四条护栏；不改 live 开关；复用现有 `estimators.py`/`replay.py`/screen 工具，不重写策略/标定逻辑；前端本机无 node，`npm run check/build` 需 Windows 复验；测试保持绿。
 
-**P1：研究平台前端（只读先行，低风险、马上有用）**
-- 新前端页面组：① 数据目录；② **候选履历「墓地」**（测过的假设 + 结论——这本身是有价值的 IP）；③ verdict 明细（逐市场/逐折对照固定 bar、PASS/FAIL、预注册冻结时间与锁箱开箱记录的溯源）。
-- 沿用 Linux 无 node 约定，`npm run check/build` 需 Windows 复验。
+**任务 UI-P0：后端只读研究 API + 结构化读模型（优先级：高）**
+- **涉及文件**：新增 `backend/src/orbit/application/research/`（读模型服务）+ `api/routers/research.py`；`bootstrap.py` 装配；`backend/tests/`。
+- **改动**：① 数据目录读模型——扫 `var/calibration/`，列已缓存数据集（市场/周期/行数/区间/SHA-256）；② 候选注册表——定义结构化候选记录（id、信号定义、参数、成本、矩阵、阈值、`frozen_hash`、`frozen_at`、status、verdict、`lockbox_opened_at`），存于**只追加**存储（`var/research/registry.json` 或 MySQL 表），并把既有 M0/F1/G1/G2 回填为初始记录；③ 结果读模型——结构化读取 `var/calibration/*.json` 报告。只读 API：`GET /api/research/datasets`、`/candidates`、`/candidates/{id}`、`/results/{id}`。
+- **验收**：只读端点返回结构化数据；候选记录含冻结哈希与 verdict；写入路径强制「只追加、冻结后不可改」（单测覆盖：改已冻结候选被拒）；不触碰 CLI 计算逻辑。
 
-**P2：前端可操作（预注册创作 + 触发运行）——依赖范围叉决定**
-- 表单创作预注册（产出冻结产物）、触发评估 job、看进度、出 verdict；全程焊死「首要设计律」的四条护栏。
+**任务 UI-P1：研究平台前端（只读先行）**
+- **涉及文件**：新增 `frontend/src/pages/ResearchPage.vue`（或小页面组）；`stores/appStore.js`、`api/client.js`；导航加入口。
+- **改动**：三块只读视图——① 数据目录；② **候选履历「墓地」**（列出测过的假设 + PASS/FAIL 徽章，负结果本身是 IP）；③ 候选明细（逐市场/逐折对照**预注册固定 bar**、verdict、冻结时间与锁箱开箱溯源）。
+- **验收**：三视图渲染 UI-P0 数据；import/export 交叉验证 + 类名核对；`npm run check/build` Windows 侧复验后登记。
 
-### 全局约束
-- 保住四条纪律护栏；不改 live 默认开关；复用现有标定/回放内核不重写；前端 Windows 侧复验。
+**任务 UI-P2：后端 job runner + 前端触发/进度/结果（优先级：中，依赖 P0）**
+- **涉及文件**：`application/research/`（job runner + 候选创建/运行用例）；`api/routers/research.py`（写端点）；`frontend/src/pages/ResearchPage.vue`（创作+触发交互）。
+- **改动**：① `POST /candidates` 创建预注册并**冻结**（写入即算哈希、不可再改）；② `POST /runs` 对某冻结候选触发评估 job（进程内后台，调现有 estimators/replay，**默认只跑缓存数据**）；`GET /runs/{id}` 轮询进度/结果，结果**只追加**；③ 锁箱开箱为一次性、记录在案；④ 「拉新数据」为独立动作，需 Binance 网络、失败清晰报错；⑤ 前端：预注册表单→冻结→触发→看进度→出 verdict，护栏 UI 化（冻结不可编辑、锁箱一次、结果只追加）。
+- **验收**：创建即冻结（改冻结候选被拒的单测）；run 只引用冻结候选、结果只追加、锁箱只开一次；跑缓存数据不需网络；前端全流程可操作（Windows 复验）。
+- **约束**：job runner 保持简单（单人、无队列）；不引入绕过四条护栏的后门。
 
 ## 最近验证
 
