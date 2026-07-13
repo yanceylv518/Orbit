@@ -497,7 +497,7 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 ### 任务 G1：极端 Funding 反应信号审计（优先级：高，便宜、纯 perp）
 
-- **训练协议预注册（运行前）**：已冻结于 `docs/design/G1_EXTREME_FUNDING.md`。训练网格为 lookback `90/180/360` 次 Funding、极端分位 `90%/95%/97.5%`、持有 `1h/4h/8h/24h`，单腿往返成本 `0.14%`；信号阈值严格排除当前 Funding，事件非重叠。只有至少 3/4 市场各自 `>=30` 事件、净均值与 bootstrap 下界为正，且组合下界为正，才冻结唯一候选并获取新锁箱；否则训练阶段直接 FAIL。此时尚未运行扫描。
+- **训练协议与结论（2026-07-13）**：协议已预先冻结于 `docs/design/G1_EXTREME_FUNDING.md`，随后完整运行 `36` 组训练网格。候选 `0/36`，所有组合均为 `0/4` 单市场合格。按冻结排序最优的诊断组合为 lookback `360`、分位 `95%`、持有 `1h`：合并 `135` 个事件，平均净收益 `-0.0665%`，bootstrap 95% 下界 `-0.2032%`。全网格最高均值组合虽为 `+0.2272%`，下界仍为 `-0.3429%` 且 `0/4` 市场合格。**G1 训练阶段 FAIL；按协议未创建或打开新锁箱，未据结果回调参数。**
 
 - **假设**：funding 处于极端（极正=拥挤多头付费）时，逆着拥挤方向持有短期方向头寸（极正→做空、极负→做多），成本后是否有正期望。
 - **涉及文件**：`backend/src/orbit/domain/calibration/estimators.py`（新增纯计算估计器，形如 `horizon_reversion_report`）；`backend/tools/`（新增 CLI）；`docs/design/G1_EXTREME_FUNDING.md`（预注册协议）；`backend/tests/test_calibration.py`；如需新锁箱数据则 `fetch_klines/fetch_funding`（本机 fapi 451，须 Binance 可达网络补）。
@@ -516,7 +516,7 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`207 tests OK`。
+- Python 单元测试及 API 契约测试：`226 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。

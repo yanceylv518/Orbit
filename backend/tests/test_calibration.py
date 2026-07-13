@@ -14,6 +14,7 @@ from orbit.domain.calibration.estimators import (
     estimate,
     excursion_outcomes,
     expected_value_per_bet,
+    extreme_funding_reaction_report,
     gated_estimate,
     geometry_scan,
     funding_carry_screen,
@@ -25,7 +26,7 @@ from orbit.domain.calibration.estimators import (
     walk_forward_compare,
     wilson_interval,
 )
-from orbit.domain.calibration.history import FundingPoint
+from orbit.domain.calibration.history import FundingPoint, MarketCandle
 
 
 def sine_series(base=100.0, amplitude_pct=2.5, cycles=20, ticks_per_cycle=48):
@@ -44,6 +45,12 @@ class EstimatorTest(unittest.TestCase):
         return [
             FundingPoint(start + index * step, rate)
             for index, rate in enumerate(rates)
+        ]
+
+    def candles(self, closes, *, start=0, step=1):
+        return [
+            MarketCandle(start + index * step, close, close, close, close)
+            for index, close in enumerate(closes)
         ]
 
     def test_pi_required_matches_strategy_logic_formula(self):
@@ -133,6 +140,105 @@ class EstimatorTest(unittest.TestCase):
         self.assertTrue(positive["admitted"])
         self.assertGreater(positive["bootstrap_mean_ci_low"], 0)
         self.assertFalse(sparse["admitted"])
+
+    def test_extreme_funding_reaction_uses_direction_and_cost(self):
+        candles = self.candles([100.0, 100.0, 101.0, 102.0, 103.0])
+        positive = extreme_funding_reaction_report(
+            self.funding_points([0.001, 0.001, 0.001, 0.01], start=-30, step=10),
+            candles,
+            3,
+            0.9,
+            1,
+            bootstrap_samples=20,
+        )
+        negative = extreme_funding_reaction_report(
+            self.funding_points([-0.001, -0.001, -0.001, -0.01], start=-30, step=10),
+            candles,
+            3,
+            0.9,
+            1,
+            bootstrap_samples=20,
+        )
+
+        self.assertEqual(positive["records"][0]["direction"], "short")
+        self.assertEqual(negative["records"][0]["direction"], "long")
+        self.assertLess(positive["mean_net_return_pct"], 0)
+        self.assertGreater(negative["mean_net_return_pct"], 0)
+        self.assertAlmostEqual(
+            negative["records"][0]["net_return_pct"],
+            negative["records"][0]["gross_return_pct"] - 0.14,
+        )
+
+    def test_extreme_funding_reaction_aligns_after_funding_close(self):
+        report = extreme_funding_reaction_report(
+            self.funding_points([0.001, 0.001, 0.001, 0.01], start=70, step=10),
+            self.candles([100.0, 101.0, 103.0], start=100, step=10),
+            3,
+            0.9,
+            1,
+            cost_pct=0,
+            bootstrap_samples=20,
+        )
+
+        self.assertEqual(report["records"][0]["funding_time_ms"], 100)
+        self.assertEqual(report["records"][0]["entry_time_ms"], 110)
+        self.assertEqual(report["records"][0]["exit_time_ms"], 120)
+
+    def test_extreme_funding_reaction_excludes_current_rate_from_threshold(self):
+        report = extreme_funding_reaction_report(
+            self.funding_points([0.001] * 5 + [0.05], start=0, step=10),
+            self.candles([100.0] * 70),
+            5,
+            0.95,
+            1,
+            bootstrap_samples=20,
+        )
+
+        self.assertAlmostEqual(report["records"][0]["threshold"], 0.001)
+
+    def test_extreme_funding_reaction_does_not_read_future_funding(self):
+        candles = self.candles([100.0 + index for index in range(100)])
+        original = self.funding_points([0.001] * 5 + [-0.01, 0.001, 0.001], step=10)
+        altered = self.funding_points([0.001] * 5 + [-0.01, 0.5, -0.5], step=10)
+
+        first = extreme_funding_reaction_report(
+            original, candles, 5, 0.95, 1, bootstrap_samples=20,
+        )
+        changed = extreme_funding_reaction_report(
+            altered, candles, 5, 0.95, 1, bootstrap_samples=20,
+        )
+
+        self.assertEqual(first["records"][0], changed["records"][0])
+
+    def test_extreme_funding_reaction_events_do_not_overlap(self):
+        report = extreme_funding_reaction_report(
+            self.funding_points([0.01] * 8, start=0, step=10),
+            self.candles([100.0] * 100),
+            2,
+            0.9,
+            15,
+            bootstrap_samples=20,
+        )
+
+        records = report["records"]
+        self.assertGreater(len(records), 1)
+        for previous, current in zip(records, records[1:]):
+            self.assertGreater(current["entry_time_ms"], previous["exit_time_ms"])
+
+    def test_extreme_funding_reaction_admission_requires_robust_sample(self):
+        prices = [100 * (1.002 ** index) for index in range(500)]
+        report = extreme_funding_reaction_report(
+            self.funding_points([-0.01] * 45, start=0, step=10),
+            self.candles(prices),
+            3,
+            0.9,
+            1,
+            bootstrap_samples=200,
+        )
+
+        self.assertEqual(report["events"], 42)
+        self.assertTrue(report["admitted"])
+        self.assertGreater(report["bootstrap_mean_ci_low"], 0)
 
     def test_bootstrap_mean_interval_is_deterministic(self):
         first = bootstrap_mean_interval([0.1, 0.2, 0.3], samples=100, seed=7)

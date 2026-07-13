@@ -3,9 +3,10 @@ from __future__ import annotations
 import math
 import random
 import statistics
+from bisect import bisect_right
 from typing import Any, Sequence
 
-from orbit.domain.calibration.history import FundingPoint
+from orbit.domain.calibration.history import FundingPoint, MarketCandle
 from orbit.domain.strategy.regime import DEFAULT_REGIME_CONFIG, RANGE, RegimeGate
 
 """π̂ 估计与几何扫描（STRATEGY_LOGIC §2 / §10.1 的离线标定内核）。
@@ -281,6 +282,133 @@ def funding_carry_screen(
         ),
         "median_gross_funding_pct": statistics.median(gross_returns) if gross_returns else 0.0,
         "net_returns_pct": net_returns,
+        **summary,
+    }
+
+
+def extreme_funding_return_summary(
+    net_returns_pct: Sequence[float],
+    *,
+    bootstrap_samples: int = 10_000,
+    bootstrap_seed: int = 20_260_713,
+) -> dict[str, Any]:
+    """Summarize cost-adjusted returns for an extreme-funding reaction sample."""
+    returns = [float(value) for value in net_returns_pct]
+    profitable = sum(value > 0 for value in returns)
+    win_low, win_high = wilson_interval(profitable, len(returns))
+    mean_low, mean_high = bootstrap_mean_interval(
+        returns,
+        samples=bootstrap_samples,
+        seed=bootstrap_seed,
+    )
+    mean = sum(returns) / len(returns) if returns else 0.0
+    return {
+        "events": len(returns),
+        "profitable_events": profitable,
+        "win_rate": profitable / len(returns) if returns else 0.0,
+        "win_rate_ci_low": win_low,
+        "win_rate_ci_high": win_high,
+        "mean_net_return_pct": mean,
+        "median_net_return_pct": statistics.median(returns) if returns else 0.0,
+        "total_net_return_pct": sum(returns),
+        "worst_event_pct": min(returns) if returns else 0.0,
+        "bootstrap_mean_ci_low": mean_low,
+        "bootstrap_mean_ci_high": mean_high,
+        "max_drawdown_pct": max_drawdown(returns),
+        "admitted": len(returns) >= 30 and mean > 0 and mean_low > 0,
+    }
+
+
+def extreme_funding_reaction_report(
+    funding_points: Sequence[FundingPoint],
+    candles: Sequence[MarketCandle],
+    lookback_settlements: int,
+    extreme_quantile: float,
+    holding_ticks: int,
+    *,
+    cost_pct: float = 0.14,
+    bootstrap_samples: int = 10_000,
+    bootstrap_seed: int = 20_260_713,
+) -> dict[str, Any]:
+    """Audit a contrarian trade after historically extreme funding settlements.
+
+    The rolling threshold excludes the current settlement. Entry is the first
+    closed candle strictly after the funding timestamp, and accepted events do
+    not overlap.
+    """
+    if lookback_settlements < 1 or holding_ticks < 1:
+        raise ValueError("lookback_settlements and holding_ticks must be positive")
+    if not 0 < extreme_quantile < 1:
+        raise ValueError("extreme_quantile must be between zero and one")
+    if cost_pct < 0:
+        raise ValueError("cost_pct must not be negative")
+
+    ordered_funding = sorted(funding_points, key=lambda point: point.funding_time_ms)
+    ordered_candles = sorted(candles, key=lambda candle: candle.close_time_ms)
+    candle_times = [candle.close_time_ms for candle in ordered_candles]
+    records: list[dict[str, Any]] = []
+    last_exit_time_ms = -1
+    discarded_tail_events = 0
+
+    for index in range(lookback_settlements, len(ordered_funding)):
+        point = ordered_funding[index]
+        history = ordered_funding[index - lookback_settlements:index]
+        threshold = percentile(
+            sorted(abs(item.funding_rate) for item in history),
+            extreme_quantile,
+        )
+        if point.funding_rate == 0 or abs(point.funding_rate) < threshold:
+            continue
+
+        entry_index = bisect_right(candle_times, point.funding_time_ms)
+        if entry_index >= len(ordered_candles):
+            discarded_tail_events += 1
+            continue
+        entry = ordered_candles[entry_index]
+        if entry.close_time_ms <= last_exit_time_ms:
+            continue
+        exit_index = entry_index + holding_ticks
+        if exit_index >= len(ordered_candles):
+            discarded_tail_events += 1
+            continue
+
+        exit_candle = ordered_candles[exit_index]
+        direction = -1 if point.funding_rate > 0 else 1
+        gross_return_pct = direction * (exit_candle.close / entry.close - 1) * 100
+        net_return_pct = gross_return_pct - cost_pct
+        records.append({
+            "funding_time_ms": point.funding_time_ms,
+            "funding_rate": point.funding_rate,
+            "threshold": threshold,
+            "direction": "short" if direction < 0 else "long",
+            "entry_time_ms": entry.close_time_ms,
+            "entry_price": entry.close,
+            "exit_time_ms": exit_candle.close_time_ms,
+            "exit_price": exit_candle.close,
+            "gross_return_pct": gross_return_pct,
+            "net_return_pct": net_return_pct,
+        })
+        last_exit_time_ms = exit_candle.close_time_ms
+
+    gross_returns = [float(record["gross_return_pct"]) for record in records]
+    net_returns = [float(record["net_return_pct"]) for record in records]
+    summary = extreme_funding_return_summary(
+        net_returns,
+        bootstrap_samples=bootstrap_samples,
+        bootstrap_seed=bootstrap_seed,
+    )
+    return {
+        "lookback_settlements": lookback_settlements,
+        "extreme_quantile": extreme_quantile,
+        "holding_ticks": holding_ticks,
+        "cost_pct": cost_pct,
+        "discarded_tail_events": discarded_tail_events,
+        "mean_gross_return_pct": (
+            sum(gross_returns) / len(gross_returns) if gross_returns else 0.0
+        ),
+        "median_gross_return_pct": statistics.median(gross_returns) if gross_returns else 0.0,
+        "net_returns_pct": net_returns,
+        "records": records,
         **summary,
     }
 
