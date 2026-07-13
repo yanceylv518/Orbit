@@ -333,6 +333,41 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **完成结果**：从 `config/config.sample.json` 和产品方案的两段配置示例中删除无代码引用的 `restore_loss_side_only_to_base`；新增动作回归测试，锁定亏损腿已达或超过 base 时仍会生成 `REDUCE_PROFIT_SIDE`，不再出现旧模型“整次搬运被跳过”的语义。同步订正本文件、产品技术方案、架构文档与策略逻辑文档：组合级 `GLOBAL_STOP`、C7 自融资账本、计划快照新鲜度拦截、趋势进入速度门和亏损腿重建均已落地；保留 STOP 后人工复核恢复、UI 风控投影、Funding 和参数标定等真实剩余项。仅删除死键、增加测试并对账文档，没有改变交易实现或 live 开关。
 - **验收结论（Claude，2026-07-13）：通过。** 死键 repo-wide 零残留（`.py`/`.json` grep 确认，`199 passed` 印证无 KeyError）；`test_profit_transfer_reduces_profit_leg_when_loss_leg_is_above_base` 是有效载荷（short≥base 时 `action_set.actions[0]` 为 `REDUCE_PROFIT_SIDE`）。四份文档对账准确、无自相矛盾、无过度声称：STRATEGY_LOGIC 参数表删除死键行、`max_total_drawdown_pct` 从「未接线」改为已落地，且诚实保留 `min_position_distance/target_price_distance（未接线）`、STOP 后恢复、Funding、参数标定等真实剩余项。零交易行为变更、未动 live 开关。合并在 `main`（`837f051`）。
 
+## STOP 恢复流程 + 风控 UI 投影修复计划（2026-07-13，交付 Codex 执行）
+
+面向「可运维」这条线，补齐 STOP 后的人工复核恢复与风控前端投影。**本计划交由 Codex 执行，每个任务完成后由 Claude 对其提交做 review。T2 依赖 T1（消费其 endpoint 与 snapshot 字段），须 T1 先合并。**
+
+### 背景（现状确认）
+
+- per-symbol `state="STOPPED"` 是**持久化死锁**：`MAX_SYMBOL_DRAWDOWN` 触发 `execute_stop_unwind` 拆对冲全平并置 `STOPPED`；此后 `engine._on_price` / `execute_paper_tick` 首分支 `if state.get("state")=="STOPPED"` 短路，只 emit 风险事件、永不再交易。拆平后已实现亏损被锁定，`symbol_stopped`（`total_pnl < -limit`）也保持 true，**双重冻结、无任何恢复入口**。
+- `StrategyControlService` 只有策略级 `set_running/emergency_stop/resume`（整体状态 + 账户 `paused_by_admin`），**不清 per-symbol STOPPED latch**。
+- 组合级 `GLOBAL_STOP` 由 `policy.portfolio_stopped` 每 tick 重算、**回撤恢复即自动清除**，不是 latch——本计划不需为它做恢复，只需在 UI 显示其激活态。
+- snapshot 只暴露扁平 `risk_events`（前 60）与 `risk_status`（normal/watch），**没有结构化的 STOPPED symbol 列表 / GLOBAL_STOP 激活标志**；`RiskPage.vue` 只有策略级「恢复运行」（`resumeSystem`），无 per-symbol 复核恢复。
+
+### 全局约束
+
+1. 每个任务独立提交，conventional commits；保持测试绿（基线 `199 passed / 1 skipped`）。
+2. 恢复是**状态变更的人工动作**：必须管理员权限 + 写 `admin_audit_logs`，且必须显式指定被恢复的 `account_id::symbol`，不做批量隐式恢复。
+3. 不改动 live 通道默认开关；`plan_only` / 只读语义不变。
+4. 前端改动本机无 node，`npm run check/build` 需 Windows 侧复验（沿用既有前端验证约定）。
+5. 完成后在本文件对应条目登记结果。
+
+### 任务 T1：per-symbol STOPPED 人工复核恢复流程（后端，优先级：高）
+
+- **问题**：见上「背景」——STOPPED 是永久死锁，无管理员复核恢复路径。
+- **涉及文件**：`backend/src/orbit/application/strategy_control.py`（或新 `SymbolRecoveryService`）；`backend/src/orbit/application/symbol_states.py` / `domain/strategy/lifecycle.py`（复用 `reanchor` 语义）；对应 FastAPI router（系统控制组）；`backend/src/orbit/application/snapshot_queries.py`（暴露 STOPPED 列表）；`backend/tests/`。
+- **改动**：新增管理员用例 `resume_stopped_symbol(account_id, symbol, *, actor, reason)`：① 校验该 `account_id::symbol` 当前确为 `STOPPED`，否则拒绝；② 以当前价重锚（复用 `StrategyLifecycle.reanchor` 语义）→ `BALANCED`，并**重置回撤基准**（如把 `budget_usdt` 基线对齐到当前 equity，使 `symbol_stopped` 不会因锁定的历史已实现亏损立即再触发），使该 symbol 下个 tick 可正常参与决策；③ 写 `admin_audit_logs`（before/after 状态、operator、reason）。snapshot 结构化暴露 `stopped_symbols`（`account_id::symbol`、回撤、已实现亏损、`stopped_at`）。
+- **验收**：应用层测试——① 恢复一个 STOPPED symbol 后其 `state` 回到 `BALANCED` 且下一 tick 不再被首分支短路（可正常生成动作）；② 恢复非 STOPPED symbol 被拒绝；③ 写入了管理员审计；④ 权限校验（非管理员拒绝）；⑤ snapshot 含 `stopped_symbols` 结构化字段。
+- **约束**：仅在显式管理员动作下恢复、必审计；不绕过 `plan_only`；不改交易实现的正常路径。
+
+### 任务 T2：风控 UI 完整投影（前端，优先级：中，依赖 T1）
+
+- **问题**：风控页无 per-symbol STOPPED 视图与复核恢复入口，GLOBAL_STOP 激活态不可见，`info` 级 blocked 决策与 material 告警混在一张表。
+- **涉及文件**：`backend/src/orbit/application/snapshot_queries.py` / `portfolio_views.py`（补结构化风控投影：`global_stop` 激活标志、`stopped_symbols`、blocked 决策摘要）；`frontend/src/pages/RiskPage.vue`；`frontend/src/stores/appStore.js`；`frontend/src/api/client.js`。
+- **改动**：① snapshot 暴露结构化 `risk_state`（`global_stop` 激活布尔、`stopped_symbols` 列表、`blocked_decisions` 摘要）；② `RiskPage` 增加 STOPPED symbols 面板，每行带「复核恢复」按钮（确认弹窗 + 必填 reason，调用 T1 endpoint）；GLOBAL_STOP 激活时顶部横幅告警；把 `info` 级 blocked 决策独立成一区，避免污染 material 告警表。
+- **验收**：① 后端测试——snapshot payload 含新的结构化 `risk_state` 字段（`global_stop`/`stopped_symbols`/`blocked_decisions`）；② 前端渲染 STOPPED 面板与恢复动作、GLOBAL_STOP 横幅、blocked 独立区（import/export 交叉验证 + 类名核对）；③ `npm run check/build` 需 Windows 侧复验并在本文件登记。
+- **约束**：恢复动作只经 T1 审计化 endpoint；只读/`plan_only` 语义不变；不新造后端未提供的数据。
+
 ## 最近验证
 
 - `npm run check` 通过。
