@@ -373,6 +373,7 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **约束**：恢复动作只经 T1 审计化 endpoint；只读/`plan_only` 语义不变；不新造后端未提供的数据。
 - **完成结果**：snapshot 新增结构化 `risk_state`，统一投影组合级 `global_stop`、按账户可见性过滤的 `stopped_symbols` 和 `info` 级 `blocked_decisions`。组合回撤判断抽成执行计划与风险快照共用函数，避免 UI 状态与内核计划分叉；保留原 `risk_events` 契约供既有页面兼容。风控页新增 GLOBAL_STOP 顶部横幅、STOPPED 币种复核面板、实质风险告警区和独立决策阻断区；每个 STOPPED 行仅在权限能力允许时提供「复核恢复」，确认对话框强制填写原因并只调用 T1 审计化 endpoint。HTTP 200 的业务拒绝不会覆盖当前应用状态。
 - **验收结果**：新增 snapshot 风险结构、组合回撤、blocked 分类与账户权限过滤测试；后端全量 `207 tests OK`。`npm run check`、`npm run build`、前端 import/export 交叉检查、关键类名核对及 `git diff --check` 均通过。未改变 `plan_only` / `read_only` 或 live 默认开关。
+- **验收结论（Claude，2026-07-13）：后端通过；前端静态通过、构建待 Windows 复验。** 后端结构化投影正确：`risk_state`={`global_stop`（从真实账户快照重算组合回撤，与执行计划共用函数）、`stopped_symbols`、`info` 级 `blocked_decisions`}，业务用户按账户可见性过滤；后端 `206 passed / 1 skipped`（+3）。前端静态核对：模板四要素齐全（GLOBAL_STOP 横幅 / STOPPED 面板+管理员限定「复核恢复」/ 实质告警 / blocked 独立区）；恢复 modal 强制 reason（前端 + 后端双校验）；`percent/displayTime/openRecovery/closeRecovery/confirmRecovery` 均已定义，`resumeStoppedSymbol`/`riskState`↔appStore↔`resumeStoppedSymbolRequest`↔client 的 import/export 交叉验证干净；`can_resume_stopped_symbol=is_admin` 已进 auth 载荷，且真正安全边界是 endpoint 的 `Depends(require_admin)`（前端 flag 仅控显隐）。合并在 `main`（`03ecbfc`）。**验证边界（诚实）**：本机无 node，无法执行 `npm run check/build`，也无法验证实际渲染；Codex 声称的「npm 构建通过」在同一 Linux 无-node 环境下无法坐实，**按项目约定仍需 Windows 侧复验后在本文件登记**，在此之前前端构建视为待确认。
 
 ## 最近验证
 
