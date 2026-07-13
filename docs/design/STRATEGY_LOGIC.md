@@ -155,7 +155,7 @@ E = π·δPa − (1−π)·δP(θ−a) − δPc > 0    ⇔    π > 1 − (a − 
 
 风控从"事后生成风险事件"改为"动作发出前的不变量校验"（工程上即 ARCHITECTURE §4.3 的 RiskGuard 链）：
 
-> 工程状态（2026-07-09）：`domain/strategy/exposure.py` 已统一目标净敞口 `Δ*`，`domain/strategy/actions.py` 已统一利润搬运、趋势减仓、仓位恢复的动作 sizing，`domain/strategy/rules/event_rules.py` 已统一冷却、次数、趋势阶梯触发 guard，`domain/strategy/lifecycle.py` 已统一事件后状态变更、恢复重锚和计数器清零；`domain/risk/guards.py` 已接入 `plan_only` 计划生成与 dry-run 引擎，覆盖 symbol STOPPED 拆对冲全平、gross `ONLY_REDUCE`、计划模式和加仓开关；趋势结束判定、亏损腿重建、组合级 STOP、C7 自融资账本和快照新鲜度暂停态仍待接入。
+> 工程状态（2026-07-13）：目标敞口、动作 sizing、事件 guard 与生命周期已统一为共享领域模块，趋势进入持续确认和可选速度门、趋势退出判定、亏损腿重建均已接入。`domain/risk/guards.py` 已覆盖 symbol STOPPED 拆对冲全平、gross `ONLY_REDUCE`、组合级 `GLOBAL_STOP` 与 C7 自融资账本，计划生成已按 `snapshot_max_age_seconds` 拦截陈旧快照；剩余重点是参数标定、STOP 后人工复核恢复与 UI 投影。
 
 | 不变量 | 击穿处置 |
 |---|---|
@@ -178,10 +178,9 @@ E = π·δPa − (1−π)·δP(θ−a) − δPc > 0    ⇔    π > 1 − (a − 
 | reduce_step_pct / reduce_loss_side_ratio / min_loss_side_position_ratio_of_base | 趋势处置的 s / ρ / q_floor（受 C6） |
 | pullback_pct_from_trend_extreme | 拆成两个语义：p_r（区间平偏斜）与 p_t（趋势结束判定） |
 | use_realized_profit_ratio_for_loss_side / max_add_loss_side_ratio_of_base_position | ρ_f 与单档 δ_unit 上限（受 C7/C5） |
-| restore_loss_side_only_to_base | 由 §3 Δ* 阶梯语义自然给出，删除该布尔 |
 | min_net_profit_usdt | 改按 C2 两程成本口径 |
 | min_position_distance / target_price_distance（未接线） | REANCHORING 重建批次的进入 / 完成条件 |
-| max_total_drawdown_pct（未接线） | §7 全局不变量 |
+| max_total_drawdown_pct | §7 组合级回撤全局 STOP 不变量 |
 | funding（恒为 0） | C9 接线：从交易所同步 funding rate 计提 |
 
 ---

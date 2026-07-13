@@ -323,19 +323,20 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 - **决策**：当前 `min_net_profit_usdt=0.05` 的训练样本没有落入“原门槛通过但加腿成本覆盖不足”的边际区间，训练数据不支持翻默认；样例配置保持 `false`，零默认行为变化。该开关作为更严格的实盘成本保护保留，后续只有在交易成本或最小利润参数改变时再独立标定；未使用验证窗选参。
 - **验收结论（Claude，2026-07-13）：通过。** 判据 reorder 到 add_qty 之后（成本需 add_qty），off 时 `required=min_net_profit`、行为与原先一致（无副作用）；`test_profit_transfer_can_require_add_leg_roundtrip_coverage` 是有效载荷（净利介于 `min_net_profit` 与 `min_net_profit+往返成本` 之间，off 过、on 拒）。训练窗 off/on 逐市场完全一致——诚实反映当前 `min_net_profit=0.05` 下无样本落入边际带，符合「latent 保护、不翻默认」的结论。后端 `198 passed / 1 skipped`。合并在 `main`（`acefab9`）。**非阻断小提示（供未来翻默认时修正）**：`estimate_add_leg_roundtrip_cost` 用 `2×taker_fee + 1×slippage`，而真实往返（开+平加仓腿）滑点应计两腿，当前少算 1×slippage（`slippage_bps=2` 时约 0.02% notional，影响极小）；默认 off 不影响现状，若日后据成本标定开启，建议改为 `2×(taker_fee + slippage)`。
 
-### 任务 S3：清理死配置 + 对账陈旧缺口（优先级：低，文档/清理）
+### 任务 S3：清理死配置 + 对账陈旧缺口（已完成，2026-07-13）
 
 - **问题**：① `restore_loss_side_only_to_base` 配置键在新 Δ* 模型下已无任何代码引用（`grep` 确认 `exposure.py`/`actions.py` 均不读它），属死键；且「已知缺口」里「利润搬运口径待澄清（该键 + 整次搬运被跳过）」在新模型下已不成立——新模型 `inverse_skew_actions` 中减盈利腿恒执行、加亏损腿才是可选，止盈不会被跳过。② 「已知缺口」里「风控剩余维度未补齐（组合级回撤/C7/快照新鲜度）」与上文「实盘化推进」的「内核风控补全」（C7、`snapshot_max_age_seconds` 600s、`max_total_drawdown_pct`→GLOBAL_STOP 均已落地）自相矛盾。
 - **涉及文件**：`config/config.sample.json`；`PROJECT_PROGRESS.md`；如有其他 config 样例。
 - **改动**：删除或注释弃用 `restore_loss_side_only_to_base` 死键；补一条回归测试锁定「亏损腿已达/超 base 时，止盈（减盈利腿）仍会执行」；订正「已知缺口」两条陈旧描述（搬运口径、风控维度）与实际代码一致。
 - **验收**：新增回归测试通过；文档缺口与代码对齐、无自相矛盾；无 live 开关变更。
 - **约束**：纯清理与对账，不改变任何交易行为。
+- **完成结果**：从 `config/config.sample.json` 和产品方案的两段配置示例中删除无代码引用的 `restore_loss_side_only_to_base`；新增动作回归测试，锁定亏损腿已达或超过 base 时仍会生成 `REDUCE_PROFIT_SIDE`，不再出现旧模型“整次搬运被跳过”的语义。同步订正本文件、产品技术方案、架构文档与策略逻辑文档：组合级 `GLOBAL_STOP`、C7 自融资账本、计划快照新鲜度拦截、趋势进入速度门和亏损腿重建均已落地；保留 STOP 后人工复核恢复、UI 风控投影、Funding 和参数标定等真实剩余项。仅删除死键、增加测试并对账文档，没有改变交易实现或 live 开关。
 
 ## 最近验证
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`199 tests OK`。
+- Python 单元测试及 API 契约测试：`200 tests OK`。
 - `git diff --check` 通过。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
@@ -370,12 +371,12 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 ### 策略逻辑已知缺口（详见技术方案 §21）
 
 - **趋势生命周期仍需继续完善（最高优先级）**：`StrategyLifecycle` 已接管事件后状态变更、恢复重锚、计数器清零、趋势进入的持续确认与可选速度门、趋势退出候选计数和亏损腿重建；速度门训练对照不支持翻默认，趋势退出参数的回测标定仍未完整落地。
-- **风控剩余维度未补齐**：`RiskGuard` 已接入 `plan_only` 计划生成和 dry-run 引擎，`MAX_SYMBOL_DRAWDOWN` 会转为 `STOPPED` 拆对冲全平，gross 超限会进入 `ONLY_REDUCE`；但组合级回撤、C7 自融资账本、快照新鲜度/暂停态仍未落地。
+- **核心风控维度已补齐，恢复与投影待完善**：`RiskGuard` 已覆盖 symbol `STOPPED` 拆对冲全平、gross `ONLY_REDUCE`、组合级回撤 `GLOBAL_STOP` 和 C7 自融资账本；`plan_only` 已按 `snapshot_max_age_seconds` 拦截陈旧快照。剩余项是 STOP 后人工复核恢复流程、paper/live 组合态编排及完整 UI 投影。
 - **趋势确认速度门默认关闭**：进入 TREND 已支持最近 `k` 个 close tick 的位移速度门；首个训练候选降低了趋势触发但损害净收益，因此默认保持中性，后续需按周期独立标定（S1 已完成）。
-- **利润搬运口径待澄清**：`restore_loss_side_only_to_base=true` 且亏损腿已到 base 时，整次搬运（含减盈利腿止盈）被跳过；「用利润恢复亏损腿」是仓位定量口径而非资金划转。
+- **利润搬运口径已澄清**：新 Δ* 模型不再使用 `restore_loss_side_only_to_base`；减盈利腿独立生成，加亏损腿按剩余目标差额与自融资预算可选追加，亏损腿已达或超过 base 不会阻止止盈（S3 已完成）。
 - **成本项仍需标定**：Funding 在失衡对冲中是方向性成本（当前恒为 0）；利润搬运已支持可选的加仓腿往返成本覆盖，但首轮训练窗没有触发差异，默认保持关闭（S2 已完成）。
 - **Regime Gate 审查发现（2026-07-13，修复计划见上方「Regime Gate 审查修复计划」）**：
-  - 被 regime / 规则拦截的决策已写入 `info` 级 blocked 风险事件，且不产生成交（R1 已验收通过）；但每 tick 记录会冲刷 200 条上限的风险历史、挤掉真实风险事件，需按拦截状态转换去重（待办 R1.1）。
+  - 被 regime / 规则拦截的决策已写入 `info` 级 blocked 风险事件，且不产生成交；持续阻断已按状态转换去重，不再冲刷 material 风险历史（R1/R1.1 已完成）。
   - RANGE 自相关阈值语义已厘清：训练窗不支持收紧到 `0.20`，保留 `0.95` 作为极端病态保险，并由分类测试锁定（R2 已完成）。
   - regime 冷启动静默期：`min_samples` 根收盘前禁止利润搬运/重建（`interval=1h` 约 20 小时），属预期行为，paper/live 上线首日需据此设期望。
   - paper 收盘推进已统一委托 `EventEngine.advance_close()`，与 dry_run/replay 共用 close-only 指标和生命周期推进（R3 已完成）。
@@ -415,13 +416,12 @@ M6 完整领域引擎历史回放第一版已完成（2026-07-13）：
 
 设计提案已成文：`docs/design/STRATEGY_LOGIC.md`；实现方案已成文：`docs/design/STRATEGY_IMPLEMENTATION.md`。2026-07-08 评审已确定阈值单位 σ 化、固定 k₂/k₁ 几何关系、结构化锚点与入场调制器两项 K 线回测对比，以及趋势结束三条件、现价重锚、分批重建三项生命周期决策。
 
-当前 `plan_only` 计划生成和 dry_run 模拟引擎已切到 `Δ*` 内核，并共用策略动作集、事件触发规则、基础生命周期与 `RiskGuard`；dry_run 引擎已接入趋势退出候选计数和亏损腿分批重建，真实 `plan_only` 也已开始接入持久化 symbol state 与事件规则。趋势进入的持续性/斜率确认、参数约束、自融资账本与组合级风控仍待继续落地。
+当前 `plan_only` 计划生成和 dry_run 模拟引擎已切到 `Δ*` 内核，并共用策略动作集、事件触发规则、生命周期与 `RiskGuard`；趋势进入持续确认和可选速度门、趋势退出候选计数、亏损腿分批重建、C7 自融资账本、组合级回撤和快照新鲜度拦截均已落地。剩余重点转为参数标定、STOP 后人工复核恢复、paper/live 组合态编排与 UI 投影。
 
 1. 为 FastAPI routers 增加 Pydantic 请求模型、统一业务错误映射和更完整的账户级权限契约测试。
-2. 补趋势进入的持续确认、斜率/波动率维度，区分慢速漂移和快速趋势。
-3. 扩展 `RiskGuard`：补组合级回撤、C7 自融资账本、快照新鲜度暂停态，以及 `STOPPED` 后的人工复核恢复流程。
-4. 趋势确认增加斜率/时间维度，区分慢速阴跌和快速趋势。
-5. 澄清并按需拆分利润搬运的止盈/加仓逻辑，补 Funding 与手续费 churn 的成本约束。
+2. 按 interval 独立标定趋势退出、速度门和恢复参数，不跨周期复用 tick 参数。
+3. 补 `STOPPED` 后人工复核恢复、paper/live 组合态编排，以及风控状态的完整 UI 投影。
+4. 接入 Funding 实际结算数据，并在交易成本或最低利润参数变化时重新标定利润搬运成本门。
 
 ### 前端页面重构
 

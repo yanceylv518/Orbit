@@ -52,6 +52,19 @@ class StrategyActionsTest(unittest.TestCase):
         self.assertGreater(projected, Decimal("0.1928"))
         self.assertLess(projected, Decimal("0.1928") + roundtrip_cost)
 
+    def test_profit_transfer_reduces_profit_leg_when_loss_leg_is_above_base(self):
+        decision = self.decide(price="102", long_qty="1.2", short_qty="1.2")
+        position = self.position(
+            price="102", long_qty="1.2", short_qty="1.2", long_pnl="2.4", short_pnl="-2.4",
+        )
+
+        action_set = build_strategy_action_set(decision, position, self.strategy)
+
+        self.assertGreaterEqual(position.short.qty, decision.base_qty)
+        self.assertIsNotNone(action_set)
+        self.assertEqual(action_set.actions[0].action, "REDUCE_LONG")
+        self.assertEqual(action_set.actions[0].event_role, "REDUCE_PROFIT_SIDE")
+
     def test_trend_reduction_builds_loss_side_reduce_action(self):
         decision = self.decide(price="105")
         action_set = build_strategy_action_set(

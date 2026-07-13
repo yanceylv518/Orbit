@@ -574,7 +574,7 @@ POST /api/execution-plans/export
 12. 固定 OHLC、固定 OLHC 与 myopic 三种路径均未通过阶段门，路径差异影响交易数和损失幅度但不改变产品决策。有限 beam 暂停实现，避免在失败策略上增加回测复杂度；下一轮模块改动必须在至少两种固定路径和 myopic 压力路径下方向一致。
 13. OHLC+Funding 跨路径消融确认趋势减仓为稳定负贡献，但 15m 与 1h 方向分化。策略 interval 必须进入运行配置和标定主键；基于 tick 的 cooldown/确认/阶梯参数不得未经时间换算跨周期复用。任何周期候选需用未参与诊断的独立历史区间复核。
 14. interval 已进入策略/账户运行配置，行情应用按 `(interval, symbol)` 建流和路由账户状态；全局 market feed interval 只作为旧配置缺省值，不再决定所有账户周期。独立旧历史支持 1h 候选但 myopic 市场覆盖仍失败，因此只允许 shadow 观察，不得直接转 paper/live。
-15. 把策略逻辑统一成完整领域状态机；目标敞口、动作 sizing、冷却/次数/趋势阶梯触发规则、事件后生命周期变更已抽为共享领域模块，后续继续补趋势结束、亏损腿重建与迟滞/持续确认。`RiskGuard` 已作为计划生成和 dry-run 引擎的共用风控入口，后续补组合级回撤、自融资账本与快照新鲜度 guard。
+15. 策略逻辑已统一为共享领域状态机；目标敞口、动作 sizing、冷却/次数/趋势阶梯触发、趋势进入持续确认与可选速度门、趋势退出和亏损腿重建均共用领域模块。`RiskGuard` 已覆盖组合级回撤 `GLOBAL_STOP`、C7 自融资账本，计划生成已接入快照新鲜度拦截；后续重点是趋势退出参数标定、STOP 后人工复核恢复和前端状态投影。
 16. 前端使用 Vue 3 + Vite，页面放在 `frontend/src/pages/*`，共享状态放在 `frontend/src/stores/*`，API client 放在 `frontend/src/api/*`；后端只托管 `frontend/dist` 构建产物。
 
 完成后应满足：
