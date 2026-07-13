@@ -120,16 +120,31 @@ def trend_performance_summary(
     *,
     periods_per_year: float,
     fold_periods: int,
+    rolling_window_periods: int | None = None,
+    rolling_step_periods: int = 1,
 ) -> dict[str, Any]:
     if periods_per_year <= 0 or fold_periods < 1:
         raise ValueError("periods_per_year and fold_periods must be positive")
+    if rolling_window_periods is not None and rolling_window_periods < 1:
+        raise ValueError("rolling window periods must be positive")
+    if rolling_step_periods < 1:
+        raise ValueError("rolling step periods must be positive")
     returns = [float(value) / 100 for value in net_returns_pct]
     equity = 1.0
     peak = 1.0
     max_drawdown_pct = 0.0
+    underwater_periods = 0
+    max_drawdown_duration_periods = 0
     for value in returns:
         equity *= 1 + value
-        peak = max(peak, equity)
+        if equity >= peak:
+            peak = equity
+            underwater_periods = 0
+        else:
+            underwater_periods += 1
+            max_drawdown_duration_periods = max(
+                max_drawdown_duration_periods, underwater_periods,
+            )
         if peak > 0:
             max_drawdown_pct = max(max_drawdown_pct, (peak - equity) / peak * 100)
     total_return_pct = (equity - 1) * 100
@@ -146,6 +161,24 @@ def trend_performance_summary(
         if period_std > 0
         else 0.0
     )
+    mean_return = statistics.mean(returns) if returns else 0.0
+    downside_deviation = (
+        math.sqrt(statistics.mean(min(value, 0.0) ** 2 for value in returns))
+        if returns
+        else 0.0
+    )
+    sortino = (
+        mean_return / downside_deviation * math.sqrt(periods_per_year)
+        if downside_deviation > 0
+        else None
+    )
+    sortino_infinite = downside_deviation == 0 and mean_return > 0
+    calmar = (
+        annualized_return_pct / max_drawdown_pct
+        if max_drawdown_pct > 0
+        else None
+    )
+    calmar_infinite = max_drawdown_pct == 0 and annualized_return_pct > 0
     folds = []
     for start in range(0, len(returns) - fold_periods + 1, fold_periods):
         fold_equity = 1.0
@@ -153,6 +186,23 @@ def trend_performance_summary(
             fold_equity *= 1 + value
         folds.append((fold_equity - 1) * 100)
     profitable_folds = sum(value > 0 for value in folds)
+    rolling_returns_pct = []
+    if rolling_window_periods is not None:
+        for end in range(
+            rolling_window_periods,
+            len(returns) + 1,
+            rolling_step_periods,
+        ):
+            rolling_equity = 1.0
+            for value in returns[end - rolling_window_periods:end]:
+                rolling_equity *= 1 + value
+            rolling_returns_pct.append((rolling_equity - 1) * 100)
+    positive_rolling_windows = sum(value > 0 for value in rolling_returns_pct)
+    positive_rolling_window_ratio = (
+        positive_rolling_windows / len(rolling_returns_pct)
+        if rolling_returns_pct
+        else None
+    )
     performance_bar_pass = (
         annualized_return_pct > 0
         and sharpe >= 0.5
@@ -167,11 +217,67 @@ def trend_performance_summary(
         "annualized_net_return_pct": annualized_return_pct,
         "annualized_volatility_pct": annualized_volatility_pct,
         "sharpe": sharpe,
+        "sortino": sortino,
+        "sortino_infinite": sortino_infinite,
+        "downside_deviation_pct": downside_deviation * 100,
+        "calmar": calmar,
+        "calmar_infinite": calmar_infinite,
         "max_drawdown_pct": max_drawdown_pct,
+        "max_drawdown_duration_periods": max_drawdown_duration_periods,
+        "max_drawdown_duration_months": (
+            max_drawdown_duration_periods / periods_per_year * 12
+        ),
         "fold_returns_pct": folds,
         "folds": len(folds),
         "profitable_folds": profitable_folds,
+        "rolling_window_periods": rolling_window_periods,
+        "rolling_step_periods": rolling_step_periods,
+        "rolling_returns_pct": rolling_returns_pct,
+        "rolling_windows": len(rolling_returns_pct),
+        "positive_rolling_windows": positive_rolling_windows,
+        "positive_rolling_window_ratio": positive_rolling_window_ratio,
+        "worst_rolling_return_pct": (
+            min(rolling_returns_pct) if rolling_returns_pct else None
+        ),
         "performance_bar_pass": performance_bar_pass,
+    }
+
+
+def trend_tb3_admission(performance: Mapping[str, Any]) -> dict[str, Any]:
+    calmar_pass = (
+        bool(performance.get("calmar_infinite"))
+        or (
+            performance.get("calmar") is not None
+            and float(performance["calmar"]) >= 0.5
+        )
+    )
+    sortino_pass = (
+        bool(performance.get("sortino_infinite"))
+        or (
+            performance.get("sortino") is not None
+            and float(performance["sortino"]) >= 0.7
+        )
+    )
+    worst_rolling = performance.get("worst_rolling_return_pct")
+    positive_ratio = performance.get("positive_rolling_window_ratio")
+    conditions = {
+        "positive_net_return": float(performance["total_net_return_pct"]) > 0,
+        "max_drawdown": float(performance["max_drawdown_pct"]) <= 30,
+        "calmar": calmar_pass,
+        "sortino": sortino_pass,
+        "worst_rolling_12m": (
+            worst_rolling is not None and float(worst_rolling) >= -30
+        ),
+        "positive_rolling_12m_ratio": (
+            positive_ratio is not None and float(positive_ratio) >= 0.55
+        ),
+        "max_drawdown_duration": (
+            float(performance["max_drawdown_duration_months"]) <= 18
+        ),
+    }
+    return {
+        "conditions": conditions,
+        "admitted": all(conditions.values()),
     }
 
 
@@ -193,6 +299,8 @@ def trend_basket_report(
     fold_days: int = 365,
     drawdown_threshold_pct: float | None = None,
     drawdown_risk_scale: float = 0.5,
+    rolling_window_days: int | None = None,
+    rolling_step_days: int = 1,
 ) -> dict[str, Any]:
     if len(markets) < 2:
         raise ValueError("at least two markets are required")
@@ -204,6 +312,10 @@ def trend_basket_report(
         raise ValueError("drawdown threshold must be in (0, 100)")
     if not 0 < drawdown_risk_scale <= 1:
         raise ValueError("drawdown risk scale must be in (0, 1]")
+    if rolling_window_days is not None and rolling_window_days < 1:
+        raise ValueError("rolling window days must be positive")
+    if rolling_step_days < 1:
+        raise ValueError("rolling step days must be positive")
 
     quality = trend_basket_data_quality(
         markets,
@@ -406,6 +518,14 @@ def trend_basket_report(
         net_returns_pct,
         periods_per_year=periods_per_year,
         fold_periods=fold_periods,
+        rolling_window_periods=(
+            max(1, round(rolling_window_days * 86_400_000 / interval_ms))
+            if rolling_window_days is not None
+            else None
+        ),
+        rolling_step_periods=max(
+            1, round(rolling_step_days * 86_400_000 / interval_ms),
+        ),
     )
     admitted = quality["admitted"] and performance["performance_bar_pass"]
     return {
@@ -623,4 +743,201 @@ def trend_basket_walk_forward(
         },
         "admitted": admitted,
         "verdict": "TB2_PASS" if admitted else "TB2_FAIL",
+    }
+
+
+def trend_basket_tb3_walk_forward(
+    markets: Mapping[str, MarketHistory],
+    candidates: Sequence[Mapping[str, Any]],
+    windows: Sequence[Mapping[str, int | str]],
+    *,
+    interval_ms: int,
+    momentum_lookback: int,
+    volatility_lookback: int,
+    rebalance_ticks: int,
+    training_max_drawdown_pct: float = 25.0,
+    gross_cap: float = 1.0,
+    roundtrip_cost_pct: float = 0.14,
+    min_markets: int = 10,
+    min_span_days: int = 1_095,
+    min_funding_coverage: float = 0.99,
+) -> dict[str, Any]:
+    if not candidates or not windows:
+        raise ValueError("TB3 candidates and windows are required")
+    if not 0 < training_max_drawdown_pct < 30:
+        raise ValueError("TB3 training drawdown buffer must be in (0, 30)")
+    candidate_ids = [str(candidate["id"]) for candidate in candidates]
+    if len(candidate_ids) != len(set(candidate_ids)):
+        raise ValueError("TB3 candidate ids must be unique")
+
+    previous_oos_end: int | None = None
+    for window in windows:
+        training_end = int(window["training_end_ms"])
+        oos_start = int(window["oos_start_ms"])
+        oos_end = int(window["oos_end_ms"])
+        if not training_end < oos_start <= oos_end:
+            raise ValueError("TB3 training must end before its OOS window")
+        if previous_oos_end is not None and oos_start <= previous_oos_end:
+            raise ValueError("TB3 OOS windows must not overlap")
+        previous_oos_end = oos_end
+
+    quality = trend_basket_data_quality(
+        markets,
+        interval_ms=interval_ms,
+        min_markets=min_markets,
+        min_span_days=min_span_days,
+        min_funding_coverage=min_funding_coverage,
+    )
+    report_args = {
+        "interval_ms": interval_ms,
+        "gross_cap": gross_cap,
+        "roundtrip_cost_pct": roundtrip_cost_pct,
+        "min_markets": min_markets,
+        "min_span_days": min_span_days,
+        "min_funding_coverage": min_funding_coverage,
+        "fold_days": 365,
+        "rolling_window_days": 365,
+        "rolling_step_days": 1,
+    }
+    steps = []
+    aggregate_returns: list[float] = []
+    for window in windows:
+        training_reports = []
+        for candidate in candidates:
+            training = trend_basket_report(
+                markets,
+                momentum_lookback,
+                volatility_lookback,
+                rebalance_ticks,
+                target_portfolio_vol=float(candidate["target_portfolio_vol"]),
+                evaluation_end_ms=int(window["training_end_ms"]),
+                **report_args,
+            )
+            training_eligible = (
+                quality["admitted"]
+                and training["total_net_return_pct"] > 0
+                and training["max_drawdown_pct"] <= training_max_drawdown_pct
+            )
+            training_reports.append({
+                "candidate": dict(candidate),
+                "report": training,
+                "training_eligible": training_eligible,
+            })
+
+        eligible = [item for item in training_reports if item["training_eligible"]]
+        eligible.sort(key=lambda item: (
+            -float(item["candidate"]["target_portfolio_vol"]),
+            str(item["candidate"]["id"]),
+        ))
+        selected = eligible[0] if eligible else None
+        step: dict[str, Any] = {
+            "id": str(window["id"]),
+            "training_end_ms": int(window["training_end_ms"]),
+            "oos_start_ms": int(window["oos_start_ms"]),
+            "oos_end_ms": int(window["oos_end_ms"]),
+            "training_candidates": training_reports,
+            "selected_candidate": (
+                dict(selected["candidate"]) if selected else None
+            ),
+            "training_verdict": "PASS" if selected else "TRAINING_FAIL",
+            "oos": None,
+            "oos_admission": None,
+            "oos_verdict": "NOT_OPENED",
+        }
+        if selected is not None:
+            candidate = selected["candidate"]
+            oos = trend_basket_report(
+                markets,
+                momentum_lookback,
+                volatility_lookback,
+                rebalance_ticks,
+                target_portfolio_vol=float(candidate["target_portfolio_vol"]),
+                evaluation_start_ms=int(window["oos_start_ms"]),
+                evaluation_end_ms=int(window["oos_end_ms"]),
+                **report_args,
+            )
+            oos_admission = trend_tb3_admission(oos)
+            aggregate_returns.extend(oos["net_returns_pct"])
+            step.update({
+                "oos": oos,
+                "oos_admission": oos_admission,
+                "oos_verdict": (
+                    "PASS" if oos_admission["admitted"] else "FAIL"
+                ),
+            })
+        steps.append(step)
+
+    periods_per_year = 365 * 86_400_000 / interval_ms
+    rolling_window_periods = round(365 * 86_400_000 / interval_ms)
+    rolling_step_periods = max(1, round(86_400_000 / interval_ms))
+    aggregate = trend_performance_summary(
+        aggregate_returns,
+        periods_per_year=periods_per_year,
+        fold_periods=rolling_window_periods,
+        rolling_window_periods=rolling_window_periods,
+        rolling_step_periods=rolling_step_periods,
+    )
+    aggregate_admission = trend_tb3_admission(aggregate)
+    scored_steps = [step for step in steps if step["oos"] is not None]
+    all_steps_pass = (
+        len(scored_steps) == len(steps)
+        and all(step["oos_verdict"] == "PASS" for step in steps)
+    )
+    admitted = quality["admitted"] and all_steps_pass and aggregate_admission["admitted"]
+
+    def finite_metric(step: Mapping[str, Any], name: str) -> float:
+        value = step["oos"].get(name)
+        if value is not None:
+            return float(value)
+        return (
+            math.inf
+            if step["oos"].get(f"{name}_infinite")
+            else -math.inf
+        )
+
+    return {
+        "evidence_level": "BACKTEST_CONFIRMATION",
+        "data_quality": quality,
+        "momentum_lookback": momentum_lookback,
+        "volatility_lookback": volatility_lookback,
+        "rebalance_ticks": rebalance_ticks,
+        "training_max_drawdown_pct": training_max_drawdown_pct,
+        "candidate_count": len(candidates),
+        "candidates": [dict(candidate) for candidate in candidates],
+        "steps": steps,
+        "aggregate_net_returns_pct": aggregate_returns,
+        "aggregate": aggregate,
+        "aggregate_admission": aggregate_admission,
+        "worst_oos": {
+            "net_return": min(
+                scored_steps,
+                key=lambda step: step["oos"]["total_net_return_pct"],
+            )["id"] if scored_steps else None,
+            "calmar": min(
+                scored_steps,
+                key=lambda step: finite_metric(step, "calmar"),
+            )["id"] if scored_steps else None,
+            "sortino": min(
+                scored_steps,
+                key=lambda step: finite_metric(step, "sortino"),
+            )["id"] if scored_steps else None,
+            "rolling_return": min(
+                scored_steps,
+                key=lambda step: step["oos"]["worst_rolling_return_pct"],
+            )["id"] if scored_steps else None,
+            "positive_rolling_ratio": min(
+                scored_steps,
+                key=lambda step: step["oos"]["positive_rolling_window_ratio"],
+            )["id"] if scored_steps else None,
+            "drawdown": max(
+                scored_steps,
+                key=lambda step: step["oos"]["max_drawdown_pct"],
+            )["id"] if scored_steps else None,
+            "drawdown_duration": max(
+                scored_steps,
+                key=lambda step: step["oos"]["max_drawdown_duration_months"],
+            )["id"] if scored_steps else None,
+        },
+        "admitted": admitted,
+        "verdict": "TB3_PASS" if admitted else "TB3_FAIL",
     }

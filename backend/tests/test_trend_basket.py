@@ -10,8 +10,10 @@ from orbit.domain.calibration.history import FundingPoint, MarketCandle
 from orbit.domain.calibration.trend_basket import (
     trend_basket_data_quality,
     trend_basket_report,
+    trend_basket_tb3_walk_forward,
     trend_basket_walk_forward,
     trend_performance_summary,
+    trend_tb3_admission,
 )
 
 
@@ -197,6 +199,47 @@ class TrendBasketTest(unittest.TestCase):
         self.assertEqual(summary["profitable_folds"], 2)
         self.assertTrue(summary["performance_bar_pass"])
 
+    def test_tb3_metrics_include_downside_rolling_and_drawdown_duration(self):
+        summary = trend_performance_summary(
+            [10.0, -5.0, 2.0, 3.0],
+            periods_per_year=12,
+            fold_periods=2,
+            rolling_window_periods=2,
+            rolling_step_periods=1,
+        )
+
+        self.assertIsNotNone(summary["calmar"])
+        self.assertIsNotNone(summary["sortino"])
+        self.assertAlmostEqual(summary["max_drawdown_pct"], 5.0)
+        self.assertEqual(summary["max_drawdown_duration_periods"], 3)
+        self.assertEqual(summary["max_drawdown_duration_months"], 3.0)
+        self.assertEqual(summary["rolling_windows"], 3)
+        self.assertAlmostEqual(summary["worst_rolling_return_pct"], -3.1)
+        self.assertEqual(summary["positive_rolling_windows"], 2)
+        self.assertAlmostEqual(summary["positive_rolling_window_ratio"], 2 / 3)
+
+    def test_tb3_admission_reports_each_frozen_condition(self):
+        performance = {
+            "total_net_return_pct": 12.0,
+            "max_drawdown_pct": 20.0,
+            "calmar": 0.6,
+            "calmar_infinite": False,
+            "sortino": 0.8,
+            "sortino_infinite": False,
+            "worst_rolling_return_pct": -10.0,
+            "positive_rolling_window_ratio": 0.6,
+            "max_drawdown_duration_months": 12.0,
+        }
+
+        admitted = trend_tb3_admission(performance)
+        performance["positive_rolling_window_ratio"] = 0.54
+        rejected = trend_tb3_admission(performance)
+
+        self.assertTrue(admitted["admitted"])
+        self.assertTrue(all(admitted["conditions"].values()))
+        self.assertFalse(rejected["admitted"])
+        self.assertFalse(rejected["conditions"]["positive_rolling_12m_ratio"])
+
     def test_four_market_one_hour_data_is_non_conclusive(self):
         interval_ms = 3_600_000
         prices = price_path([0.01, -0.005] * 30)
@@ -295,6 +338,85 @@ class TrendBasketTest(unittest.TestCase):
                 trending_markets(),
                 candidates,
                 windows,
+                interval_ms=DAY_MS,
+                momentum_lookback=3,
+                volatility_lookback=3,
+                rebalance_ticks=5,
+                min_markets=2,
+                min_span_days=1,
+            )
+
+    def test_tb3_selects_highest_eligible_vol_without_future_prices(self):
+        original = trending_markets(length=70)
+        changed = {}
+        for name, (market_candles, points) in original.items():
+            future_changed = [
+                MarketCandle(
+                    item.close_time_ms,
+                    item.close * 4,
+                    item.close * 4,
+                    item.close * 4,
+                    item.close * 4,
+                )
+                if item.close_time_ms >= 40 * DAY_MS else item
+                for item in market_candles
+            ]
+            changed[name] = (future_changed, points)
+        candidates = [
+            {"id": "vol10", "target_portfolio_vol": 0.10},
+            {"id": "vol20", "target_portfolio_vol": 0.20},
+        ]
+        windows = [{
+            "id": "WF1",
+            "training_end_ms": 29 * DAY_MS,
+            "oos_start_ms": 30 * DAY_MS,
+            "oos_end_ms": 39 * DAY_MS,
+        }]
+        kwargs = {
+            "interval_ms": DAY_MS,
+            "momentum_lookback": 3,
+            "volatility_lookback": 3,
+            "rebalance_ticks": 5,
+            "min_markets": 2,
+            "min_span_days": 1,
+        }
+
+        before = trend_basket_tb3_walk_forward(
+            original, candidates, windows, **kwargs,
+        )
+        after = trend_basket_tb3_walk_forward(
+            changed, candidates, windows, **kwargs,
+        )
+
+        self.assertEqual(before["steps"][0]["selected_candidate"]["id"], "vol20")
+        self.assertEqual(
+            before["steps"][0]["selected_candidate"],
+            after["steps"][0]["selected_candidate"],
+        )
+        self.assertTrue(all(
+            item["report"]["evaluation_end_ms"] <= 29 * DAY_MS
+            for item in before["steps"][0]["training_candidates"]
+        ))
+
+    def test_tb3_rejects_overlapping_oos_windows(self):
+        with self.assertRaisesRegex(ValueError, "must not overlap"):
+            trend_basket_tb3_walk_forward(
+                trending_markets(),
+                [{"id": "vol10", "target_portfolio_vol": 0.10}],
+                [
+                    {
+                        "id": "WF1",
+                        "training_end_ms": 10,
+                        "oos_start_ms": 20,
+                        "oos_end_ms": 40,
+                    },
+                    {
+                        "id": "WF2",
+                        "training_end_ms": 30,
+                        "oos_start_ms": 40,
+                        "oos_end_ms": 50,
+                    },
+                ],
                 interval_ms=DAY_MS,
                 momentum_lookback=3,
                 volatility_lookback=3,
