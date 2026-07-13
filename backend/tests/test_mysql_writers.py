@@ -98,12 +98,17 @@ class MySqlWriterTest(unittest.TestCase):
             "users": config["users"],
             "exchange_accounts": config["exchange_accounts"],
             "strategy_instance": config["strategy_instances"][0],
+            "account_run_configs": config["account_run_configs"],
         }
 
         ids = MySqlConfigWriter().write(cursor, payload)
 
         self.assertIn(f"strategy:{payload['strategy_instance']['id']}", ids)
         self.assertTrue(any("exchange_accounts" in query for query, _ in cursor.calls))
+        run_config_call = next((call for call in cursor.calls if "account_run_configs" in call[0]), None)
+        self.assertIsNotNone(run_config_call)
+        self.assertIn("kline_interval", run_config_call[0])
+        self.assertIn("1h", run_config_call[1])
 
     def test_symbol_and_market_writers_use_resolved_strategy_ids(self):
         cursor = RecordingCursor()

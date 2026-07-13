@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from typing import Any, Sequence
+
+from orbit.domain.strategy.regime import DEFAULT_REGIME_CONFIG, RANGE, RegimeGate
 
 """π̂ 估计与几何扫描（STRATEGY_LOGIC §2 / §10.1 的离线标定内核）。
 
@@ -88,9 +90,42 @@ def estimate(
 ) -> dict:
     reversions, extensions = excursion_outcomes(closes, a_pct, theta_pct, reversion_pct)
     total = reversions + extensions
+    return _estimate_report(
+        reversions,
+        extensions,
+        a_pct,
+        theta_pct,
+        cost_pct,
+        filtered_entries=0,
+        entry_candidates=total,
+    )
+
+
+def _estimate_report(
+    reversions: int,
+    extensions: int,
+    a_pct: float,
+    theta_pct: float,
+    cost_pct: float,
+    *,
+    filtered_entries: int,
+    entry_candidates: int,
+    filtered_reversions: int = 0,
+    filtered_extensions: int = 0,
+    attribution_available: bool = True,
+) -> dict[str, Any]:
+    total = reversions + extensions
     pi_hat = reversions / total if total else 0.0
     low, high = wilson_interval(reversions, total)
     required = pi_required(a_pct, theta_pct, cost_pct)
+    outcomes = [a_pct - cost_pct] * reversions + [-(theta_pct - a_pct) - cost_pct] * extensions
+    total_return_pct = sum(outcomes)
+    gross_return_pct = reversions * a_pct - extensions * (theta_pct - a_pct)
+    fee_drag_pct = total * cost_pct
+    filtered_gross_return_pct = (
+        filtered_reversions * a_pct - filtered_extensions * (theta_pct - a_pct)
+    )
+    filtered_net_return_pct = filtered_gross_return_pct - filtered_entries * cost_pct
     return {
         "a_pct": a_pct,
         "theta_pct": theta_pct,
@@ -105,7 +140,371 @@ def estimate(
         # C8 准入：置信下界必须显著高于盈亏平衡线
         "admitted": total >= 30 and low > required,
         "expected_value_pct": expected_value_per_bet(pi_hat, a_pct, theta_pct, cost_pct),
+        "total_return_pct": total_return_pct,
+        "gross_return_pct": gross_return_pct,
+        "fee_drag_pct": fee_drag_pct,
+        "break_even_cost_pct": gross_return_pct / total if total and gross_return_pct > 0 else 0.0,
+        "filtered_entries": filtered_entries,
+        "filtered_reversions": filtered_reversions,
+        "filtered_extensions": filtered_extensions,
+        "filtered_counterfactual_gross_return_pct": filtered_gross_return_pct,
+        "filtered_counterfactual_net_return_pct": filtered_net_return_pct,
+        "counterfactual_unfiltered_total_return_pct": total_return_pct + filtered_net_return_pct,
+        "gate_avoided_loss_pct": max(0.0, -filtered_net_return_pct),
+        "attribution_available": attribution_available,
+        "entry_candidates": entry_candidates,
+        "trade_frequency": total / entry_candidates if entry_candidates else 0.0,
+        "max_drawdown_pct": max_drawdown(outcomes),
     }
+
+
+def gated_estimate(
+    closes: Sequence[float],
+    a_pct: float,
+    theta_pct: float,
+    cost_pct: float,
+    *,
+    gate_config: dict[str, Any] | None = None,
+    warmup: Sequence[float] = (),
+    reversion_pct: float = 0.25,
+) -> dict[str, Any]:
+    config = {**DEFAULT_REGIME_CONFIG, **(gate_config or {})}
+    config["enabled"] = True
+    gate = RegimeGate({"strategy": {"regime_gate": config}})
+    state: dict[str, Any] = {}
+    for price in warmup:
+        if float(price) > 0:
+            gate.update(state, float(price))
+    regimes = []
+    for price in closes:
+        gate.update(state, float(price))
+        regimes.append(state.get("regime") == RANGE)
+
+    records, candidates = excursion_outcome_records(
+        closes,
+        a_pct,
+        theta_pct,
+        reversion_pct,
+        allowed_entries=regimes,
+    )
+    outcomes = [reverted for reverted, allowed in records if allowed]
+    filtered_outcomes = [reverted for reverted, allowed in records if not allowed]
+    reversions = sum(outcomes)
+    extensions = len(outcomes) - reversions
+    filtered_reversions = sum(filtered_outcomes)
+    filtered_extensions = len(filtered_outcomes) - filtered_reversions
+    report = _estimate_report(
+        reversions,
+        extensions,
+        a_pct,
+        theta_pct,
+        cost_pct,
+        filtered_entries=len(filtered_outcomes),
+        entry_candidates=candidates,
+        filtered_reversions=filtered_reversions,
+        filtered_extensions=filtered_extensions,
+    )
+    report["gate_enabled"] = True
+    return report
+
+
+def excursion_outcome_series(
+    closes: Sequence[float],
+    a_pct: float,
+    theta_pct: float,
+    reversion_pct: float = 0.25,
+    *,
+    allowed_entries: Sequence[bool] | None = None,
+) -> tuple[list[bool], int, int]:
+    records, candidates = excursion_outcome_records(
+        closes,
+        a_pct,
+        theta_pct,
+        reversion_pct,
+        allowed_entries=allowed_entries,
+    )
+    outcomes = [reverted for reverted, allowed in records if allowed]
+    filtered = sum(1 for _, allowed in records if not allowed)
+    return outcomes, filtered, candidates
+
+
+def excursion_outcome_records(
+    closes: Sequence[float],
+    a_pct: float,
+    theta_pct: float,
+    reversion_pct: float = 0.25,
+    *,
+    allowed_entries: Sequence[bool] | None = None,
+) -> tuple[list[tuple[bool, bool]], int]:
+    if a_pct <= 0 or theta_pct <= a_pct:
+        raise ValueError("需要 0 < a < θ")
+    records: list[tuple[bool, bool]] = []
+    candidates = 0
+    anchor: float | None = None
+    direction = 0
+    active_allowed = True
+    for index, raw_price in enumerate(closes):
+        price = float(raw_price)
+        if price <= 0:
+            continue
+        if anchor is None:
+            anchor = price
+            continue
+        move_pct = (price / anchor - 1) * 100
+        if direction == 0:
+            if abs(move_pct) >= a_pct:
+                direction = 1 if move_pct > 0 else -1
+                active_allowed = allowed_entries is None or bool(allowed_entries[index])
+                candidates += 1
+            continue
+        directed = move_pct * direction
+        if directed >= theta_pct or directed <= reversion_pct:
+            records.append((directed <= reversion_pct, active_allowed))
+            anchor = price
+            direction = 0
+            active_allowed = True
+    return records, candidates
+
+
+def max_drawdown(outcomes: Sequence[float]) -> float:
+    equity = 0.0
+    peak = 0.0
+    drawdown = 0.0
+    for outcome in outcomes:
+        equity += float(outcome)
+        peak = max(peak, equity)
+        drawdown = max(drawdown, peak - equity)
+    return drawdown
+
+
+def default_gate_config_grid() -> list[dict[str, Any]]:
+    return [
+        {
+            "window": window,
+            "confirm_ticks": confirm_ticks,
+            "range_efficiency_ratio": range_er,
+            "trend_efficiency_ratio": trend_er,
+        }
+        for window in (24, 48, 96)
+        for confirm_ticks in (1, 3)
+        for range_er, trend_er in ((0.25, 0.55), (0.35, 0.65), (0.45, 0.75))
+    ]
+
+
+def select_gate_config(
+    closes: Sequence[float],
+    a_pct: float,
+    theta_pct: float,
+    cost_pct: float,
+    gate_configs: Sequence[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not gate_configs:
+        raise ValueError("gate_configs must not be empty")
+    baseline = estimate(closes, a_pct, theta_pct, cost_pct)
+    minimum_trades = max(5, math.ceil(int(baseline["excursions"]) * 0.25))
+    candidates = []
+    for raw_config in gate_configs:
+        config = {**DEFAULT_REGIME_CONFIG, **raw_config, "enabled": True}
+        report = gated_estimate(closes, a_pct, theta_pct, cost_pct, gate_config=config)
+        report["selection_eligible"] = report["excursions"] >= minimum_trades
+        report["confidence_margin"] = report["pi_ci_low"] - report["pi_required"]
+        candidates.append((config, report))
+    eligible = [candidate for candidate in candidates if candidate[1]["selection_eligible"]]
+    pool = eligible or candidates
+    selected_config, selected_report = max(
+        pool,
+        key=lambda candidate: (
+            candidate[1]["confidence_margin"],
+            candidate[1]["expected_value_pct"],
+            candidate[1]["excursions"],
+        ),
+    )
+    selected_report["minimum_selection_trades"] = minimum_trades
+    selected_report["eligible_configs"] = len(eligible)
+    selected_report["evaluated_configs"] = len(candidates)
+    return selected_config, selected_report
+
+
+def walk_forward_compare(
+    closes: Sequence[float],
+    a_grid: Sequence[float],
+    theta_grid: Sequence[float],
+    cost_pct: float,
+    *,
+    train_size: int,
+    validation_size: int,
+    step: int | None = None,
+    gate_config: dict[str, Any] | None = None,
+    gate_config_grid: Sequence[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if train_size < 30 or validation_size < 10:
+        raise ValueError("train_size must be >= 30 and validation_size >= 10")
+    step = int(step or validation_size)
+    folds = []
+    start = 0
+    while start + train_size + validation_size <= len(closes):
+        train = closes[start:start + train_size]
+        validation = closes[start + train_size:start + train_size + validation_size]
+        candidates = geometry_scan(train, a_grid, theta_grid, cost_pct)
+        selected = next((row for row in candidates if row["admitted"]), candidates[0])
+        off = estimate(validation, selected["a_pct"], selected["theta_pct"], cost_pct)
+        selected_gate_config = {**DEFAULT_REGIME_CONFIG, **(gate_config or {})}
+        gate_training_report = None
+        if gate_config_grid is not None:
+            selected_gate_config, gate_training_report = select_gate_config(
+                train,
+                selected["a_pct"],
+                selected["theta_pct"],
+                cost_pct,
+                gate_config_grid,
+            )
+        warmup_size = max(int(selected_gate_config.get("window", DEFAULT_REGIME_CONFIG["window"])), 3)
+        on = gated_estimate(
+            validation,
+            selected["a_pct"],
+            selected["theta_pct"],
+            cost_pct,
+            gate_config=selected_gate_config,
+            warmup=train[-warmup_size:],
+        )
+        gate_qualified = gate_training_report is None or bool(gate_training_report["admitted"])
+        deploy = on if gate_qualified else _estimate_report(
+            0,
+            0,
+            selected["a_pct"],
+            selected["theta_pct"],
+            cost_pct,
+            filtered_entries=int(off["excursions"]),
+            entry_candidates=int(off["excursions"]),
+            attribution_available=False,
+        )
+        folds.append({
+            "fold": len(folds) + 1,
+            "train_start": start,
+            "train_end": start + train_size,
+            "validation_end": start + train_size + validation_size,
+            "selected_a_pct": selected["a_pct"],
+            "selected_theta_pct": selected["theta_pct"],
+            "train": selected,
+            "selected_gate_config": selected_gate_config,
+            "gate_training": gate_training_report,
+            "gate_qualified": gate_qualified,
+            "gate_off": off,
+            "gate_on": on,
+            "gate_deploy": deploy,
+        })
+        start += step
+    if not folds:
+        raise ValueError("not enough closes for one walk-forward fold")
+    return {
+        "train_size": train_size,
+        "validation_size": validation_size,
+        "step": step,
+        "gate_tuning_enabled": gate_config_grid is not None,
+        "folds": folds,
+        "aggregate": {
+            "gate_off": aggregate_reports([fold["gate_off"] for fold in folds], cost_pct),
+            "gate_on": aggregate_reports([fold["gate_on"] for fold in folds], cost_pct),
+            "gate_deploy": aggregate_reports([fold["gate_deploy"] for fold in folds], cost_pct),
+        },
+    }
+
+
+def aggregate_reports(reports: Sequence[dict[str, Any]], cost_pct: float) -> dict[str, Any]:
+    reversions = sum(int(report["reversions"]) for report in reports)
+    extensions = sum(int(report["extensions"]) for report in reports)
+    total = reversions + extensions
+    if not reports:
+        return {}
+    candidates = sum(int(report.get("entry_candidates", 0)) for report in reports)
+    filtered = sum(int(report.get("filtered_entries", 0)) for report in reports)
+    total_return = sum(float(report["total_return_pct"]) for report in reports)
+    gross_return = sum(float(report.get("gross_return_pct", 0.0)) for report in reports)
+    fee_drag = sum(float(report.get("fee_drag_pct", 0.0)) for report in reports)
+    filtered_reversions = sum(int(report.get("filtered_reversions", 0)) for report in reports)
+    filtered_extensions = sum(int(report.get("filtered_extensions", 0)) for report in reports)
+    filtered_counterfactual_net = sum(
+        float(report.get("filtered_counterfactual_net_return_pct", 0.0)) for report in reports
+    )
+    pi_hat = reversions / total if total else 0.0
+    low, high = wilson_interval(reversions, total)
+    required = (
+        sum(float(report["pi_required"]) * int(report["excursions"]) for report in reports) / total
+        if total
+        else 0.0
+    )
+    unique_geometries = sorted({
+        (float(report["a_pct"]), float(report["theta_pct"]))
+        for report in reports
+    })
+    return {
+        "folds": len(reports),
+        "cost_pct": cost_pct,
+        "geometries": [
+            {"a_pct": a_pct, "theta_pct": theta_pct}
+            for a_pct, theta_pct in unique_geometries
+        ],
+        "excursions": total,
+        "reversions": reversions,
+        "extensions": extensions,
+        "pi_hat": pi_hat,
+        "pi_ci_low": low,
+        "pi_ci_high": high,
+        "pi_required_weighted": required,
+        "admitted": total >= 30 and low > required,
+        "expected_value_pct": total_return / total if total else 0.0,
+        "total_return_pct": total_return,
+        "gross_return_pct": gross_return,
+        "fee_drag_pct": fee_drag,
+        "break_even_cost_pct": gross_return / total if total and gross_return > 0 else 0.0,
+        "filtered_entries": filtered,
+        "filtered_reversions": filtered_reversions,
+        "filtered_extensions": filtered_extensions,
+        "filtered_counterfactual_net_return_pct": filtered_counterfactual_net,
+        "counterfactual_unfiltered_total_return_pct": total_return + filtered_counterfactual_net,
+        "gate_avoided_loss_pct": max(0.0, -filtered_counterfactual_net),
+        "attribution_available": all(bool(report.get("attribution_available", False)) for report in reports),
+        "entry_candidates": candidates,
+        "trade_frequency": total / candidates if candidates else 0.0,
+        "profitable_folds": sum(1 for report in reports if report["expected_value_pct"] > 0),
+        "worst_fold_drawdown_pct": max(float(report["max_drawdown_pct"]) for report in reports),
+        "conservative_drawdown_bound_pct": sum(float(report["max_drawdown_pct"]) for report in reports),
+    }
+
+
+def portfolio_calibration_summary(
+    market_results: Sequence[dict[str, Any]],
+    cost_pct: float,
+    *,
+    comparison: str = "gate_on",
+) -> dict[str, Any]:
+    if comparison not in {"gate_on", "gate_off", "gate_deploy"}:
+        raise ValueError("comparison must be gate_on, gate_off, or gate_deploy")
+    reports = [
+        fold[comparison]
+        for market in market_results
+        for fold in market["result"]["folds"]
+    ]
+    aggregate = aggregate_reports(reports, cost_pct)
+    profitable_markets = sum(
+        1
+        for market in market_results
+        if market["result"]["aggregate"][comparison]["expected_value_pct"] > 0
+    )
+    market_count = len(market_results)
+    required_profitable_markets = market_count // 2 + 1
+    aggregate.update({
+        "comparison": comparison,
+        "markets": market_count,
+        "profitable_markets": profitable_markets,
+        "required_profitable_markets": required_profitable_markets,
+        "stage_admitted": bool(
+            aggregate.get("admitted")
+            and aggregate.get("expected_value_pct", 0.0) > 0
+            and profitable_markets >= required_profitable_markets
+        ),
+    })
+    return aggregate
 
 
 def geometry_scan(

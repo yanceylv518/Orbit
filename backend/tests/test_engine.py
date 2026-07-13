@@ -16,6 +16,7 @@ class EventEngineTest(unittest.TestCase):
     def setUp(self):
         cfg = load_config(str(ROOT / "config" / "config.sample.json"))
         self.strategy = cfg["strategy_instances"][0]
+        self.strategy["strategy"]["regime_gate"]["enabled"] = False
         self.engine = EventEngine(self.strategy)
         self.state = self.engine.initialize_symbol("BTCUSDT", Decimal("60000"), Decimal("100"))
 

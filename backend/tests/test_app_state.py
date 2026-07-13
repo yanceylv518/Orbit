@@ -26,6 +26,7 @@ class AppStateAdminTest(unittest.TestCase):
         cfg["runtime"]["mock_data_enabled"] = mock_data_enabled
         cfg["runtime"]["auto_start"] = mock_data_enabled
         cfg["auth"]["login_required"] = login_required
+        cfg["strategy_instances"][0]["strategy"]["regime_gate"]["enabled"] = False
         cfg["storage"] = {
             "driver": "json",
             "json_path": str(tmp_path / "runtime_state.json"),

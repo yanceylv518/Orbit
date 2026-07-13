@@ -170,6 +170,11 @@ function triggerFacts(plan) {
   const rows = [
     ["内核", trigger.exposure_model],
     ["生命周期", trigger.lifecycle_state ? stateLabel(trigger.lifecycle_state) : undefined],
+    ["市况 Gate", trigger.regime],
+    ["市况原始判定", trigger.regime_raw],
+    ["效率比 ER", trigger.regime_features?.efficiency_ratio !== undefined ? fmt(trigger.regime_features.efficiency_ratio, 4) : undefined],
+    ["收益自相关", trigger.regime_features?.return_autocorrelation !== undefined ? fmt(trigger.regime_features.return_autocorrelation, 4) : undefined],
+    ["波动率 %", trigger.regime_features?.volatility_pct !== undefined ? `${fmt(trigger.regime_features.volatility_pct, 4)}%` : undefined],
     ["触发规则", trigger.event_rule],
     ["锚点价", trigger.base_price !== undefined ? fmt(trigger.base_price, 4) : undefined],
     ["偏离 %", trigger.move_pct_from_base !== undefined ? `${fmt(trigger.move_pct_from_base, 3)}%` : undefined],

@@ -6,6 +6,7 @@
         <h3>
           {{ overview.symbol }}
           <StatusBadge :text="stateLabel(phase)" :color="stateColor(phase)" />
+          <StatusBadge :text="regimeLabel(regime)" :color="regimeColor(regime)" />
         </h3>
         <span class="muted">{{ overview.accountLabels.join(" / ") || "-" }}</span>
       </div>
@@ -23,6 +24,10 @@
           <TriggerProgress v-if="movePct !== null" :move-pct="movePct" :a-pt="aPt" :theta-t="thetaT" />
           <p v-else class="muted">尚无内核计划上下文。同步账户并生成执行计划后展示。</p>
           <p v-if="liveRow" class="muted kernel-context-line">
+            市况 {{ regimeLabel(liveRow.regime) }}
+            <template v-if="liveRow.regime_features?.efficiency_ratio !== undefined"> · ER {{ fmt(liveRow.regime_features.efficiency_ratio, 3) }}</template>
+            <template v-if="liveRow.regime_features?.return_autocorrelation !== undefined"> · 自相关 {{ fmt(liveRow.regime_features.return_autocorrelation, 3) }}</template>
+            ·
             行情 tick {{ liveRow.tick_count }}
             <template v-if="liveRow.last_kline_at"> · 最新 K 线 {{ liveRow.last_kline_at }}</template>
             <template v-if="liveRow.trend_exit_candidate_count"> · 趋势退出确认 {{ liveRow.trend_exit_candidate_count }}</template>
@@ -50,11 +55,12 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>币种</th><th>相位</th><th>价格</th><th>多头</th><th>空头</th><th>Δ 净敞口</th><th>浮盈亏</th><th>最近事件</th></tr></thead>
+          <thead><tr><th>币种</th><th>相位</th><th>市况</th><th>价格</th><th>多头</th><th>空头</th><th>Δ 净敞口</th><th>浮盈亏</th><th>最近事件</th></tr></thead>
           <tbody>
             <tr v-for="item in overviews" :key="item.symbol">
               <td><button class="tab" :class="{ active: store.selectedSymbol === item.symbol }" @click="selectSymbol(item.symbol)">{{ item.symbol }}</button></td>
               <td><StatusBadge :text="stateLabel(phaseOf(item))" :color="stateColor(phaseOf(item))" /></td>
+              <td><StatusBadge :text="regimeLabel(regimeOf(item))" :color="regimeColor(regimeOf(item))" /></td>
               <td>{{ fmt(item.price, item.symbol === "SOLUSDT" ? 3 : 2) }}</td>
               <td>{{ fmt(item.long_qty, 6) }}</td>
               <td>{{ fmt(item.short_qty, 6) }}</td>
@@ -62,7 +68,7 @@
               <td :class="cls(item.unrealized_pnl)">{{ fmt(item.unrealized_pnl) }} USDT</td>
               <td>{{ lastEvents[item.symbol] ? eventLabel(lastEvents[item.symbol].event_type) : "无" }}</td>
             </tr>
-            <tr v-if="!overviews.length"><td colspan="8" class="muted">暂无真实仓位。请先同步 Binance 账户。</td></tr>
+            <tr v-if="!overviews.length"><td colspan="9" class="muted">暂无真实仓位。请先同步 Binance 账户。</td></tr>
           </tbody>
         </table>
       </div>
@@ -149,6 +155,7 @@ const priceDigits = computed(() => (overview.value?.symbol === "SOLUSDT" ? 3 : 2
 const liveRow = computed(() => (overview.value ? liveStateRow(overview.value.symbol) : null));
 const kernelContext = computed(() => overview.value?.plan?.trigger || null);
 const phase = computed(() => liveRow.value?.state || kernelContext.value?.lifecycle_state || "REAL_POSITION");
+const regime = computed(() => liveRow.value?.regime || kernelContext.value?.regime || "UNKNOWN");
 const anchorPrice = computed(() => liveRow.value?.base_price || kernelContext.value?.base_price || null);
 const movePct = computed(() => {
   if (liveRow.value?.base_price && liveRow.value?.last_price) {
@@ -172,6 +179,18 @@ const thetaT = computed(() => Number(eventConfig.value?.loss_side_reduction?.tri
 
 function phaseOf(item) {
   return liveStateRow(item.symbol)?.state || item.plan?.trigger?.lifecycle_state || "REAL_POSITION";
+}
+
+function regimeOf(item) {
+  return liveStateRow(item.symbol)?.regime || item.plan?.trigger?.regime || "UNKNOWN";
+}
+
+function regimeLabel(value) {
+  return ({ RANGE: "震荡", TRENDING: "趋势", TRANSITION: "切换中", UNKNOWN: "样本不足" })[value] || value || "样本不足";
+}
+
+function regimeColor(value) {
+  return ({ RANGE: "green", TRENDING: "red", TRANSITION: "orange", UNKNOWN: "blue" })[value] || "blue";
 }
 
 const history = computed(() => store.state?.price_history?.[symbol.value?.symbol] || []);

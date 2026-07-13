@@ -564,8 +564,18 @@ POST /api/execution-plans/export
 2. 持续补齐 `application/ports/*`，让应用服务只依赖端口。
 3. ApplicationUnitOfWork 已覆盖主要写状态，MySQL 主保存流程使用显式事务；配置、symbol-state、市场快照、事件、审计和日报 writer 均已拆出，`storage.py` 仅保留连接、读取、schema/ID 辅助与事务编排。
 4. FastAPI routers 已替换 `api/server.py` 大 handler；后续补齐请求 DTO、统一异常映射和 OpenAPI 契约。
-5. 把策略逻辑统一成完整领域状态机；目标敞口、动作 sizing、冷却/次数/趋势阶梯触发规则、事件后生命周期变更已抽为共享领域模块，后续继续补趋势结束、亏损腿重建与迟滞/持续确认。`RiskGuard` 已作为计划生成和 dry-run 引擎的共用风控入口，后续补组合级回撤、自融资账本与快照新鲜度 guard。
-6. 前端使用 Vue 3 + Vite，页面放在 `frontend/src/pages/*`，共享状态放在 `frontend/src/stores/*`，API client 放在 `frontend/src/api/*`；后端只托管 `frontend/dist` 构建产物。
+5. Regime Gate 已作为共享领域策略接入真实计划与 Paper 引擎，状态由已收盘 K 线推进并按账户/币种持久化；Gate on/off 已纳入无未来数据泄漏的 walk-forward 标定报告。组合标定层覆盖 BTC/ETH 的 15m/1h，并以 C8、组合期望和盈利市场覆盖率共同决定阶段门。Gate 参数由训练窗按最低覆盖与 Wilson 置信边际选择，验证窗只打分；训练期不准入的折在 `gate_deploy` 口径主动空仓。当前外样本仍为负期望，因此统计准入门继续阻止 testnet/live。
+6. 标定报告把几何毛收益、手续费和 Gate 过滤交易的反事实收益分开核算，并用恒等测试保证归因可对账。当前 excursion 代理模型在零手续费下仍为负，后续必须增加基于完整领域引擎的历史回放 adapter，复用 Paper 的目标敞口、动作 sizing、生命周期与风控规则，禁止另写一套简化交易逻辑冒充真实回测。
+7. 完整历史回放已直接复用 `EventEngine.on_tick()`，并对每个验证折独立初始化、计入初始建仓成本、期末强制平仓和账务对账；多市场阶段门同时检查净收益、盈利市场、盈利折和 Funding 完整性。历史 Funding 尚未接入时 `funding_complete=false`，阶段门必须拒绝。
+8. 回放基准层通过生产事件开关构造完整策略、模块消融和中性持有对照，并按事件族汇总直接已实现收益、手续费和滑点。模块消融只用于定位候选；任何参数或模块开关若读取过验证结果，均不得直接进入生产配置，必须重新经过训练窗选择与隔离验证。
+9. 趋势减仓候选已实现外层 walk-forward 和训练窗内部稳定性选择；两种选择方法均未在验证集形成稳定正收益，因此该参数族停止继续扫描。下一步先补 Funding 和 OHLC；盘中 OHLC 路径只能驱动触发/成交，不得作为四个额外样本污染 Regime 的已收盘 K 线序列。
+10. OHLC 与 Funding 使用独立带时间戳的数据对象，旧 close-only 缓存保持兼容。Funding 按结算时刻实际净持仓进入已实现收益，并由覆盖检查控制阶段门；同窗实测显示 Funding 影响很小。OHLC high/low 尚未驱动事件，后续必须增加独立盘中触发接口，不能调用四次普通 `on_tick()` 污染 Regime、冷却 tick 和持续确认计数。
+11. `EventEngine.on_intrabar_price()` 已把盘中触发与收盘指标推进分离；OHLC 回放同时模拟两种极值顺序并可选择局部较差分支。该逐 K 选择不具备全局最坏保证，报告必须标记为 myopic stress；后续用固定路径和有限 beam 对照路径敏感性。
+12. 固定 OHLC、固定 OLHC 与 myopic 三种路径均未通过阶段门，路径差异影响交易数和损失幅度但不改变产品决策。有限 beam 暂停实现，避免在失败策略上增加回测复杂度；下一轮模块改动必须在至少两种固定路径和 myopic 压力路径下方向一致。
+13. OHLC+Funding 跨路径消融确认趋势减仓为稳定负贡献，但 15m 与 1h 方向分化。策略 interval 必须进入运行配置和标定主键；基于 tick 的 cooldown/确认/阶梯参数不得未经时间换算跨周期复用。任何周期候选需用未参与诊断的独立历史区间复核。
+14. interval 已进入策略/账户运行配置，行情应用按 `(interval, symbol)` 建流和路由账户状态；全局 market feed interval 只作为旧配置缺省值，不再决定所有账户周期。独立旧历史支持 1h 候选但 myopic 市场覆盖仍失败，因此只允许 shadow 观察，不得直接转 paper/live。
+15. 把策略逻辑统一成完整领域状态机；目标敞口、动作 sizing、冷却/次数/趋势阶梯触发规则、事件后生命周期变更已抽为共享领域模块，后续继续补趋势结束、亏损腿重建与迟滞/持续确认。`RiskGuard` 已作为计划生成和 dry-run 引擎的共用风控入口，后续补组合级回撤、自融资账本与快照新鲜度 guard。
+16. 前端使用 Vue 3 + Vite，页面放在 `frontend/src/pages/*`，共享状态放在 `frontend/src/stores/*`，API client 放在 `frontend/src/api/*`；后端只托管 `frontend/dist` 构建产物。
 
 完成后应满足：
 

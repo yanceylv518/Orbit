@@ -32,7 +32,10 @@
                 <div class="muted">{{ config.account_id }}</div>
               </td>
               <td><StatusBadge :text="config.enabled ? '已启用' : '已停用'" :color="config.enabled ? 'green' : 'orange'" /></td>
-              <td>{{ statusLabel(config.mode) }}</td>
+              <td>
+                {{ statusLabel(config.mode) }}
+                <div class="muted">{{ config.interval || "1h" }}</div>
+              </td>
               <td>{{ (config.symbols || []).join(" / ") }}</td>
               <td>{{ budgetText(config) }}</td>
               <td>{{ fmt(config.max_single_order_usdt) }}</td>

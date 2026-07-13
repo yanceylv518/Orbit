@@ -41,6 +41,7 @@ class AccountRunConfigServiceTest(unittest.TestCase):
         config = self.configs.get("acc_001")
         self.assertIsNotNone(config)
         self.assertEqual(config["mode"], "plan_only")
+        self.assertEqual(config["interval"], "1h")
         self.assertFalse(config["allow_market_orders"])
         self.assertIs(self.app_config["account_run_configs"], self.configs.all())
 
@@ -51,6 +52,7 @@ class AccountRunConfigServiceTest(unittest.TestCase):
                 "symbols": ["btcusdt", ""],
                 "max_single_order_usdt": -10,
                 "allow_market_orders": True,
+                "interval": "15m",
             },
             actor="user_001",
             actor_user=self.owner,
@@ -60,6 +62,7 @@ class AccountRunConfigServiceTest(unittest.TestCase):
         self.assertEqual(result["run_config"]["symbols"], ["BTCUSDT"])
         self.assertEqual(result["run_config"]["max_single_order_usdt"], 0)
         self.assertFalse(result["run_config"]["allow_market_orders"])
+        self.assertEqual(result["run_config"]["interval"], "15m")
         self.assertEqual(result["_audit"]["action_type"], "UPDATE_ACCOUNT_RUN_CONFIG")
 
     def test_unrelated_user_cannot_update_config(self):

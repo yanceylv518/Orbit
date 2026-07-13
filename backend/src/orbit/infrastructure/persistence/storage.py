@@ -391,6 +391,12 @@ class MySqlStateStore:
         try:
             with conn.cursor() as cur:
                 self._ensure_symbol_state_columns(cur)
+                self._ensure_column(
+                    cur,
+                    "account_run_configs",
+                    "kline_interval",
+                    "VARCHAR(16) NOT NULL DEFAULT '1h' AFTER status",
+                )
         finally:
             conn.close()
 

@@ -10,6 +10,7 @@ from orbit.domain.risk.guards import RiskContext, RiskGuardResult, RiskPolicy, R
 from orbit.domain.strategy.actions import StrategyAction, StrategyActionSet, StrategyLeg, StrategyPosition, build_strategy_action_set
 from orbit.domain.strategy.exposure import TargetExposureDecision, decide_target_exposure
 from orbit.domain.strategy.lifecycle import StrategyLifecycle
+from orbit.domain.strategy.regime import RegimeGate
 from orbit.domain.strategy.rules.event_rules import EventRuleResult, StrategyEventRules
 
 
@@ -47,6 +48,7 @@ class EventEngine:
         self.events = strategy_config["strategy"]["events"]
         self.event_rules = StrategyEventRules(strategy_config)
         self.lifecycle = StrategyLifecycle(strategy_config)
+        self.regime_gate = RegimeGate(strategy_config)
         self.base_position_usdt = d(strategy_config["strategy"]["base_position_usdt"])
 
     def initialize_symbol(self, symbol: str, price: Decimal, budget_usdt: Decimal) -> dict[str, Any]:
@@ -83,17 +85,44 @@ class EventEngine:
             "last_transfer_price": None,
             "last_loss_reduce_price": None,
             "tick_count": 0,
+            "regime": "UNKNOWN",
+            "regime_stable": "UNKNOWN",
+            "regime_raw": "UNKNOWN",
+            "regime_candidate": "",
+            "regime_candidate_count": 0,
+            "regime_price_history": [float(price)],
+            "regime_features": {},
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }
 
     def on_tick(self, state: dict[str, Any], price: Decimal) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+        return self._on_price(state, price, closed_candle=True)
+
+    def on_intrabar_price(
+        self,
+        state: dict[str, Any],
+        price: Decimal,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Evaluate an observable intrabar price without advancing close-only indicators."""
+        return self._on_price(state, price, closed_candle=False)
+
+    def _on_price(
+        self,
+        state: dict[str, Any],
+        price: Decimal,
+        *,
+        closed_candle: bool,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
         state = deepcopy(state)
-        state["tick_count"] = int(state.get("tick_count", 0)) + 1
+        if closed_candle:
+            state["tick_count"] = int(state.get("tick_count", 0)) + 1
         state["last_price"] = str(price)
         state["high_since_base"] = str(max(d(state["high_since_base"]), price))
         state["low_since_base"] = str(min(d(state["low_since_base"]), price))
-        self.lifecycle.update_trend_tracking(state, price)
+        if closed_candle:
+            self.regime_gate.update(state, float(price))
+            self.lifecycle.update_trend_tracking(state, price)
         self.mark_to_market(state, price)
 
         strategy_events: list[dict[str, Any]] = []
@@ -412,6 +441,9 @@ class EventEngine:
             return None
 
         rule_result = self.event_rules.evaluate(decision, state, price)
+        regime_result = self.regime_gate.evaluate(decision, state)
+        if not regime_result.allowed:
+            return None
         if not rule_result.allowed:
             return None
 

@@ -1,13 +1,4 @@
-"""π̂ 准入估计与 (a, θ) 几何扫描（STRATEGY_LOGIC §2 / §10.1）。
-
-用法：
-  # 单点估计（当前参数是否过 C8 准入线）
-  python backend/tools/calibrate.py --klines var/calibration/BTCUSDT_1h.json \
-      --a 1.5 --theta 4.0 --cost 0.14
-
-  # 几何扫描（寻找期望值最优的触发几何）
-  python backend/tools/calibrate.py --klines var/calibration/BTCUSDT_1h.json --scan
-"""
+"""Estimate strategy geometry and compare Regime Gate with walk-forward validation."""
 
 from __future__ import annotations
 
@@ -19,7 +10,15 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
-from orbit.domain.calibration.estimators import estimate, geometry_scan  # noqa: E402
+from orbit.domain.calibration.estimators import (  # noqa: E402
+    estimate,
+    geometry_scan,
+    walk_forward_compare,
+)
+
+
+DEFAULT_A_GRID = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
+DEFAULT_THETA_GRID = [2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0]
 
 
 def load_closes(path: str) -> list[float]:
@@ -28,44 +27,89 @@ def load_closes(path: str) -> list[float]:
 
 
 def print_report(report: dict) -> None:
-    verdict = "PASS 准入" if report["admitted"] else "FAIL 不准入"
-    print(f"a={report['a_pct']:.2f}%  θ={report['theta_pct']:.2f}%  c={report['cost_pct']:.2f}%")
-    print(f"  excursions={report['excursions']}  回归={report['reversions']}  延伸={report['extensions']}")
-    print(f"  π̂={report['pi_hat']:.3f}  CI=[{report['pi_ci_low']:.3f}, {report['pi_ci_high']:.3f}]")
-    print(f"  盈亏平衡线 π_req={report['pi_required']:.3f}  单注期望={report['expected_value_pct']:+.3f}%")
-    print(f"  C8 判定：{verdict}（要求 CI 下界 > π_req 且样本 ≥ 30）")
+    verdict = "PASS" if report["admitted"] else "FAIL"
+    print(f"a={report['a_pct']:.2f}% theta={report['theta_pct']:.2f}% cost={report['cost_pct']:.2f}%")
+    print(
+        f"  excursions={report['excursions']} reversions={report['reversions']} "
+        f"extensions={report['extensions']}"
+    )
+    print(
+        f"  pi={report['pi_hat']:.3f} CI=[{report['pi_ci_low']:.3f}, "
+        f"{report['pi_ci_high']:.3f}] pi_required={report['pi_required']:.3f}"
+    )
+    print(
+        f"  EV={report['expected_value_pct']:+.3f}% total={report['total_return_pct']:+.3f}% "
+        f"max_drawdown={report['max_drawdown_pct']:.3f}% C8={verdict}"
+    )
+
+
+def print_walk_forward(result: dict) -> None:
+    print(
+        f"walk-forward train={result['train_size']} validation={result['validation_size']} "
+        f"step={result['step']} folds={len(result['folds'])}"
+    )
+    for fold in result["folds"]:
+        off = fold["gate_off"]
+        on = fold["gate_on"]
+        print(
+            f"  fold={fold['fold']:02d} validation=[{fold['train_end']},{fold['validation_end']}) "
+            f"a={fold['selected_a_pct']:.2f} theta={fold['selected_theta_pct']:.2f} "
+            f"off_EV={off['expected_value_pct']:+.3f}% "
+            f"on_EV={on['expected_value_pct']:+.3f}% "
+            f"filtered={on['filtered_entries']}"
+        )
+    print("\naggregate")
+    for name in ("gate_off", "gate_on"):
+        report = result["aggregate"][name]
+        print(
+            f"  {name}: trades={report['excursions']} frequency={report['trade_frequency']:.3f} "
+            f"EV={report['expected_value_pct']:+.3f}% total={report['total_return_pct']:+.3f}% "
+            f"worst_fold_DD={report['worst_fold_drawdown_pct']:.3f}% "
+            f"profitable_folds={report['profitable_folds']}/{report['folds']}"
+        )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--klines", required=True, help="fetch_klines.py 产出的 JSON")
-    parser.add_argument("--a", type=float, default=1.5, help="偏斜触发幅度 %")
-    parser.add_argument("--theta", type=float, default=4.0, help="趋势确认幅度 %")
-    parser.add_argument("--cost", type=float, default=0.14, help="一来一回成本率 %（taker≈0.14，maker≈0.05）")
-    parser.add_argument("--scan", action="store_true", help="扫描 (a, θ) 网格")
+    parser.add_argument("--klines", required=True, help="JSON produced by fetch_klines.py")
+    parser.add_argument("--a", type=float, default=1.5, help="entry excursion percentage")
+    parser.add_argument("--theta", type=float, default=4.0, help="trend confirmation percentage")
+    parser.add_argument("--cost", type=float, default=0.14, help="round-trip cost percentage")
+    parser.add_argument("--scan", action="store_true", help="scan the default geometry grid")
+    parser.add_argument("--walk-forward", action="store_true", help="compare Gate off/on out of sample")
+    parser.add_argument("--train-size", type=int, default=2880, help="training candles per fold")
+    parser.add_argument("--validation-size", type=int, default=960, help="validation candles per fold")
+    parser.add_argument("--step", type=int, help="candles between fold starts; defaults to validation size")
+    parser.add_argument("--json-output", help="write the complete result to this JSON file")
     args = parser.parse_args()
 
     closes = load_closes(args.klines)
-    print(f"载入 {len(closes)} 根收盘价\n")
+    print(f"loaded {len(closes)} closes")
 
-    if args.scan:
-        a_grid = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
-        theta_grid = [2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0]
-        rows = geometry_scan(closes, a_grid, theta_grid, args.cost)
-        print(f"{'a%':>6} {'θ%':>6} {'π̂':>7} {'CI低':>7} {'π_req':>7} {'E%':>8} {'样本':>5} 准入")
-        for row in rows[:20]:
-            flag = "✓" if row["admitted"] else "-"
-            print(
-                f"{row['a_pct']:>6.2f} {row['theta_pct']:>6.2f} {row['pi_hat']:>7.3f}"
-                f" {row['pi_ci_low']:>7.3f} {row['pi_required']:>7.3f}"
-                f" {row['expected_value_pct']:>+8.3f} {row['excursions']:>5} {flag}"
-            )
-        positives = [row for row in rows if row["admitted"]]
-        print(f"\n{len(positives)}/{len(rows)} 组合过 C8 准入线。")
-        if not positives:
-            print("警告：没有组合过线——该 symbol 在此周期不适合本策略（诚实的负结果）。")
+    if args.walk_forward:
+        result = walk_forward_compare(
+            closes,
+            DEFAULT_A_GRID,
+            DEFAULT_THETA_GRID,
+            args.cost,
+            train_size=args.train_size,
+            validation_size=args.validation_size,
+            step=args.step,
+        )
+        print_walk_forward(result)
+    elif args.scan:
+        result = geometry_scan(closes, DEFAULT_A_GRID, DEFAULT_THETA_GRID, args.cost)
+        for report in result[:20]:
+            print_report(report)
     else:
-        print_report(estimate(closes, args.a, args.theta, args.cost))
+        result = estimate(closes, args.a, args.theta, args.cost)
+        print_report(result)
+
+    if args.json_output:
+        output = Path(args.json_output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"wrote {output}")
 
 
 if __name__ == "__main__":

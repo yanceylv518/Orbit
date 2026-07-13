@@ -10,6 +10,7 @@ from orbit.domain.strategy.actions import StrategyAction, StrategyLeg, StrategyP
 from orbit.domain.strategy.engine import now_iso, q
 from orbit.domain.strategy.exposure import decide_target_exposure, derive_anchor_price
 from orbit.domain.strategy.rules.event_rules import EventRuleResult, StrategyEventRules
+from orbit.domain.strategy.regime import RegimeGate
 
 
 def dec(value: Any) -> Decimal:
@@ -166,6 +167,10 @@ def plan_symbol(
         "plan_profit_transfer_count_in_trend": int(state.get("profit_transfer_count_in_trend", 0)),
         "plan_loss_side_reduce_count_in_trend": int(state.get("loss_side_reduce_count_in_trend", 0)),
         "plan_recovery_count_in_trend": int(state.get("recovery_count_in_trend", 0)),
+        "regime": str(state.get("regime", "UNKNOWN")),
+        "regime_raw": str(state.get("regime_raw", "UNKNOWN")),
+        "regime_stable": str(state.get("regime_stable", "UNKNOWN")),
+        "regime_features": dict(state.get("regime_features") or {}),
         **decision.context(),
     }
     risk_context = symbol_risk_context(symbol, mark_price, budget, long, short, snapshot, state)
@@ -248,6 +253,10 @@ def target_exposure_plan(
 ) -> dict[str, Any] | None:
     if not decision.has_action:
         return None
+
+    regime_result = RegimeGate(strategy).evaluate(decision, state)
+    if not regime_result.allowed:
+        return rule_blocked_plan(common, symbol, decision, trigger_context, regime_result)
 
     rule_result = event_rules.evaluate(decision, state, price)
     if not rule_result.allowed:

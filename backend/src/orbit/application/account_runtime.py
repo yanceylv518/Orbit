@@ -9,6 +9,9 @@ from orbit.application.ports.run_config_repository import RunConfigRepository
 from orbit.domain.strategy.engine import now_iso
 
 
+SUPPORTED_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"}
+
+
 class AccountRunConfigService:
     def __init__(
         self,
@@ -85,6 +88,7 @@ class AccountRunConfigService:
             "enabled": True,
             "mode": "plan_only",
             "status": "active",
+            "interval": str(self.strategy.get("strategy", {}).get("interval", "1h")),
             "symbols": symbols,
             "symbol_budget_usdt": budgets,
             "base_position_usdt": float(self.strategy["strategy"].get("base_position_usdt", 0)),
@@ -99,7 +103,7 @@ class AccountRunConfigService:
     def merge(self, base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
         merged = deepcopy(base)
         for key in (
-            "id", "strategy_id", "enabled", "mode", "status", "symbols",
+            "id", "strategy_id", "enabled", "mode", "status", "interval", "symbols",
             "symbol_budget_usdt", "base_position_usdt", "max_single_order_usdt",
             "allow_reduce_only", "allow_add_position", "allow_market_orders",
             "created_at", "updated_at",
@@ -109,6 +113,8 @@ class AccountRunConfigService:
         merged["enabled"] = bool(merged.get("enabled", True))
         merged["mode"] = merged.get("mode") if merged.get("mode") in ("plan_only", "paper", "live", "disabled") else "plan_only"
         merged["status"] = "active" if merged["enabled"] else "disabled"
+        interval = str(merged.get("interval") or base.get("interval") or "1h")
+        merged["interval"] = interval if interval in SUPPORTED_INTERVALS else str(base.get("interval", "1h"))
         merged["symbols"] = [
             str(symbol).strip().upper()
             for symbol in merged.get("symbols", [])

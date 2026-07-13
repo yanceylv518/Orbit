@@ -133,6 +133,11 @@ class SnapshotQueryService:
                 "tick_count": int(state.get("tick_count") or 0),
                 "last_kline_at": state.get("last_kline_at"),
                 "last_kline_close_time": state.get("last_kline_close_time"),
+                "regime": state.get("regime", "UNKNOWN"),
+                "regime_raw": state.get("regime_raw", "UNKNOWN"),
+                "regime_stable": state.get("regime_stable", "UNKNOWN"),
+                "regime_candidate_count": int(state.get("regime_candidate_count") or 0),
+                "regime_features": deepcopy(state.get("regime_features") or {}),
             })
         return sorted(rows, key=lambda item: (item["account_id"], item["symbol"]))
 

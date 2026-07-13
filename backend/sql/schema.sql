@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS account_run_configs (
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   mode VARCHAR(32) NOT NULL DEFAULT 'plan_only',
   status VARCHAR(32) NOT NULL DEFAULT 'active',
+  kline_interval VARCHAR(16) NOT NULL DEFAULT '1h',
   symbols_json JSON NOT NULL,
   symbol_budget_json JSON NOT NULL,
   base_position_usdt DECIMAL(28, 8) NOT NULL DEFAULT 0,

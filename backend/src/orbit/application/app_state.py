@@ -12,6 +12,7 @@ from typing import Any
 from orbit.application.auth import hash_password, sanitize_user, verify_password
 from orbit.config import load_config
 from orbit.domain.strategy.engine import EventEngine, d, now_iso, q
+from orbit.domain.strategy.regime import ensure_regime_gate_config
 
 
 INITIAL_PRICES = {
@@ -54,6 +55,7 @@ class AppState:
         self.sessions: dict[str, str] = {}
         self._load_directory_from_store()
         self.strategy = self.config["strategy_instances"][0]
+        ensure_regime_gate_config(self.strategy)
         self.account_run_configs = deepcopy(self.config.get("account_run_configs", []))
         self.engine = EventEngine(self.strategy)
         if not self._restore_runtime():
@@ -119,6 +121,7 @@ class AppState:
                 if legacy_key in self.strategy:
                     runtime_strategy[legacy_key] = self.strategy[legacy_key]
             self.strategy = runtime_strategy
+            ensure_regime_gate_config(self.strategy)
             self.engine = EventEngine(self.strategy)
         symbol_states = payload.get("symbol_states")
         if not isinstance(symbol_states, dict):

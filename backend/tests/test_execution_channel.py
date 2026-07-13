@@ -36,6 +36,8 @@ class PaperExecutionTest(unittest.TestCase):
         state["last_price"] = "61200"
         state["high_since_base"] = "61200"
         state["tick_count"] = 3
+        state["regime"] = "RANGE"
+        state["regime_stable"] = "RANGE"
         self.states = InMemorySymbolStateRepository({"acct_paper::BTCUSDT": state})
         self.run_configs = InMemoryRunConfigRepository([
             {"account_id": "acct_paper", "enabled": True, "mode": "paper"},

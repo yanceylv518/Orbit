@@ -104,6 +104,45 @@ class MySqlConfigWriter:
         )
         ids[f"strategy:{strategy['id']}"] = self._lookup_id(cur, "strategy_instances", strategy["id"])
 
+        for run_config in payload.get("account_run_configs", []):
+            account_key = f"account:{run_config['account_id']}"
+            strategy_key = f"strategy:{run_config.get('strategy_id', strategy['id'])}"
+            if account_key not in ids or strategy_key not in ids:
+                continue
+            cur.execute(
+                """
+                INSERT INTO account_run_configs (
+                  external_id, exchange_account_id, strategy_instance_id,
+                  enabled, mode, status, kline_interval, symbols_json,
+                  symbol_budget_json, base_position_usdt, max_single_order_usdt,
+                  allow_reduce_only, allow_add_position, allow_market_orders
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, CAST(%s AS JSON),
+                        CAST(%s AS JSON), %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                  enabled = VALUES(enabled), mode = VALUES(mode), status = VALUES(status),
+                  kline_interval = VALUES(kline_interval), symbols_json = VALUES(symbols_json),
+                  symbol_budget_json = VALUES(symbol_budget_json),
+                  base_position_usdt = VALUES(base_position_usdt),
+                  max_single_order_usdt = VALUES(max_single_order_usdt),
+                  allow_reduce_only = VALUES(allow_reduce_only),
+                  allow_add_position = VALUES(allow_add_position),
+                  allow_market_orders = VALUES(allow_market_orders)
+                """,
+                (
+                    run_config.get("id", f"run_{run_config['account_id']}"),
+                    ids[account_key], ids[strategy_key],
+                    bool(run_config.get("enabled", True)), run_config.get("mode", "plan_only"),
+                    run_config.get("status", "active"), run_config.get("interval", "1h"),
+                    json.dumps(run_config.get("symbols", []), ensure_ascii=False),
+                    json.dumps(run_config.get("symbol_budget_usdt", {}), ensure_ascii=False),
+                    run_config.get("base_position_usdt", 0), run_config.get("max_single_order_usdt", 0),
+                    bool(run_config.get("allow_reduce_only", True)),
+                    bool(run_config.get("allow_add_position", False)),
+                    False,
+                ),
+            )
+
         for symbol, budget in strategy.get("symbol_budget_usdt", {}).items():
             cur.execute(
                 """

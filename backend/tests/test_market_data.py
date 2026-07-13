@@ -26,7 +26,7 @@ class FakeFeed:
 
     def closed_klines(self, symbol, interval, limit):
         self.calls.append((symbol, interval, limit))
-        rows = self.klines.get(symbol)
+        rows = self.klines.get((interval, symbol), self.klines.get(symbol))
         if isinstance(rows, Exception):
             raise rows
         return rows or []
@@ -78,7 +78,7 @@ class MarketFeedServiceTest(unittest.TestCase):
         self.states.replace_all({"acct_a::BTCUSDT": state})
 
     def test_apply_advances_lifecycle_per_closed_kline(self):
-        klines = {"BTCUSDT": [kline(1_000_000, 60000.0), kline(1_060_000, 60300.0)]}
+        klines = {("1h", "BTCUSDT"): [kline(1_000_000, 60000.0), kline(1_060_000, 60300.0)]}
         result = self.service.apply(klines)
         state = self.states.all()["acct_a::BTCUSDT"]
         self.assertEqual(result["ticks"], 2)
@@ -88,7 +88,7 @@ class MarketFeedServiceTest(unittest.TestCase):
         self.assertEqual(state["last_kline_close_time"], 1_060_000)
 
     def test_apply_is_idempotent_per_kline(self):
-        klines = {"BTCUSDT": [kline(1_000_000, 60000.0)]}
+        klines = {("1h", "BTCUSDT"): [kline(1_000_000, 60000.0)]}
         first = self.service.apply(klines)
         second = self.service.apply(klines)
         self.assertEqual(first["ticks"], 1)
@@ -107,6 +107,25 @@ class MarketFeedServiceTest(unittest.TestCase):
         result = self.service.poll()
         self.assertEqual(result, {})
         self.assertEqual(self.feed.calls, [])
+
+    def test_same_symbol_with_two_intervals_polls_distinct_streams(self):
+        self.accounts.save_account({"id": "acct_b"})
+        self.run_configs.save({
+            "account_id": "acct_b", "enabled": True,
+            "interval": "15m", "symbols": ["BTCUSDT"],
+        })
+        self.snapshots.save("acct_b", {"status": "synced"})
+        self.feed.klines[("1h", "BTCUSDT")] = [kline(1_000_000, 60000.0)]
+        self.feed.klines[("15m", "BTCUSDT")] = [kline(1_000_000, 60000.0)]
+
+        result = self.service.poll()
+
+        self.assertEqual(set(result), {("1h", "BTCUSDT"), ("15m", "BTCUSDT")})
+        self.assertEqual(
+            set(self.feed.calls),
+            {("BTCUSDT", "1h", 3), ("BTCUSDT", "15m", 3)},
+        )
+        self.assertEqual(self.service.status["streams"], ["15m:BTCUSDT", "1h:BTCUSDT"])
 
 
 if __name__ == "__main__":
