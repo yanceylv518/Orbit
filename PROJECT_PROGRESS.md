@@ -1,6 +1,6 @@
 # Dynamic Dual Grid V1 项目进度
 
-最后更新：2026-07-13
+最后更新：2026-07-14
 
 ## 当前目标
 
@@ -27,6 +27,12 @@
 
 ### 后端
 
+- TB4-A 冻结趋势组合 runner 已完成并通过硬对齐门：
+  - 新增独立 `FrozenTrendBasketRunner`，不复用双网格 `EventEngine` / symbol state
+  - 12 市场、4h、`14/28/56/84/168` 日动量集成、vol28、目标波动 10%、gross cap 1.0、7 日再平衡、下一根执行、0.14% 往返成本全部由 `TB4_SPEC` 固定，不接受运行配置覆盖
+  - 收益顺序与离线估计器一致：旧权重价格/Funding收益 -> 权重漂移 -> pending 目标成交与成本 -> 新信号排队
+  - 正式冻结历史对齐覆盖 `9,940` 个评估周期和 `237` 次再平衡；净收益与目标权重最大误差均为 `0.0`，verdict `TB4_ALIGNMENT_PASS`
+  - 前向协议见 `docs/design/TB4_FORWARD.md`；TB4-B 尚未启动，未填写或伪造前向开始时间
 - 支持 MySQL 存储，并通过 `config.local.json` 使用本地 MySQL 配置。
 - 支持免登录模式和默认管理员操作者。
 - 支持用户会话、管理员/业务用户权限过滤。
