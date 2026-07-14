@@ -15,9 +15,10 @@ TIME_KEYS = ("close_time_ms", "funding_time_ms", "timestamp", "time_ms", "open_t
 
 
 class ResearchCatalogService:
-    def __init__(self, calibration_dir: Path, registry: Any):
+    def __init__(self, calibration_dir: Path, registry: Any, run_ledger: Any | None = None):
         self.calibration_dir = calibration_dir
         self.registry = registry
+        self.run_ledger = run_ledger
 
     def datasets(self) -> list[dict[str, Any]]:
         items = []
@@ -53,6 +54,13 @@ class ResearchCatalogService:
         self.registry.ensure(INITIAL_CANDIDATES)
         results = self._result_index()
         return [self._candidate_view(item, results) for item in self.registry.all()]
+
+    def datasets_by_ids(self, dataset_ids: list[str]) -> list[dict[str, Any]]:
+        index = {item["id"]: item for item in self.datasets()}
+        missing = [dataset_id for dataset_id in dataset_ids if dataset_id not in index]
+        if missing:
+            raise ValueError(f"cached research datasets not found: {', '.join(missing)}")
+        return [index[dataset_id] for dataset_id in dataset_ids]
 
     def candidate(self, candidate_id: str) -> dict[str, Any] | None:
         return next(
@@ -92,25 +100,37 @@ class ResearchCatalogService:
                 index[path.stem] = path
         return index
 
-    @staticmethod
-    def _candidate_view(candidate: dict[str, Any], results: dict[str, Path]) -> dict[str, Any]:
+    def _candidate_view(self, candidate: dict[str, Any], results: dict[str, Path]) -> dict[str, Any]:
+        runs = self.run_ledger.for_candidate(candidate["id"]) if self.run_ledger else []
+        run_results = [item["result_id"] for item in runs if item.get("result_id")]
+        result_ids = [*run_results, *candidate["result_ids"]]
+        latest_completed = next((item for item in runs if item.get("verdict")), None)
+        lockbox_run = next((item for item in reversed(runs) if item.get("lockbox_opened_at")), None)
         return {
             **candidate,
+            "latest_verdict": latest_completed.get("verdict") if latest_completed else candidate["verdict"],
+            "effective_lockbox_opened_at": (
+                lockbox_run.get("lockbox_opened_at") if lockbox_run else candidate["lockbox_opened_at"]
+            ),
+            "runs": runs,
             "results": [
                 {
                     "id": result_id,
                     "available": result_id in results,
                 }
-                for result_id in candidate["result_ids"]
+                for result_id in result_ids
             ],
         }
 
-    @staticmethod
-    def _candidate_for_result(result_id: str) -> dict[str, Any] | None:
-        return next(
+    def _candidate_for_result(self, result_id: str) -> dict[str, Any] | None:
+        candidate = next(
             (candidate for candidate in INITIAL_CANDIDATES if result_id in candidate["result_ids"]),
             None,
         )
+        if candidate or not self.run_ledger:
+            return candidate
+        run = self.run_ledger.by_result(result_id)
+        return self.candidate(run["candidate_id"]) if run else None
 
     @staticmethod
     def _dataset_kind(path: Path, first: Any) -> str:

@@ -19,6 +19,7 @@ from orbit.application.permissions import PermissionPolicy
 from orbit.application.portfolio_views import PortfolioViewService
 from orbit.application.reporting import DailyReportService
 from orbit.application.research.catalog import ResearchCatalogService
+from orbit.application.research.runs import CachedToolEvaluator, ResearchWorkflowService
 from orbit.application.runtime_events import RuntimeEventService
 from orbit.application.snapshot_queries import SnapshotQueryService
 from orbit.application.strategy_config import StrategyEventConfigService
@@ -39,6 +40,7 @@ from orbit.infrastructure.persistence.execution_plans import InMemoryExecutionPl
 from orbit.infrastructure.persistence.metrics import InMemoryMetricHistoryRepository
 from orbit.infrastructure.persistence.reports import InMemoryReportRepository
 from orbit.infrastructure.persistence.research_registry import AppendOnlyResearchRegistry
+from orbit.infrastructure.persistence.research_runs import AppendOnlyResearchRunLedger
 from orbit.infrastructure.persistence.run_configs import InMemoryRunConfigRepository
 from orbit.infrastructure.persistence.storage import make_state_store, mysql_status
 from orbit.infrastructure.persistence.strategy_runtime import InMemoryStrategyRuntimeRepository
@@ -82,6 +84,7 @@ class ApplicationContainer:
     order_execution_service: Any
     trend_forward_snapshot: Any
     research_catalog: Any
+    research_workflow: Any
     app_uow: Any
 
     def install(self, target: Any) -> None:
@@ -252,9 +255,19 @@ def build_application_container(
     registry_path = Path(str(research_config.get("registry_path", "var/research/registry.jsonl")))
     if not registry_path.is_absolute():
         registry_path = root / registry_path
+    run_ledger_path = Path(str(research_config.get("run_ledger_path", "var/research/runs.jsonl")))
+    if not run_ledger_path.is_absolute():
+        run_ledger_path = root / run_ledger_path
+    run_ledger = AppendOnlyResearchRunLedger(run_ledger_path)
     research_catalog = ResearchCatalogService(
         calibration_dir,
         AppendOnlyResearchRegistry(registry_path),
+        run_ledger,
+    )
+    research_workflow = ResearchWorkflowService(
+        research_catalog,
+        run_ledger,
+        CachedToolEvaluator(root, calibration_dir),
     )
     trend_config = plan_runtime.get("trend_forward", {})
     trend_data_dir = Path(str(trend_config.get("data_dir", "var/forward/tb4")))
@@ -343,5 +356,6 @@ def build_application_container(
         order_execution_service=order_execution_service,
         trend_forward_snapshot=trend_forward_snapshot,
         research_catalog=research_catalog,
+        research_workflow=research_workflow,
         app_uow=app_uow,
     )

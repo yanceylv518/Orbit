@@ -51,6 +51,18 @@ export function fetchResearchResult(resultId) {
   return getJson(`/api/research/results/${encodeURIComponent(resultId)}`);
 }
 
+export function fetchResearchTemplates() {
+  return getJson("/api/research/templates");
+}
+
+export function fetchResearchRuns() {
+  return getJson("/api/research/runs");
+}
+
+export function fetchResearchRun(runId) {
+  return getJson(`/api/research/runs/${encodeURIComponent(runId)}`);
+}
+
 export async function postJson(path, payload = {}) {
   const response = await fetch(path, {
     method: "POST",
@@ -59,6 +71,18 @@ export async function postJson(path, payload = {}) {
   });
   const data = await readJson(response);
   return { response, data };
+}
+
+export function createResearchCandidateRequest(payload) {
+  return postJson("/api/research/candidates", payload);
+}
+
+export function createResearchRunRequest(payload) {
+  return postJson("/api/research/runs", payload);
+}
+
+export function createResearchDatasetFetchRequest(payload) {
+  return postJson("/api/research/datasets/fetch", payload);
 }
 
 export function resumeStoppedSymbolRequest(accountId, symbol, reason) {

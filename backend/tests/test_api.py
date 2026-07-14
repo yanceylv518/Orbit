@@ -33,6 +33,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         config["runtime"]["research"] = {
             "calibration_dir": str(tmp_path / "calibration"),
             "registry_path": str(tmp_path / "research" / "registry.jsonl"),
+            "run_ledger_path": str(tmp_path / "research" / "runs.jsonl"),
         }
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
@@ -135,6 +136,67 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(candidate.json()["id"], "G2")
             self.assertEqual(result.json()["verdict"], "NO_GO")
             self.assertEqual(missing.status_code, 404)
+        finally:
+            tmp.cleanup()
+
+    async def test_admin_can_freeze_and_run_cached_research_candidate(self):
+        tmp, api = self.make_api(login_required=False)
+        try:
+            calibration_dir = api.state.orbit.research_catalog.calibration_dir
+            calibration_dir.mkdir(parents=True)
+            (calibration_dir / "BTCUSDT_1h_ohlc.json").write_text(
+                json.dumps([[1000, 10], [2000, 11]]),
+                encoding="utf-8",
+            )
+
+            class Evaluator:
+                def evaluate(self, candidate, datasets, run_id):
+                    return {"reports": [{"market": "BTCUSDT", "expected_value_pct": -0.1}]}
+
+                def fetch_dataset(self, request, run_id):
+                    return f"{request['symbol']}_{run_id}_{request['kind']}"
+
+            workflow = api.state.orbit.research_workflow
+            workflow.evaluator = Evaluator()
+            workflow._submitter = lambda callback: callback()
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                templates = await client.get("/api/research/templates")
+                created = await client.post("/api/research/candidates", json={
+                    "id": "M0-API",
+                    "name": "API candidate",
+                    "protocol": "M0",
+                    "dataset_ids": ["BTCUSDT_1h_ohlc"],
+                })
+                duplicate = await client.post("/api/research/candidates", json={
+                    "id": "M0-API",
+                    "name": "Replacement",
+                    "protocol": "M0",
+                    "dataset_ids": ["BTCUSDT_1h_ohlc"],
+                })
+                run = await client.post("/api/research/runs", json={"candidate_id": "M0-API"})
+                fetch = await client.post("/api/research/datasets/fetch", json={
+                    "symbol": "ETHUSDT",
+                    "kind": "funding",
+                    "days": 90,
+                })
+                runs = await client.get("/api/research/runs")
+                result = await client.get(f"/api/research/results/{run.json()['result_id']}")
+
+            self.assertEqual(templates.status_code, 200)
+            self.assertEqual(templates.json()["count"], 4)
+            self.assertEqual(created.status_code, 201)
+            self.assertEqual(created.json()["status"], "frozen")
+            self.assertEqual(duplicate.status_code, 409)
+            self.assertEqual(run.status_code, 202)
+            self.assertEqual(run.json()["status"], "succeeded")
+            self.assertEqual(run.json()["verdict"], "FAIL")
+            self.assertEqual(fetch.status_code, 202)
+            self.assertEqual(fetch.json()["status"], "succeeded")
+            self.assertEqual(runs.json()["count"], 2)
+            self.assertEqual(result.status_code, 200)
         finally:
             tmp.cleanup()
 

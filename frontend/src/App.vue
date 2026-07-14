@@ -72,7 +72,7 @@
           </button>
           <!-- 只读模式：第一阶段主动作；模拟模式：dry_run 控件 -->
           <template v-if="store.activePage === 'research'">
-            <span class="pill">冻结档案 · 只读</span>
+            <span class="pill">研究护栏 · 冻结执行</span>
           </template>
           <template v-else-if="readOnlyMode">
             <button class="button ghost" :disabled="store.syncAllBusy" @click="syncAllAccounts">

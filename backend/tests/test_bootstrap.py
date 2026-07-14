@@ -23,6 +23,7 @@ class BootstrapTests(unittest.TestCase):
         config["runtime"]["research"] = {
             "calibration_dir": str(tmp_path / "calibration"),
             "registry_path": str(tmp_path / "research" / "registry.jsonl"),
+            "run_ledger_path": str(tmp_path / "research" / "runs.jsonl"),
         }
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")

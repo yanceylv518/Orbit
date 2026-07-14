@@ -29,7 +29,8 @@
     },
     "research": {
       "calibration_dir": "var/calibration",
-      "registry_path": "var/research/registry.jsonl"
+      "registry_path": "var/research/registry.jsonl",
+      "run_ledger_path": "var/research/runs.jsonl"
     },
     "plan_ttl_seconds": 900,
     "plan_max_confirm_price_drift_pct": 0.5,

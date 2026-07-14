@@ -5,12 +5,80 @@
         <h2>研究档案</h2>
         <p>所有结论均对照冻结时的参数、成本与判定门槛。</p>
       </div>
-      <button class="button ghost" :disabled="store.researchBusy" @click="loadResearchCatalog">
-        {{ store.researchBusy ? "读取中..." : "刷新档案" }}
-      </button>
+      <div class="toolbar">
+        <button class="button ghost" :disabled="store.researchBusy" @click="loadResearchCatalog">
+          {{ store.researchBusy ? "读取中..." : "刷新档案" }}
+        </button>
+        <button class="button primary" @click="showCreate = !showCreate">
+          {{ showCreate ? "收起预注册" : "新建预注册" }}
+        </button>
+      </div>
     </div>
 
     <div v-if="store.researchError" class="service-alert">{{ store.researchError }}</div>
+
+    <article v-if="showCreate" class="panel research-create-panel">
+      <div class="panel-head research-panel-head">
+        <div>
+          <h3>冻结新候选</h3>
+          <p class="muted">提交后参数、成本、数据指纹与判定门槛永久不可修改。</p>
+        </div>
+        <StatusBadge text="预注册" color="blue" />
+      </div>
+      <div class="research-create-grid">
+        <section class="research-create-fields">
+          <label>
+            <span>研究协议</span>
+            <select v-model="draft.protocol" @change="applySuggestedDatasets">
+              <option v-for="template in store.researchTemplates" :key="template.id" :value="template.id">
+                {{ template.id }} · {{ template.name }}
+              </option>
+            </select>
+          </label>
+          <label>
+            <span>候选 ID</span>
+            <input v-model.trim="draft.id" maxlength="32" placeholder="例如 M0-20260714-A" />
+          </label>
+          <label>
+            <span>候选名称</span>
+            <input v-model.trim="draft.name" maxlength="120" :placeholder="selectedTemplate?.name || '候选名称'" />
+          </label>
+          <div v-if="selectedTemplate" class="research-template-preview">
+            <p>{{ selectedTemplate.signal_definition }}</p>
+            <dl class="research-kv">
+              <template v-for="entry in entries(selectedTemplate.parameters)" :key="`p-${entry[0]}`">
+                <dt>{{ fieldLabel(entry[0]) }}</dt><dd>{{ definitionValue(entry[1]) }}</dd>
+              </template>
+              <template v-for="entry in entries(selectedTemplate.costs)" :key="`c-${entry[0]}`">
+                <dt>{{ fieldLabel(entry[0]) }}</dt><dd>{{ definitionValue(entry[1]) }}</dd>
+              </template>
+            </dl>
+          </div>
+        </section>
+        <section class="research-dataset-picker">
+          <div class="research-picker-head">
+            <div><h4>冻结数据矩阵</h4><p class="muted">已选 {{ draft.datasetIds.length }} 个缓存文件</p></div>
+            <button class="button ghost compact" type="button" @click="applySuggestedDatasets">推荐选择</button>
+          </div>
+          <div class="research-picker-list">
+            <label v-for="dataset in compatibleDatasets" :key="dataset.id" class="research-picker-row">
+              <input v-model="draft.datasetIds" type="checkbox" :value="dataset.id" />
+              <span><strong>{{ dataset.id }}</strong><small>{{ dataset.market || "-" }} · {{ kindLabel(dataset.kind) }} · {{ dataset.interval || "-" }}</small></span>
+              <code>{{ shortHash(dataset.sha256) }}</code>
+            </label>
+          </div>
+        </section>
+      </div>
+      <div class="research-freeze-footer">
+        <label class="research-confirm-check">
+          <input v-model="draft.confirmed" type="checkbox" />
+          <span>确认冻结后只能创建新候选，不能修改或覆盖本候选。</span>
+        </label>
+        <button class="button primary" :disabled="!canFreeze || store.researchWorkflowBusy" @click="freezeCandidate">
+          {{ store.researchWorkflowBusy ? "冻结中..." : "冻结候选" }}
+        </button>
+      </div>
+    </article>
 
     <div class="summary-grid research-summary">
       <div class="summary-item">
@@ -35,6 +103,21 @@
       </div>
     </div>
 
+    <article v-if="store.researchRuns.length" class="panel research-runs-panel">
+      <div class="panel-head">
+        <div><h3>评估任务</h3><p class="muted">单任务串行 · 状态与结果只追加</p></div>
+        <span class="pill">{{ store.researchRuns.length }} 次</span>
+      </div>
+      <div class="research-run-list">
+        <button v-for="run in store.researchRuns.slice(0, 8)" :key="run.id" class="research-run-row" :class="{ static: run.job_type === 'dataset_fetch' }" @click="openRunTarget(run)">
+          <span class="candidate-id mono">{{ run.job_type === "dataset_fetch" ? "DATA" : run.candidate_id }}</span>
+          <span class="research-run-copy"><strong>{{ runLabel(run) }}</strong><small>{{ dateTime(run.updated_at) }} · {{ run.id }}</small></span>
+          <span class="research-progress"><i :style="{ width: `${run.progress || 0}%` }"></i></span>
+          <StatusBadge :text="runStatusLabel(run)" :color="runStatusColor(run)" />
+        </button>
+      </div>
+    </article>
+
     <article class="panel research-dataset-panel">
       <div class="panel-head research-panel-head">
         <div>
@@ -54,7 +137,15 @@
               {{ option.label }}
             </button>
           </div>
+          <button class="button ghost compact" @click="showFetch = !showFetch">{{ showFetch ? "收起拉取" : "拉取新数据" }}</button>
         </div>
+      </div>
+      <div v-if="showFetch" class="research-fetch-strip">
+        <label><span>市场</span><input v-model.trim="fetchDraft.symbol" maxlength="20" placeholder="BTCUSDT" /></label>
+        <label><span>数据类型</span><select v-model="fetchDraft.kind"><option value="ohlc">K 线</option><option value="funding">Funding</option></select></label>
+        <label v-if="fetchDraft.kind === 'ohlc'"><span>周期</span><select v-model="fetchDraft.interval"><option v-for="interval in fetchIntervals" :key="interval" :value="interval">{{ interval }}</option></select></label>
+        <label><span>天数</span><input v-model.number="fetchDraft.days" type="number" min="1" max="2000" /></label>
+        <button class="button primary" :disabled="store.researchWorkflowBusy || hasActiveRun" @click="fetchDataset">开始拉取</button>
       </div>
       <div class="table-wrap research-data-table">
         <table>
@@ -100,7 +191,7 @@
               <strong>{{ candidate.name }}</strong>
               <small>冻结于 {{ dateTime(candidate.frozen_at) }}</small>
             </span>
-            <StatusBadge :text="verdictLabel(candidate.verdict)" :color="verdictColor(candidate.verdict)" />
+            <StatusBadge :text="verdictLabel(candidate.latest_verdict)" :color="verdictColor(candidate.latest_verdict)" />
           </button>
           <p v-if="!store.researchCandidates.length && !store.researchBusy" class="muted">暂无冻结候选。</p>
         </div>
@@ -113,7 +204,7 @@
               <div class="research-title-line">
                 <span class="candidate-id large mono">{{ candidate.id }}</span>
                 <h3>{{ candidate.name }}</h3>
-                <StatusBadge :text="verdictLabel(candidate.verdict)" :color="verdictColor(candidate.verdict)" />
+                <StatusBadge :text="verdictLabel(candidate.latest_verdict)" :color="verdictColor(candidate.latest_verdict)" />
               </div>
               <p>{{ candidate.signal_definition }}</p>
             </div>
@@ -126,8 +217,22 @@
           <div class="research-audit-strip">
             <div><span>冻结时间</span><strong>{{ dateTime(candidate.frozen_at) }}</strong></div>
             <div><span>登记状态</span><strong>{{ candidate.status }}</strong></div>
-            <div><span>锁箱开箱</span><strong>{{ candidate.lockbox_opened_at ? dateTime(candidate.lockbox_opened_at) : "未开箱" }}</strong></div>
-            <div><span>最终判定</span><strong :class="verdictClass(candidate.verdict)">{{ candidate.verdict }}</strong></div>
+            <div><span>锁箱开箱</span><strong>{{ candidate.effective_lockbox_opened_at ? dateTime(candidate.effective_lockbox_opened_at) : "未开箱" }}</strong></div>
+            <div><span>当前判定</span><strong :class="verdictClass(candidate.latest_verdict)">{{ candidate.latest_verdict }}</strong></div>
+          </div>
+
+          <div v-if="candidate.status === 'frozen'" class="research-run-control">
+            <div>
+              <h4>运行冻结评估</h4>
+              <p>只读取冻结时登记的缓存文件与 SHA-256，不接受临时改参。</p>
+            </div>
+            <label class="research-confirm-check">
+              <input v-model="openLockbox" type="checkbox" :disabled="Boolean(candidate.effective_lockbox_opened_at)" />
+              <span>{{ candidate.effective_lockbox_opened_at ? "锁箱已开，不可再次开启" : "本次为一次性锁箱开箱" }}</span>
+            </label>
+            <button class="button primary" :disabled="store.researchWorkflowBusy || hasActiveRun" @click="runCandidate">
+              {{ hasActiveRun ? "已有任务运行中" : openLockbox ? "开箱并运行" : "运行缓存评估" }}
+            </button>
           </div>
 
           <div class="research-definition-grid">
@@ -216,17 +321,28 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import {
+  createResearchCandidate,
   loadResearchCatalog,
+  refreshResearchRun,
   selectResearchCandidate,
   selectResearchResult,
+  startResearchDatasetFetch,
+  startResearchRun,
   store,
 } from "../stores/appStore.js";
 
 const datasetQuery = ref("");
 const datasetKind = ref("all");
+const showCreate = ref(false);
+const showFetch = ref(false);
+const openLockbox = ref(false);
+const draft = reactive({ protocol: "M0", id: "", name: "", datasetIds: [], confirmed: false });
+const fetchDraft = reactive({ symbol: "BTCUSDT", kind: "ohlc", interval: "15m", days: 180 });
+const fetchIntervals = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"];
+let runPollTimer = null;
 const datasetKinds = [
   { value: "all", label: "全部" },
   { value: "ohlc", label: "K 线" },
@@ -236,8 +352,24 @@ const datasetKinds = [
 
 const candidate = computed(() => store.researchCandidate);
 const result = computed(() => store.researchResult);
+const selectedTemplate = computed(() => store.researchTemplates.find((item) => item.id === draft.protocol) || null);
+const hasActiveRun = computed(() => store.researchRuns.some((item) => ["queued", "running"].includes(item.status)));
+const compatibleDatasets = computed(() => {
+  const mode = selectedTemplate.value?.dataset_rule?.mode;
+  if (mode === "funding") return store.researchDatasets.filter((item) => item.kind === "funding");
+  if (mode === "candles") return store.researchDatasets.filter((item) => ["ohlc", "series"].includes(item.kind));
+  const interval = selectedTemplate.value?.dataset_rule?.candle_interval;
+  return store.researchDatasets.filter((item) => item.kind === "funding"
+    || (["ohlc", "series"].includes(item.kind) && (!interval || item.interval === interval)));
+});
+const canFreeze = computed(() => Boolean(
+  draft.confirmed && draft.id && draft.protocol && draft.datasetIds.length,
+));
 const totalRows = computed(() => store.researchDatasets.reduce((sum, item) => sum + Number(item.rows || 0), 0));
-const failedCandidates = computed(() => store.researchCandidates.filter((item) => !isPass(item.verdict)).length);
+const failedCandidates = computed(() => store.researchCandidates.filter((item) => {
+  const verdict = item.latest_verdict || item.verdict;
+  return verdict && String(verdict).toUpperCase() !== "PENDING" && !isPass(verdict);
+}).length);
 const availableResults = computed(() => store.researchCandidates.reduce(
   (sum, item) => sum + (item.results || []).filter((entry) => entry.available).length,
   0,
@@ -274,6 +406,124 @@ function normalizeEvidence(report) {
     return report.configurations.map((row, index) => evidenceRow(row.id || `配置 ${index + 1}`, row, index));
   }
   return [];
+}
+
+function applySuggestedDatasets() {
+  const template = selectedTemplate.value;
+  if (!template) return;
+  const mode = template.dataset_rule.mode;
+  const datasets = compatibleDatasets.value;
+  if (mode === "candles") {
+    const preferred = datasets.filter((item) => item.interval === "1h");
+    draft.datasetIds = uniqueMarketDatasets(preferred.length ? preferred : datasets).slice(0, 4).map((item) => item.id);
+    return;
+  }
+  if (mode === "funding") {
+    draft.datasetIds = uniqueMarketDatasets(datasets).map((item) => item.id);
+    return;
+  }
+  const marketLimit = Number(template.dataset_rule.exact_markets || template.dataset_rule.minimum_markets || 4);
+  const requiredInterval = template.dataset_rule.candle_interval;
+  const markets = [...new Set(datasets.map((item) => item.market).filter(Boolean))]
+    .filter((market) => datasets.some((item) => item.market === market && item.kind === "funding")
+      && datasets.some((item) => item.market === market
+        && ["ohlc", "series"].includes(item.kind)
+        && (!requiredInterval || item.interval === requiredInterval)))
+    .sort();
+  draft.datasetIds = markets.slice(0, marketLimit).flatMap((market) => {
+    const funding = bestDataset(datasets.filter((item) => item.market === market && item.kind === "funding"));
+    const candles = bestDataset(datasets.filter((item) => item.market === market
+      && item.kind === "ohlc"
+      && (!requiredInterval || item.interval === requiredInterval)))
+      || bestDataset(datasets.filter((item) => item.market === market
+        && item.kind === "series"
+        && (!requiredInterval || item.interval === requiredInterval)));
+    return [funding?.id, candles?.id].filter(Boolean);
+  });
+}
+
+function uniqueMarketDatasets(datasets) {
+  const selected = new Map();
+  for (const item of datasets) {
+    const key = item.market || item.id;
+    if (!selected.has(key) || Number(item.rows || 0) > Number(selected.get(key).rows || 0)) selected.set(key, item);
+  }
+  return [...selected.values()].sort((left, right) => Number(right.rows || 0) - Number(left.rows || 0));
+}
+
+function bestDataset(datasets) {
+  return [...datasets].sort((left, right) => Number(right.rows || 0) - Number(left.rows || 0))[0] || null;
+}
+
+async function freezeCandidate() {
+  const created = await createResearchCandidate({
+    id: draft.id,
+    name: draft.name,
+    protocol: draft.protocol,
+    dataset_ids: draft.datasetIds,
+  });
+  if (!created) return;
+  showCreate.value = false;
+  Object.assign(draft, { id: "", name: "", datasetIds: [], confirmed: false });
+}
+
+async function runCandidate() {
+  const activeCandidate = candidate.value;
+  if (!activeCandidate) return;
+  if (openLockbox.value && !window.confirm("锁箱只能打开一次。确认本次运行永久记录为开箱操作？")) return;
+  const run = await startResearchRun(activeCandidate.id, openLockbox.value);
+  if (!run) return;
+  openLockbox.value = false;
+  startRunPolling();
+}
+
+async function fetchDataset() {
+  const run = await startResearchDatasetFetch({
+    symbol: fetchDraft.symbol,
+    kind: fetchDraft.kind,
+    interval: fetchDraft.interval,
+    days: fetchDraft.days,
+  });
+  if (run) startRunPolling();
+}
+
+function openRunTarget(run) {
+  if (run.job_type !== "dataset_fetch") selectResearchCandidate(run.candidate_id);
+}
+
+function startRunPolling() {
+  if (runPollTimer) return;
+  runPollTimer = window.setInterval(async () => {
+    const active = store.researchRuns.find((item) => ["queued", "running"].includes(item.status));
+    if (!active) {
+      window.clearInterval(runPollTimer);
+      runPollTimer = null;
+      return;
+    }
+    await refreshResearchRun(active.id);
+  }, 1200);
+}
+
+function runLabel(run) {
+  if (run.status === "failed") return run.error || "评估失败";
+  if (run.job_type === "dataset_fetch") {
+    const request = run.request || {};
+    return run.status === "succeeded"
+      ? `已新增 ${run.dataset_id}`
+      : `拉取 ${request.symbol || "-"} ${request.kind === "funding" ? "Funding" : request.interval || "K 线"}`;
+  }
+  if (run.status === "succeeded") return `冻结判定 ${run.verdict}`;
+  return run.status === "running" ? "正在运行缓存评估" : "等待执行";
+}
+
+function runStatusLabel(run) {
+  return { queued: "排队", running: `${run.progress || 0}%`, succeeded: run.verdict || "完成", failed: "失败" }[run.status] || run.status;
+}
+
+function runStatusColor(run) {
+  if (run.status === "failed" || run.verdict === "FAIL") return "red";
+  if (run.status === "succeeded") return "green";
+  return "blue";
 }
 
 function evidenceRow(scope, row, key, test = "") {
@@ -364,14 +614,17 @@ function isPass(value) {
 }
 
 function verdictLabel(value) {
+  if (!value || String(value).toUpperCase() === "PENDING") return "PENDING";
   return isPass(value) ? "PASS" : "FAIL";
 }
 
 function verdictColor(value) {
+  if (!value || String(value).toUpperCase() === "PENDING") return "blue";
   return isPass(value) ? "green" : "red";
 }
 
 function verdictClass(value) {
+  if (!value || String(value).toUpperCase() === "PENDING") return "muted";
   return isPass(value) ? "positive" : "negative";
 }
 
@@ -409,5 +662,13 @@ function numberClass(value) {
   return Number(value) >= 0 ? "positive" : "negative";
 }
 
-onMounted(loadResearchCatalog);
+watch(() => candidate.value?.id, () => { openLockbox.value = false; });
+onMounted(async () => {
+  await loadResearchCatalog();
+  if (!draft.datasetIds.length) applySuggestedDatasets();
+  if (hasActiveRun.value) startRunPolling();
+});
+onBeforeUnmount(() => {
+  if (runPollTimer) window.clearInterval(runPollTimer);
+});
 </script>

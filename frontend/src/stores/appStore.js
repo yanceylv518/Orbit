@@ -1,10 +1,16 @@
 import { computed, reactive } from "vue";
 import {
+  createResearchCandidateRequest,
+  createResearchDatasetFetchRequest,
+  createResearchRunRequest,
   fetchAppState,
   fetchResearchCandidate,
   fetchResearchCandidates,
   fetchResearchDatasets,
   fetchResearchResult,
+  fetchResearchRun,
+  fetchResearchRuns,
+  fetchResearchTemplates,
   loginRequest,
   logoutRequest,
   postJson,
@@ -25,8 +31,11 @@ export const store = reactive({
   researchCandidates: [],
   researchCandidate: null,
   researchResult: null,
+  researchTemplates: [],
+  researchRuns: [],
   researchBusy: false,
   researchResultBusy: false,
+  researchWorkflowBusy: false,
   researchError: "",
 });
 
@@ -170,7 +179,10 @@ export async function loadState() {
 function researchErrorMessage(response, data, fallback) {
   if (response.status === 401) return "请先登录后查看研究档案。";
   if (response.status === 403) return "当前用户无权查看研究档案。";
-  return data.error || `${fallback}（HTTP ${response.status}）`;
+  if (Array.isArray(data.detail)) {
+    return data.detail.map((item) => `${item.loc?.at(-1) || "字段"}: ${item.msg || "无效"}`).join("；");
+  }
+  return data.detail || data.error || `${fallback}（HTTP ${response.status}）`;
 }
 
 export async function loadResearchCatalog() {
@@ -178,9 +190,11 @@ export async function loadResearchCatalog() {
   store.researchBusy = true;
   store.researchError = "";
   try {
-    const [datasetsResponse, candidatesResponse] = await Promise.all([
+    const [datasetsResponse, candidatesResponse, templatesResponse, runsResponse] = await Promise.all([
       fetchResearchDatasets(),
       fetchResearchCandidates(),
+      fetchResearchTemplates(),
+      fetchResearchRuns(),
     ]);
     if (!datasetsResponse.response.ok || datasetsResponse.data.error) {
       throw new Error(researchErrorMessage(
@@ -196,8 +210,20 @@ export async function loadResearchCatalog() {
         "读取候选履历失败",
       ));
     }
+    if (!templatesResponse.response.ok || templatesResponse.data.error) {
+      throw new Error(researchErrorMessage(
+        templatesResponse.response,
+        templatesResponse.data,
+        "读取研究协议模板失败",
+      ));
+    }
+    if (!runsResponse.response.ok || runsResponse.data.error) {
+      throw new Error(researchErrorMessage(runsResponse.response, runsResponse.data, "读取研究任务失败"));
+    }
     store.researchDatasets = datasetsResponse.data.items || [];
     store.researchCandidates = candidatesResponse.data.items || [];
+    store.researchTemplates = templatesResponse.data.items || [];
+    store.researchRuns = runsResponse.data.items || [];
     const selectedId = store.researchCandidate?.id || store.researchCandidates[0]?.id;
     if (selectedId) await selectResearchCandidate(selectedId);
     return true;
@@ -246,6 +272,78 @@ export async function selectResearchResult(resultId) {
   } finally {
     store.researchResultBusy = false;
   }
+}
+
+export async function createResearchCandidate(payload) {
+  if (store.researchWorkflowBusy) return null;
+  store.researchWorkflowBusy = true;
+  store.researchError = "";
+  try {
+    const { response, data } = await createResearchCandidateRequest(payload);
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "冻结研究候选失败"));
+    }
+    await loadResearchCatalog();
+    await selectResearchCandidate(data.id);
+    return data;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "冻结研究候选失败。";
+    return null;
+  } finally {
+    store.researchWorkflowBusy = false;
+  }
+}
+
+export async function startResearchRun(candidateId, openLockbox = false) {
+  if (store.researchWorkflowBusy) return null;
+  store.researchWorkflowBusy = true;
+  store.researchError = "";
+  try {
+    const { response, data } = await createResearchRunRequest({
+      candidate_id: candidateId,
+      open_lockbox: openLockbox,
+    });
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "启动研究任务失败"));
+    }
+    store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
+    return data;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "启动研究任务失败。";
+    return null;
+  } finally {
+    store.researchWorkflowBusy = false;
+  }
+}
+
+export async function startResearchDatasetFetch(payload) {
+  if (store.researchWorkflowBusy) return null;
+  store.researchWorkflowBusy = true;
+  store.researchError = "";
+  try {
+    const { response, data } = await createResearchDatasetFetchRequest(payload);
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "启动数据拉取失败"));
+    }
+    store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
+    return data;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "启动数据拉取失败。";
+    return null;
+  } finally {
+    store.researchWorkflowBusy = false;
+  }
+}
+
+export async function refreshResearchRun(runId) {
+  const { response, data } = await fetchResearchRun(runId);
+  if (!response.ok || data.error) {
+    store.researchError = researchErrorMessage(response, data, "读取研究任务失败");
+    return null;
+  }
+  store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
+  if (["succeeded", "failed"].includes(data.status)) await loadResearchCatalog();
+  return data;
 }
 
 export async function post(path, payload = {}) {
