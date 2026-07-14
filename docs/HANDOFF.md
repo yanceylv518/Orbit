@@ -88,7 +88,7 @@ Orbit 是一个**面向加密永续合约的、纪律化的策略研究 + 多账
 1. **部署 + 跑前向**：在你能连 Binance 的机器上执行 `python backend/tools/run_tb4_forward.py --initialize`，跑 ≥12 个月，**期间什么都别动**。
 2. **只读监控前端**：后端 snapshot 已暴露 `trend_forward`，可继续补专用只读页面；不得增加调参或提前判定入口。
 3. **可选加固**：历史幸存者偏差修正、2022 熊市子区间表现，以及小资金 testnet/live 前的真实成交偏差测量。
-4. **运维打磨**：Linux/bash 启动/校验脚本、Linux 凭证 vault、前端 Windows 复验。
+4. **运维打磨（OPS-1 已完成）**：Linux/bash 启动、健康检查与全量验证脚本已补齐；Linux 使用环境主密钥驱动的 AES-256-GCM vault，Windows 继续使用 DPAPI；Windows 前端构建已复验。
 5. **研究平台后续协议扩展**（UI-P0/P1/P2 已完成）：平台已支持白名单协议预注册冻结、缓存评估 job、进度轮询、一次性锁箱、只追加结果与独立数据拉取。新增研究协议时必须在后端增加受控模板和工具映射，继续焊死「预注册冻结不可改、锁箱开一次、结果只追加、verdict 对固定 bar」，不得加入任意命令或自由改参入口。
 
 ## 8. 代号词典（解码 `PROJECT_PROGRESS.md`）

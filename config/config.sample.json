@@ -16,6 +16,10 @@
     "tick_interval_seconds": 3,
     "auto_start": false,
     "mock_data_enabled": false,
+    "credentials": {
+      "driver": "auto",
+      "master_key_env": "ORBIT_CREDENTIAL_MASTER_KEY"
+    },
     "market_feed": {
       "enabled": true,
       "interval": "1m",

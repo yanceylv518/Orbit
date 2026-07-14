@@ -1315,10 +1315,10 @@ V1 已从旧扁平包 `backend/src/ddg/` 切换为唯一后端包 `backend/src/o
 
 §18 的 P0 是完整 dry_run 闭环（MockExchange 模拟成交、事件执行、accounting、日报、图表）。当前第一阶段先收窄为 `plan_only` 只读闭环：接入 Binance 真实持仓、生成 `plan_only` 执行计划、人工查看/确认/导出，dry_run 模拟成交顺延。以 `PROJECT_PROGRESS.md` 的「当前目标」为准。
 
-### 22.4 凭证加密平台限制
+### 22.4 跨平台凭证加密
 
-Binance API Key/Secret 的本地加密使用 Windows DPAPI（`backend/src/orbit/infrastructure/exchange/binance.py`），**仅在 Windows 可用**。当前开发/部署环境为 Linux，保存加密 Secret 会抛 `CredentialError`，对应单测在非 Windows 上被跳过。Linux 环境需另做跨平台凭证后端，或改用环境变量引用（`env:` 前缀）模式。
+Binance API Key/Secret 通过 `CredentialVault` 端口隔离平台实现。`runtime.credentials.driver=auto` 时，Windows 使用当前用户 DPAPI，Linux 使用 AES-256-GCM；Linux 主密钥由 `ORBIT_CREDENTIAL_MASTER_KEY` 注入，不写入配置或数据库。数据库仅保存 `dpapi:` / `aesgcm:v1:` 密文引用、`env:` 环境变量引用及 API Key 指纹，不保存明文。跨平台迁移已有密文时需在目标平台重新录入凭证。
 
-### 22.5 运维脚本平台限制
+### 22.5 跨平台运维脚本
 
-`backend/scripts/` 下仅有 `.cmd` / `.ps1`（Windows），README 启动命令为 PowerShell + `C:\Users\...` 路径；当前 Linux 环境无对应 bash 脚本，且未安装 `node`（进度文档中的 `node --check frontend/src/main.js` 验证在 Linux 上无法复现）。需要补一套 Linux/bash 启动与校验说明。
+`backend/scripts/` 同时提供 Windows `.cmd` / `.ps1` 与 POSIX `sh` 入口。Linux 可使用 `run_server.sh`、`run_server_mysql.sh`、`setup_mysql.sh`、`check_mysql.sh`、`healthcheck.sh` 和 `verify.sh` 完成启动、数据库检查、健康检查及后端/前端验证；完整命令与主密钥保管要求见 README。

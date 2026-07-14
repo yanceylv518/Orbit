@@ -45,7 +45,7 @@
 - 支持 MySQL 存储，并通过 `config.local.json` 使用本地 MySQL 配置。
 - 支持免登录模式和默认管理员操作者。
 - 支持用户会话、管理员/业务用户权限过滤。
-- 支持 Binance API Key / Secret 使用 Windows DPAPI 加密保存。
+- 支持 Binance API Key / Secret 跨平台加密保存：Windows 使用 DPAPI，Linux 使用环境主密钥驱动的 AES-256-GCM。
 - 支持 Binance 合约账户只读同步：
   - 账户信息
   - 持仓风险
@@ -73,7 +73,7 @@
   - Binance API 拉取实现已移动到 `orbit.infrastructure.exchange.binance_snapshots.BinanceSnapshotFetcher`，应用层通过 `ExchangeSnapshotFetcher` 端口调用
   - 账户目录读侧、账户访问判断和账户脱敏展示已抽到 `orbit.application.accounts.AccountDirectoryService`
   - 业务用户与交易账户新增/编辑已抽到 `orbit.application.accounts.AccountService`
-  - Binance API Key / Secret 保存、DPAPI 加密、指纹计算、凭证列持久化写入与快照失效信号已抽到 `orbit.application.credentials.CredentialService`
+  - Binance API Key / Secret 保存、平台凭证加密、指纹计算、凭证列持久化写入与快照失效信号已抽到 `orbit.application.credentials.CredentialService`
   - 已新增 `CredentialVault` 与 `AccountConnectionInspector` 端口；账户目录和凭证应用服务不再直接依赖 Binance/DPAPI 实现
   - DPAPI/环境变量凭证实现已移动到 `infrastructure/credentials/local_vault.py`，账户连接检查实现位于 `infrastructure/credentials/account_connection.py`
   - 已新增 `application/ports/account_repository.py` 与 `application/ports/unit_of_work.py`，账户服务和凭证服务不再接收原始用户/账户列表
@@ -729,7 +729,7 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 | 2 | **UI-P0 只读研究 API（已完成）**（数据目录 + 候选注册表[只追加/冻结不可改] + 结果读模型） | 本文「研究平台（方向1）前端化计划」 | 高 |
 | 3 | **UI-P1 研究前端（只读，已完成）**（数据目录 / 候选墓地 / 候选明细对照固定 bar） | 同上 | 中 |
 | 4 | **UI-P2 job runner + 触发（已完成）**（网页填预注册→冻结→点一下跑缓存数据→看进度→出 verdict；四护栏 UI 化） | 同上 | 中（依赖 P0） |
-| 5 | **运维打磨** | 见下「任务 OPS-1」 | 低 |
+| 5 | **运维打磨（已完成）** | 见下「任务 OPS-1」 | 低 |
 
 **贯穿纪律（所有任务）**：保持测试绿；不改 live 默认开关；研究相关一律焊死「预注册冻结不可改 / 锁箱开一次 / 结果只追加 / verdict 对固定 bar」四护栏；前端本机无 node，`npm run check/build` 需 Windows 复验。
 
@@ -747,12 +747,16 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **验收**：Linux 下可按文档启动后端、跑校验；凭证在 Linux 可保存/读取；文档无自相矛盾。
 - **约束**：不改交易逻辑与 live 开关；纯运维/跨平台补齐。
 
+**OPS-1 完成记录（2026-07-14）**：新增 POSIX `sh` 启动、MySQL 初始化/检查、HTTP 健康检查和一体化验证脚本；凭证工厂按平台自动选择 Windows DPAPI 或跨平台 AES-256-GCM，Linux 主密钥仅从 `ORBIT_CREDENTIAL_MASTER_KEY` 注入，数据库继续只保存密文引用/环境引用和指纹。新增随机 nonce、篡改、错密钥、缺失密钥、平台选择与迁移错误测试；README、交接文档和技术方案已统一跨平台口径。未改交易逻辑和 live 默认开关。
+
 ## 最近验证
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`273 tests OK`。
+- Python 单元测试及 API 契约测试：`280 tests OK`。
 - `git diff --check` 通过。
+- 新增 POSIX shell 脚本已通过 Git Bash `bash -n` 语法检查。
+- Linux AES-GCM vault 已验证随机 nonce、密文篡改/错密钥拒绝、缺失主密钥提示、环境变量引用与平台工厂选择。
 - Vite 前端开发服务 `http://127.0.0.1:5173/` 冒烟通过。
 - 后端生产服务入口为 `backend/main.py`；MySQL 模式推荐使用 `backend/scripts/run_server_mysql.ps1` 启动。本轮未保留后台常驻后端进程。
 
@@ -798,8 +802,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 ### 平台与文档差异（详见技术方案 §22）
 
-- **本地凭证加密仅 Windows**：当前 `LocalCredentialVault` 使用 Windows DPAPI，Linux 环境调用 `protect()` 会抛 `CredentialVaultError`；读取 `env:` 引用仍可跨平台使用，后续可新增 Linux Vault adapter。
-- **运维脚本仅 Windows**：`backend/scripts/` 只有 `.cmd`/`.ps1`，README 为 PowerShell + `C:\Users\...` 路径；Linux 环境未装 `node`，`node --check frontend/src/main.js` 无法复现，需补 bash 说明。
+- **凭证加密已跨平台**：Windows 使用 DPAPI，Linux 使用环境主密钥驱动的 AES-256-GCM；`env:` 引用两端均可读取。跨平台迁移已有平台密文时必须重新录入凭证。
+- **运维入口已跨平台**：Windows 保留 `.cmd`/`.ps1`，Linux 已补齐 POSIX `sh` 启动、MySQL 检查、健康检查和后端/前端验证入口。
 - **配置格式为 JSON**：技术方案 §13/§15 写的是 `config.yaml`，实际使用 `config/config.sample.json` / `config.local.json`。
 - **深层分层仍待继续拆实**：应用服务、查询投影、composition root 和 FastAPI routers 已建立清晰边界；剩余重点是为接口补 Pydantic 请求模型与统一业务错误映射，并继续收敛 `storage.py` 的读取与 schema 辅助职责。
 - **第一阶段范围**：技术方案 P0 是完整 dry_run 闭环，当前收窄为 `plan_only` 只读优先，以本文件「当前目标」为准。
@@ -863,5 +867,5 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 ### 项目文件与运维
 
 1. 校准产品技术方案中关于配置格式和目录结构的旧描述：当前以 JSON 配置和 `backend/`、`frontend/`、`docs/`、`config/` 顶层结构为准。
-2. Linux 下补跨平台凭证方案（或统一走 `env:` 引用），并补 bash 启动/校验脚本。
+2. 跨平台凭证与 Linux/bash 运维入口已在 OPS-1 完成；部署时必须持久、安全地注入 `ORBIT_CREDENTIAL_MASTER_KEY`。
 3. 每轮开发完成后更新本文件，避免进度记录滞后于代码结构。

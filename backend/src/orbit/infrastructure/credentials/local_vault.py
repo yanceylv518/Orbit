@@ -53,6 +53,10 @@ class LocalCredentialVault:
             return None
         if reference.startswith(DPAPI_PREFIX):
             return self._unprotect(reference)
+        if reference.startswith("aesgcm:"):
+            raise CredentialVaultError(
+                "AES-GCM credential requires the aesgcm vault driver; update runtime.credentials.driver."
+            )
         return os.environ.get(reference.removeprefix(ENV_PREFIX))
 
     def fingerprint(self, value: str | None) -> str | None:

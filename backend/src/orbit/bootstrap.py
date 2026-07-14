@@ -28,7 +28,7 @@ from orbit.application.symbol_states import SymbolStateService
 from orbit.application.symbol_recovery import SymbolRecoveryService
 from orbit.application.trend_forward import TrendForwardService
 from orbit.infrastructure.credentials.account_connection import VaultAccountConnectionInspector
-from orbit.infrastructure.credentials.local_vault import LocalCredentialVault
+from orbit.infrastructure.credentials.factory import create_credential_vault
 from orbit.infrastructure.exchange.binance import BinanceFuturesClient
 from orbit.infrastructure.exchange.binance_snapshots import BinanceSnapshotFetcher
 from orbit.infrastructure.exchange.kline_feed import BinanceKlineFeed
@@ -133,7 +133,7 @@ def build_application_container(
 ) -> ApplicationContainer:
     permissions = PermissionPolicy()
     account_repository = ConfigAccountRepository(config)
-    credential_vault = LocalCredentialVault()
+    credential_vault = create_credential_vault(config)
     connection_inspector = VaultAccountConnectionInspector(credential_vault)
     account_directory = AccountDirectoryService(
         permissions,

@@ -249,7 +249,7 @@ Application Use Cases
 - 任何网络 I/O。
 - 任何数据库 I/O。
 - 读取配置文件。
-- 依赖 HTTP、MySQL、Binance、DPAPI。
+- 依赖 HTTP、MySQL、Binance 或具体凭证加密实现。
 
 目标文件：
 
