@@ -36,7 +36,11 @@ class BinanceKlineFeed:
     def closed_klines(self, symbol: str, interval: str, limit: int) -> list[dict[str, Any]]:
         if interval not in INTERVAL_MS:
             raise MarketFeedError(f"Unsupported kline interval: {interval}")
-        query = urlencode({"symbol": symbol, "interval": interval, "limit": max(2, limit + 1)})
+        query = urlencode({
+            "symbol": symbol,
+            "interval": interval,
+            "limit": min(1500, max(2, limit + 1)),
+        })
         request = Request(f"{self.base_url}/fapi/v1/klines?{query}", method="GET")
         try:
             with urlopen(request, timeout=self.timeout) as response:
@@ -63,3 +67,35 @@ class BinanceKlineFeed:
                 "volume": float(row[5]),
             })
         return klines[-limit:]
+
+    def funding_rates(
+        self,
+        symbol: str,
+        start_time_ms: int,
+        end_time_ms: int,
+        *,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        query = urlencode({
+            "symbol": symbol,
+            "startTime": int(start_time_ms) + 1,
+            "endTime": int(end_time_ms),
+            "limit": min(1000, max(1, int(limit))),
+        })
+        request = Request(f"{self.base_url}/fapi/v1/fundingRate?{query}", method="GET")
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                raw = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise MarketFeedError(f"Funding HTTP {exc.code}: {detail}") from exc
+        except URLError as exc:
+            raise MarketFeedError(f"Funding network error: {exc.reason}") from exc
+        return [
+            {
+                "funding_time_ms": int(row["fundingTime"]),
+                "funding_rate": float(row["fundingRate"]),
+            }
+            for row in raw
+            if start_time_ms < int(row["fundingTime"]) <= end_time_ms
+        ]

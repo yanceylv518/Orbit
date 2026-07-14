@@ -3,7 +3,10 @@ from __future__ import annotations
 import math
 import statistics
 from bisect import bisect_right
+from copy import deepcopy
 from dataclasses import dataclass
+import hashlib
+import json
 from typing import Any, Mapping, Sequence
 
 from orbit.domain.calibration.history import FundingPoint, MarketCandle
@@ -48,6 +51,21 @@ TB4_SPEC = TrendBasketSpec(
     gross_cap=TB4_GROSS_CAP,
     roundtrip_cost_pct=TB4_ROUNDTRIP_COST_PCT,
 )
+
+
+def tb4_spec_fingerprint() -> str:
+    payload = {
+        "symbols": TB4_SPEC.symbols,
+        "interval_ms": TB4_SPEC.interval_ms,
+        "momentum_lookbacks": TB4_SPEC.momentum_lookbacks,
+        "volatility_lookback": TB4_SPEC.volatility_lookback,
+        "rebalance_ticks": TB4_SPEC.rebalance_ticks,
+        "target_portfolio_vol": TB4_SPEC.target_portfolio_vol,
+        "gross_cap": TB4_SPEC.gross_cap,
+        "roundtrip_cost_pct": TB4_SPEC.roundtrip_cost_pct,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class FrozenTrendBasketRunner:
@@ -175,6 +193,60 @@ class FrozenTrendBasketRunner:
             "total_turnover": self.total_turnover,
             "total_transaction_cost_pct": self.total_cost_pct,
         }
+
+    def export_state(self) -> dict[str, Any]:
+        return {
+            "protocol": "TB4_FROZEN_TREND_BASKET_STATE_V1",
+            "spec_sha256": tb4_spec_fingerprint(),
+            "times": list(self.times),
+            "closes": deepcopy(self.closes),
+            "weights": dict(self.weights),
+            "pending": deepcopy(self.pending),
+            "net_returns_pct": list(self.net_returns_pct),
+            "rebalances": deepcopy(self.rebalances),
+            "equity": self.equity,
+            "peak": self.peak,
+            "current_drawdown_pct": self.current_drawdown_pct,
+            "total_turnover": self.total_turnover,
+            "total_cost_pct": self.total_cost_pct,
+        }
+
+    @classmethod
+    def from_state(cls, state: Mapping[str, Any]) -> "FrozenTrendBasketRunner":
+        if state.get("protocol") != "TB4_FROZEN_TREND_BASKET_STATE_V1":
+            raise ValueError("unsupported TB4 runner state protocol")
+        if state.get("spec_sha256") != tb4_spec_fingerprint():
+            raise ValueError("TB4 runner state uses a different frozen specification")
+        times = [int(value) for value in state.get("times", [])]
+        closes = state.get("closes") or {}
+        if set(closes) != set(TB4_SPEC.symbols):
+            raise ValueError("TB4 runner state has an invalid market universe")
+        if any(len(closes[symbol]) != len(times) for symbol in TB4_SPEC.symbols):
+            raise ValueError("TB4 runner state close history is not synchronized")
+        if any(
+            times[index] - times[index - 1] != TB4_SPEC.interval_ms
+            for index in range(1, len(times))
+        ):
+            raise ValueError("TB4 runner state timeline is not contiguous")
+        runner = cls()
+        runner.times = times
+        runner.closes = {
+            symbol: [float(value) for value in closes[symbol]]
+            for symbol in TB4_SPEC.symbols
+        }
+        runner.weights = {
+            symbol: float((state.get("weights") or {})[symbol])
+            for symbol in TB4_SPEC.symbols
+        }
+        runner.pending = deepcopy(state.get("pending"))
+        runner.net_returns_pct = [float(value) for value in state.get("net_returns_pct", [])]
+        runner.rebalances = deepcopy(state.get("rebalances", []))
+        runner.equity = float(state.get("equity", 1.0))
+        runner.peak = float(state.get("peak", 1.0))
+        runner.current_drawdown_pct = float(state.get("current_drawdown_pct", 0.0))
+        runner.total_turnover = float(state.get("total_turnover", 0.0))
+        runner.total_cost_pct = float(state.get("total_cost_pct", 0.0))
+        return runner
 
     def _schedule(self, index: int, close_time_ms: int) -> dict[str, Any]:
         periods_per_year = 365 * 86_400_000 / self.spec.interval_ms

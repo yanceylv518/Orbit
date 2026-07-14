@@ -47,6 +47,7 @@ class SnapshotQueryServiceTests(unittest.TestCase):
             empty_repository,
             FakePortfolioViews(),
             lambda: {"driver": "json"},
+            lambda: {"status": "NOT_STARTED"},
             mock_data_enabled=False,
         )
 

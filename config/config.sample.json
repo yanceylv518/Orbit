@@ -22,6 +22,11 @@
       "poll_seconds": 30,
       "limit": 3
     },
+    "trend_forward": {
+      "enabled": false,
+      "data_dir": "var/forward/tb4",
+      "poll_seconds": 60
+    },
     "plan_ttl_seconds": 900,
     "plan_max_confirm_price_drift_pct": 0.5,
     "snapshot_max_age_seconds": 600,

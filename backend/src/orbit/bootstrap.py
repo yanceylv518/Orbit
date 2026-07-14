@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Callable
@@ -23,6 +24,7 @@ from orbit.application.strategy_config import StrategyEventConfigService
 from orbit.application.strategy_control import StrategyControlService
 from orbit.application.symbol_states import SymbolStateService
 from orbit.application.symbol_recovery import SymbolRecoveryService
+from orbit.application.trend_forward import TrendForwardService
 from orbit.infrastructure.credentials.account_connection import VaultAccountConnectionInspector
 from orbit.infrastructure.credentials.local_vault import LocalCredentialVault
 from orbit.infrastructure.exchange.binance import BinanceFuturesClient
@@ -39,6 +41,7 @@ from orbit.infrastructure.persistence.run_configs import InMemoryRunConfigReposi
 from orbit.infrastructure.persistence.storage import make_state_store, mysql_status
 from orbit.infrastructure.persistence.strategy_runtime import InMemoryStrategyRuntimeRepository
 from orbit.infrastructure.persistence.symbol_states import InMemorySymbolStateRepository
+from orbit.infrastructure.persistence.trend_forward_ledger import TrendForwardLedger
 from orbit.infrastructure.persistence.unit_of_work import InMemoryApplicationUnitOfWork
 from orbit.infrastructure.reporting.daily import DailyReportBuilder
 
@@ -75,6 +78,7 @@ class ApplicationContainer:
     market_feed_service: Any
     paper_execution_service: Any
     order_execution_service: Any
+    trend_forward_snapshot: Any
     app_uow: Any
 
     def install(self, target: Any) -> None:
@@ -238,6 +242,26 @@ def build_application_container(
         live_trading_enabled=bool(plan_runtime.get("live_trading_enabled", False)),
         live_confirm_phrase=str(plan_runtime.get("live_confirm_phrase", "I UNDERSTAND LIVE TRADING")),
     )
+    trend_config = plan_runtime.get("trend_forward", {})
+    trend_data_dir = Path(str(trend_config.get("data_dir", "var/forward/tb4")))
+    if not trend_data_dir.is_absolute():
+        trend_data_dir = root / trend_data_dir
+    trend_snapshot_cache: dict[str, Any] = {"signature": None, "snapshot": None}
+
+    def trend_forward_snapshot() -> dict[str, Any]:
+        ledger = TrendForwardLedger(trend_data_dir)
+        signature = tuple(
+            (
+                path.stat().st_mtime_ns,
+                path.stat().st_size,
+            ) if path.exists() else None
+            for path in (ledger.manifest_path, ledger.events_path)
+        )
+        if trend_snapshot_cache["signature"] != signature:
+            trend_snapshot_cache["snapshot"] = TrendForwardService(ledger).snapshot()
+            trend_snapshot_cache["signature"] = signature
+        return deepcopy(trend_snapshot_cache["snapshot"])
+
     snapshot_queries = SnapshotQueryService(
         config,
         strategy,
@@ -256,6 +280,7 @@ def build_application_container(
             "json_path": config["storage"].get("json_path", "var/data/runtime_state.json"),
             "mysql": mysql_status(),
         },
+        trend_forward_snapshot,
         mock_data_enabled=mock_data_enabled,
     )
     app_uow = InMemoryApplicationUnitOfWork(
@@ -302,5 +327,6 @@ def build_application_container(
         market_feed_service=market_feed_service,
         paper_execution_service=paper_execution_service,
         order_execution_service=order_execution_service,
+        trend_forward_snapshot=trend_forward_snapshot,
         app_uow=app_uow,
     )

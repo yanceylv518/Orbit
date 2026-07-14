@@ -31,6 +31,7 @@ class BootstrapTests(unittest.TestCase):
             self.assertIs(app.execution_plan_service.plans, app.execution_plan_repository)
             self.assertIs(app.app_uow.metrics, app.metric_repository)
             self.assertIs(app.app_uow.accounts, app.account_repository)
+            self.assertEqual(app.trend_forward_snapshot()["status"], "NOT_STARTED")
         finally:
             tmp.cleanup()
 
@@ -41,6 +42,8 @@ class BootstrapTests(unittest.TestCase):
             snapshot = app.public_snapshot()
             self.assertFalse(snapshot["auth"]["authenticated"])
             self.assertEqual(app.config["storage"]["driver"], "json")
+            admin_snapshot = app.snapshot(app.user_by_id("admin_001"))
+            self.assertEqual(admin_snapshot["trend_forward"]["status"], "NOT_STARTED")
         finally:
             tmp.cleanup()
 

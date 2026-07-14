@@ -25,6 +25,7 @@ class SnapshotQueryService:
         metrics: Any,
         portfolio_views: Any,
         storage_status: Callable[[], dict[str, Any]],
+        trend_forward_snapshot: Callable[[], dict[str, Any]],
         *,
         mock_data_enabled: bool,
     ) -> None:
@@ -41,6 +42,7 @@ class SnapshotQueryService:
         self.metrics = metrics
         self.portfolio_views = portfolio_views
         self.storage_status = storage_status
+        self.trend_forward_snapshot = trend_forward_snapshot
         self.mock_data_enabled = mock_data_enabled
 
     def public_snapshot(self) -> dict[str, Any]:
@@ -94,6 +96,7 @@ class SnapshotQueryService:
             "event_config": self.strategy["strategy"]["events"],
             "storage": self.storage_status(),
             "market_feed": deepcopy(market_feed) if market_feed else None,
+            "trend_forward": deepcopy(self.trend_forward_snapshot()),
             "plan_symbol_states": self.plan_symbol_state_rows(symbol_states),
             "stopped_symbols": stopped_symbols,
             "risk_state": risk_state,
