@@ -27,6 +27,30 @@ export async function fetchAppState() {
   return data;
 }
 
+export async function getJson(path) {
+  const response = await fetch(path, {
+    headers: { Accept: "application/json" },
+  });
+  const data = await readJson(response);
+  return { response, data };
+}
+
+export function fetchResearchDatasets() {
+  return getJson("/api/research/datasets");
+}
+
+export function fetchResearchCandidates() {
+  return getJson("/api/research/candidates");
+}
+
+export function fetchResearchCandidate(candidateId) {
+  return getJson(`/api/research/candidates/${encodeURIComponent(candidateId)}`);
+}
+
+export function fetchResearchResult(resultId) {
+  return getJson(`/api/research/results/${encodeURIComponent(resultId)}`);
+}
+
 export async function postJson(path, payload = {}) {
   const response = await fetch(path, {
     method: "POST",

@@ -1,6 +1,10 @@
 import { computed, reactive } from "vue";
 import {
   fetchAppState,
+  fetchResearchCandidate,
+  fetchResearchCandidates,
+  fetchResearchDatasets,
+  fetchResearchResult,
   loginRequest,
   logoutRequest,
   postJson,
@@ -17,6 +21,13 @@ export const store = reactive({
   stateError: "",
   syncAllBusy: false,
   recoveringStoppedSymbolId: "",
+  researchDatasets: [],
+  researchCandidates: [],
+  researchCandidate: null,
+  researchResult: null,
+  researchBusy: false,
+  researchResultBusy: false,
+  researchError: "",
 });
 
 export const isAuthenticated = computed(() => Boolean(store.state?.auth?.authenticated));
@@ -153,6 +164,87 @@ export async function loadState() {
     store.stateError = message;
     if (!store.state) store.loginError = message;
     return false;
+  }
+}
+
+function researchErrorMessage(response, data, fallback) {
+  if (response.status === 401) return "请先登录后查看研究档案。";
+  if (response.status === 403) return "当前用户无权查看研究档案。";
+  return data.error || `${fallback}（HTTP ${response.status}）`;
+}
+
+export async function loadResearchCatalog() {
+  if (store.researchBusy) return false;
+  store.researchBusy = true;
+  store.researchError = "";
+  try {
+    const [datasetsResponse, candidatesResponse] = await Promise.all([
+      fetchResearchDatasets(),
+      fetchResearchCandidates(),
+    ]);
+    if (!datasetsResponse.response.ok || datasetsResponse.data.error) {
+      throw new Error(researchErrorMessage(
+        datasetsResponse.response,
+        datasetsResponse.data,
+        "读取研究数据目录失败",
+      ));
+    }
+    if (!candidatesResponse.response.ok || candidatesResponse.data.error) {
+      throw new Error(researchErrorMessage(
+        candidatesResponse.response,
+        candidatesResponse.data,
+        "读取候选履历失败",
+      ));
+    }
+    store.researchDatasets = datasetsResponse.data.items || [];
+    store.researchCandidates = candidatesResponse.data.items || [];
+    const selectedId = store.researchCandidate?.id || store.researchCandidates[0]?.id;
+    if (selectedId) await selectResearchCandidate(selectedId);
+    return true;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "读取研究档案失败。";
+    return false;
+  } finally {
+    store.researchBusy = false;
+  }
+}
+
+export async function selectResearchCandidate(candidateId) {
+  store.researchResultBusy = true;
+  store.researchError = "";
+  try {
+    const { response, data } = await fetchResearchCandidate(candidateId);
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "读取候选明细失败"));
+    }
+    store.researchCandidate = data;
+    const resultId = data.results?.find((item) => item.available)?.id || "";
+    if (resultId) return selectResearchResult(resultId);
+    store.researchResult = null;
+    return true;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "读取候选明细失败。";
+    return false;
+  } finally {
+    store.researchResultBusy = false;
+  }
+}
+
+export async function selectResearchResult(resultId) {
+  store.researchResultBusy = true;
+  store.researchError = "";
+  try {
+    const { response, data } = await fetchResearchResult(resultId);
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "读取研究结果失败"));
+    }
+    store.researchResult = data;
+    return true;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "读取研究结果失败。";
+    return false;
+  } finally {
+    store.researchResultBusy = false;
   }
 }
 

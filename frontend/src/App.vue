@@ -71,7 +71,10 @@
             风控 {{ riskStatusText }}
           </button>
           <!-- 只读模式：第一阶段主动作；模拟模式：dry_run 控件 -->
-          <template v-if="readOnlyMode">
+          <template v-if="store.activePage === 'research'">
+            <span class="pill">冻结档案 · 只读</span>
+          </template>
+          <template v-else-if="readOnlyMode">
             <button class="button ghost" :disabled="store.syncAllBusy" @click="syncAllAccounts">
               {{ store.syncAllBusy ? "同步中..." : "同步全部账户" }}
             </button>
@@ -101,6 +104,7 @@ import AccountsPage from "./pages/AccountsPage.vue";
 import DashboardPage from "./pages/DashboardPage.vue";
 import PlansPage from "./pages/PlansPage.vue";
 import ReportsPage from "./pages/ReportsPage.vue";
+import ResearchPage from "./pages/ResearchPage.vue";
 import RiskPage from "./pages/RiskPage.vue";
 import StrategyPage from "./pages/StrategyPage.vue";
 import SymbolPage from "./pages/SymbolPage.vue";
@@ -136,6 +140,7 @@ const navGroups = [
     label: "策略",
     items: [
       { id: "strategy", label: "策略中心" },
+      { id: "research", label: "研究平台" },
       { id: "plans", label: "执行计划" },
       { id: "symbol", label: "币种视图" },
     ],
@@ -157,6 +162,7 @@ const pageComponents = {
   dashboard: DashboardPage,
   accounts: AccountsPage,
   strategy: StrategyPage,
+  research: ResearchPage,
   plans: PlansPage,
   symbol: SymbolPage,
   risk: RiskPage,
