@@ -745,6 +745,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **涉及文件**：`backend/scripts/`（补 bash）；`infrastructure/credentials/`（Linux vault adapter）；`README.md` / `docs/`。
 - **改动**：① 补一套 Linux/bash 启动/校验脚本（对应现有 `.cmd`/`.ps1`）；② 新增 Linux 凭证 vault adapter（或统一走 `env:` 引用），使非 Windows 也能保存凭证；③ README/文档补 Linux 运行说明与前端 Windows 侧构建复验流程。
 - **验收**：Linux 下可按文档启动后端、跑校验；凭证在 Linux 可保存/读取；文档无自相矛盾。
+- **完成结果（2026-07-14）**：新增 bash 脚本（`run_server/run_server_mysql/setup_mysql/check_mysql/verify/healthcheck.sh`，`set -eu`）；新增 `AesGcmCredentialVault`（AES-GCM 认证加密、随机 nonce、master key 走 `ORBIT_CREDENTIAL_MASTER_KEY` env）+ `factory.create_credential_vault`（Linux→AES-GCM、Windows→DPAPI 自动选择）+ `generate_vault_key.py`；README/ARCHITECTURE/技术方案补 Linux 说明；`requirements.txt` 加 `cryptography`。
+- **验收结论（Claude，2026-07-14）：通过。** vault 为标准安全构造（非自制加密）：`test_round_trip...` 随机 nonce/不泄明文/可解回；`test_tampered_ciphertext_and_wrong_key_are_rejected` 篡改密文与错密钥均 `Failed to decrypt`（GCM 认证）；缺 master key 时加密被挡但 `env:` 引用仍跨平台可用；DPAPI 旧引用有清晰迁移报错；`test_auto_selects_aesgcm_on_linux_and_dpapi_on_windows` 验证 factory 选择 + Linux 往返可用。bash 脚本齐全。`279 passed`（+7）。合并在 `main`（`128fb83`）。**小观察（非阻断）**：新增编译依赖 `cryptography`——但仅加密-at-rest 需要，`env:` 引用路径无需它，符合「运行时精简」精神。**路线图第 5 项完成——全部 5 项完成。**
 - **约束**：不改交易逻辑与 live 开关；纯运维/跨平台补齐。
 
 **OPS-1 完成记录（2026-07-14）**：新增 POSIX `sh` 启动、MySQL 初始化/检查、HTTP 健康检查和一体化验证脚本；凭证工厂按平台自动选择 Windows DPAPI 或跨平台 AES-256-GCM，Linux 主密钥仅从 `ORBIT_CREDENTIAL_MASTER_KEY` 注入，数据库继续只保存密文引用/环境引用和指纹。新增随机 nonce、篡改、错密钥、缺失密钥、平台选择与迁移错误测试；README、交接文档和技术方案已统一跨平台口径。未改交易逻辑和 live 默认开关。
