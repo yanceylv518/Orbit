@@ -702,6 +702,10 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
   5. **护栏**：不提供任何改参数/提前止损/提前判定/移动起点的入口；到预注册期限才允许出 PASS/FAIL。
 - **验收**：① **重启确定性测试**——中断+恢复后状态与不间断运行逐笔一致；② 暖机数据不计入前向证据（起点后才计分）的测试；③ 持久化只追加、不可覆盖删除；④ 无参数旋钮暴露、live 通道零触碰；⑤ 监控只读、期限前无 PASS/FAIL；⑥ 复用冻结 `TB4_SPEC`（对齐性质保持）。
 - **约束**：paper only、参数冻结、无提前判定/改参入口、护栏从机制上禁止「手贱」。
+- **完成结果（2026-07-14）**：新增 `application/trend_forward.py`（前向服务）+ `trend_forward_market.py`（12 市场 4h 行情适配）+ `persistence/trend_forward_ledger.py`（哈希链只追加账本）+ `tools/run_tb4_forward.py`（`--initialize`/持续轮询/`--once`）；runner 加 `export_state()` 支持确定性恢复；snapshot 只读暴露 `trend_forward`；config 加前向参数。账本默认 `var/forward/tb4/`。
+- **验收结论（Claude，2026-07-14）：通过（护栏全部真载荷验证）。** 两道硬门槛扎实：`test_restart_replays_to_exact_same_state` 断言重启后 `export_state()` 与 `snapshot()` **全等**（保住 TB4-A 逐笔对齐）；`test_warmup_is_not_scored_and_first_forward_close_is_scored` 断言 init 后 `scored_periods=0`、喂首根前向收盘才 `=1`（暖机不计分）。更强的护栏：账本**哈希链防篡改**（`test_hash_chain_detects_modified_record` 改一条记录→重建 `fingerprint mismatch`）、起点清单不可重初始化、重复收盘幂等、`parameters_mutable=False`、`live_trading=False`、期限前无 verdict。复用冻结 `TB4_SPEC`。`259 passed`（+7）。合并在 `main`（`cf982c7`）。
+- **诚实更正（采纳 Codex）**：本人先前在 `HANDOFF.md` 写「前向天然修掉幸存者+执行两个偏差」属**过度声称**，Codex 已更正为：paper 前向仍按收盘价+固定 `0.14%` 记账，**不验证真实成交滑点、也不消除「最初选当前存活币种」的历史幸存者偏差**；它消除的是「未来行情窥视」，并会暴露测试期内的停牌/下线。此更正正确，予以采纳。
+- **路线图第 1 项（功能收尾）完成**：前向可启动（`run_tb4_forward.py --initialize`，须 Binance 可达主机），真实前向计时待用户部署；启动后铁律「什么都别动」。
 
 **说明（诚实，务必记住）**：① 前向测试消除未来行情窥视，并会暴露固定市场在测试期内的停牌/下线问题；但当前 paper 仍按收盘价和固定 `0.14%` 成本记账，**不等于真实成交滑点验证，也不会自动消除最初选取当前存活币种的历史幸存者偏差**；行情 regime 仍只能靠时间覆盖。② TB4 交付的是「跑起来的测试」，**真结论要等至少 12 个月**，期间最重要的动作是**什么都别动**。③ paper 前向是检验历史结果能否延续的关键证据，但不是实盘收益保证。
 
