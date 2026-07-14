@@ -563,6 +563,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **涉及文件**：新增 `backend/src/orbit/application/research/`（读模型服务）+ `api/routers/research.py`；`bootstrap.py` 装配；`backend/tests/`。
 - **改动**：① 数据目录读模型——扫 `var/calibration/`，列已缓存数据集（市场/周期/行数/区间/SHA-256）；② 候选注册表——定义结构化候选记录（id、信号定义、参数、成本、矩阵、阈值、`frozen_hash`、`frozen_at`、status、verdict、`lockbox_opened_at`），存于**只追加**存储（`var/research/registry.json` 或 MySQL 表），并把既有 M0/F1/G1/G2 回填为初始记录；③ 结果读模型——结构化读取 `var/calibration/*.json` 报告。只读 API：`GET /api/research/datasets`、`/candidates`、`/candidates/{id}`、`/results/{id}`。
 - **验收**：只读端点返回结构化数据；候选记录含冻结哈希与 verdict；写入路径强制「只追加、冻结后不可改」（单测覆盖：改已冻结候选被拒）；不触碰 CLI 计算逻辑。
+- **完成结果（2026-07-14）**：新增 `application/research/{catalog,candidates}.py`、`persistence/research_registry.py`（哈希链只追加候选注册表）、`api/routers/research.py`（4 个 GET）；种子回填既有候选（含 `frozen_hash`/verdict）；数据目录读模型带 SHA-256；结果读模型不接受任意路径。
+- **验收结论（Claude，2026-07-14）：通过。** 纯只读——router 仅 `GET /datasets /candidates /candidates/{id} /results/{id}`，无任何写端点；catalog 服务只有读方法。注册表护栏严格：**哈希链防篡改**（加载校验 sequence/chain/fingerprint）+ `append()` 遇已存在 ID 直接拒。`test_frozen_candidate_cannot_be_changed_or_replaced` 断言「改已冻结候选→raise frozen / 替换→raise cannot be replaced」——**关键护栏真验证**；种子候选含 64 位 frozen_hash + verdict；结果读模型无路径穿越。`264 passed`（+5）。合并在 `main`（`6c357fa`）。路线图第 2 项完成。
 
 **任务 UI-P1：研究平台前端（只读先行）**
 - **涉及文件**：新增 `frontend/src/pages/ResearchPage.vue`（或小页面组）；`stores/appStore.js`、`api/client.js`；导航加入口。
