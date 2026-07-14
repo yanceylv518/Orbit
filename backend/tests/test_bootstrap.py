@@ -20,6 +20,10 @@ class BootstrapTests(unittest.TestCase):
             "driver": "json",
             "json_path": str(tmp_path / "runtime_state.json"),
         }
+        config["runtime"]["research"] = {
+            "calibration_dir": str(tmp_path / "calibration"),
+            "registry_path": str(tmp_path / "research" / "registry.jsonl"),
+        }
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
         return tmp, create_app_state(str(config_path))
@@ -32,6 +36,7 @@ class BootstrapTests(unittest.TestCase):
             self.assertIs(app.app_uow.metrics, app.metric_repository)
             self.assertIs(app.app_uow.accounts, app.account_repository)
             self.assertEqual(app.trend_forward_snapshot()["status"], "NOT_STARTED")
+            self.assertEqual(app.research_catalog.datasets(), [])
         finally:
             tmp.cleanup()
 

@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from orbit.api.routers import accounts, auth, binance, execution_plans, system
+from orbit.api.routers import accounts, auth, binance, execution_plans, research, system
 from orbit.bootstrap import create_app_state
 
 
@@ -39,6 +39,7 @@ def create_api(app_state: Any | None = None) -> FastAPI:
     app.include_router(accounts.router)
     app.include_router(binance.router)
     app.include_router(execution_plans.router)
+    app.include_router(research.router)
     app.mount("/reports", StaticFiles(directory=REPORTS, check_dir=False), name="reports")
     app.mount("/", StaticFiles(directory=WEB, html=True, check_dir=False), name="frontend")
     return app

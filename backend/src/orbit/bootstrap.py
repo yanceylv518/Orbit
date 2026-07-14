@@ -18,6 +18,7 @@ from orbit.application.paper_execution import PaperExecutionService
 from orbit.application.permissions import PermissionPolicy
 from orbit.application.portfolio_views import PortfolioViewService
 from orbit.application.reporting import DailyReportService
+from orbit.application.research.catalog import ResearchCatalogService
 from orbit.application.runtime_events import RuntimeEventService
 from orbit.application.snapshot_queries import SnapshotQueryService
 from orbit.application.strategy_config import StrategyEventConfigService
@@ -37,6 +38,7 @@ from orbit.infrastructure.persistence.event_history import InMemoryEventHistoryR
 from orbit.infrastructure.persistence.execution_plans import InMemoryExecutionPlanRepository
 from orbit.infrastructure.persistence.metrics import InMemoryMetricHistoryRepository
 from orbit.infrastructure.persistence.reports import InMemoryReportRepository
+from orbit.infrastructure.persistence.research_registry import AppendOnlyResearchRegistry
 from orbit.infrastructure.persistence.run_configs import InMemoryRunConfigRepository
 from orbit.infrastructure.persistence.storage import make_state_store, mysql_status
 from orbit.infrastructure.persistence.strategy_runtime import InMemoryStrategyRuntimeRepository
@@ -79,6 +81,7 @@ class ApplicationContainer:
     paper_execution_service: Any
     order_execution_service: Any
     trend_forward_snapshot: Any
+    research_catalog: Any
     app_uow: Any
 
     def install(self, target: Any) -> None:
@@ -242,6 +245,17 @@ def build_application_container(
         live_trading_enabled=bool(plan_runtime.get("live_trading_enabled", False)),
         live_confirm_phrase=str(plan_runtime.get("live_confirm_phrase", "I UNDERSTAND LIVE TRADING")),
     )
+    research_config = plan_runtime.get("research", {})
+    calibration_dir = Path(str(research_config.get("calibration_dir", "var/calibration")))
+    if not calibration_dir.is_absolute():
+        calibration_dir = root / calibration_dir
+    registry_path = Path(str(research_config.get("registry_path", "var/research/registry.jsonl")))
+    if not registry_path.is_absolute():
+        registry_path = root / registry_path
+    research_catalog = ResearchCatalogService(
+        calibration_dir,
+        AppendOnlyResearchRegistry(registry_path),
+    )
     trend_config = plan_runtime.get("trend_forward", {})
     trend_data_dir = Path(str(trend_config.get("data_dir", "var/forward/tb4")))
     if not trend_data_dir.is_absolute():
@@ -328,5 +342,6 @@ def build_application_container(
         paper_execution_service=paper_execution_service,
         order_execution_service=order_execution_service,
         trend_forward_snapshot=trend_forward_snapshot,
+        research_catalog=research_catalog,
         app_uow=app_uow,
     )

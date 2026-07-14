@@ -30,6 +30,10 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             "driver": "json",
             "json_path": str(tmp_path / "runtime_state.json"),
         }
+        config["runtime"]["research"] = {
+            "calibration_dir": str(tmp_path / "calibration"),
+            "registry_path": str(tmp_path / "research" / "registry.jsonl"),
+        }
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
         state = create_app_state(str(config_path))
@@ -98,6 +102,39 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.json()["auth"]["authenticated"])
             self.assertEqual(response.json()["auth"]["current_user"]["id"], "admin_001")
+        finally:
+            tmp.cleanup()
+
+    async def test_admin_can_read_research_catalog_candidates_and_results(self):
+        tmp, api = self.make_api(login_required=False)
+        try:
+            calibration_dir = api.state.orbit.research_catalog.calibration_dir
+            calibration_dir.mkdir(parents=True)
+            (calibration_dir / "BTCUSDT_4h_ohlc.json").write_text(
+                json.dumps([{"open_time": 1000, "close": "10"}]),
+                encoding="utf-8",
+            )
+            (calibration_dir / "g2_result.json").write_text(
+                json.dumps({"protocol": "G2", "verdict": "NO_GO"}),
+                encoding="utf-8",
+            )
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                datasets = await client.get("/api/research/datasets")
+                candidates = await client.get("/api/research/candidates")
+                candidate = await client.get("/api/research/candidates/g2")
+                result = await client.get("/api/research/results/g2_result")
+                missing = await client.get("/api/research/results/missing")
+
+            self.assertEqual(datasets.status_code, 200)
+            self.assertEqual(datasets.json()["count"], 1)
+            self.assertEqual(candidates.status_code, 200)
+            self.assertEqual(candidates.json()["count"], 4)
+            self.assertEqual(candidate.json()["id"], "G2")
+            self.assertEqual(result.json()["verdict"], "NO_GO")
+            self.assertEqual(missing.status_code, 404)
         finally:
             tmp.cleanup()
 
