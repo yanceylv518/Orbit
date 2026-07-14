@@ -821,49 +821,6 @@ td .muted { font-size: 11.5px; }
   line-height: 1.55;
 }
 
-/* ============ 策略中心 ============ */
-
-.event-config-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-.event-card {
-  padding: 16px 18px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, var(--panel), var(--bg-raise));
-  box-shadow: var(--shadow-1);
-}
-.event-card.green { border-top: 2px solid var(--green); }
-.event-card.blue { border-top: 2px solid var(--accent); }
-.event-card.orange { border-top: 2px solid var(--orange); }
-.event-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 13px;
-}
-.event-card > .muted { display: block; margin-top: 10px; font-size: 11.5px; line-height: 1.6; }
-
-.field { display: block; margin-bottom: 11px; }
-.field span {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 5px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.field input {
-  width: 100%;
-  padding: 8px 11px;
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-}
-.field input:disabled { opacity: 0.45; cursor: not-allowed; }
-
 /* ============ 用户与账户 ============ */
 
 .accounts-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
@@ -1384,7 +1341,6 @@ td .muted { font-size: 11.5px; }
   .detail-grid .timeline-panel { grid-column: 1 / -1; }
   .risk-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .accounts-grid { grid-template-columns: 1fr; }
-  .event-config-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 1100px) {

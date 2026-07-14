@@ -1,7 +1,6 @@
 export const PAGE_META = {
   dashboard: ["工作台", "运行工作台", "第一阶段主流程：同步账户 → 生成计划 → 审查风控 → 确认导出。"],
   accounts: ["用户与账户", "用户与交易账户", "业务用户、交易账户、API 凭证与 Binance 同步。"],
-  strategy: ["策略中心", "平台策略与账户挂载", "策略实例、账户运行配置与事件参数。"],
   research: ["研究平台", "策略研究档案", "缓存数据、冻结候选与固定门槛下的研究结果。"],
   plans: ["执行计划", "第一阶段执行计划", "真实仓位触发判断、计划动作和风控拦截。"],
   symbol: ["币种视图", "币种视图 / 事件时间线", "相位、净敞口、锚点偏离与事件时间线。"],
@@ -9,9 +8,10 @@ export const PAGE_META = {
   reports: ["报表", "复盘报告与事件日志", "Markdown 日报、SVG 曲线与策略事件明细。"],
 };
 
-// 旧路由锚点重定向：#events → #strategy，#logs → #reports
+// 已移除页面和旧路由锚点统一回到仍在维护的页面。
 export const LEGACY_PAGE_ALIASES = {
-  events: "strategy",
+  strategy: "dashboard",
+  events: "dashboard",
   logs: "reports",
 };
 

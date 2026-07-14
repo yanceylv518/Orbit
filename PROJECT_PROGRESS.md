@@ -857,6 +857,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - 风控中心：拦截三桶（账户同步 / Hedge Mode / 计划动作）。
 - `appStore` 新增 `syncFunnel/planFunnel/aggregateSymbols/syncAllAccounts` 派生状态与动作。
 
+页面收敛（2026-07-14）：按产品判断删除无明确独立职责的“策略中心”页面、导航、专用样式和图标；策略运行状态继续由工作台承载，研究证据、执行动作、币种生命周期和风险结果分别进入研究平台、执行计划、币种视图和风控中心。历史 `#strategy/#events` 统一重定向到工作台，后端策略内核与账户绑定数据未删除。
+
 验证说明：本轮在 Linux 环境完成（无 node），已做 import/export 交叉验证与 script 块配平静态检查；`npm run check`/`npm run build` 需在 Windows 侧复验。
 
 视觉重做（2026-07-12，应「风格不够大气、页面粗糙」反馈）：

@@ -106,7 +106,6 @@ import PlansPage from "./pages/PlansPage.vue";
 import ReportsPage from "./pages/ReportsPage.vue";
 import ResearchPage from "./pages/ResearchPage.vue";
 import RiskPage from "./pages/RiskPage.vue";
-import StrategyPage from "./pages/StrategyPage.vue";
 import SymbolPage from "./pages/SymbolPage.vue";
 import {
   currentUser,
@@ -139,7 +138,6 @@ const navGroups = [
   {
     label: "策略",
     items: [
-      { id: "strategy", label: "策略中心" },
       { id: "research", label: "研究平台" },
       { id: "plans", label: "执行计划" },
       { id: "symbol", label: "币种视图" },
@@ -161,7 +159,6 @@ const riskStatusClass = computed(() => (store.state?.strategy?.risk_status === "
 const pageComponents = {
   dashboard: DashboardPage,
   accounts: AccountsPage,
-  strategy: StrategyPage,
   research: ResearchPage,
   plans: PlansPage,
   symbol: SymbolPage,

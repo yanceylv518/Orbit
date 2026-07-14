@@ -407,10 +407,6 @@ export async function resetRuntime() {
   return null;
 }
 
-export async function saveEventConfig(eventConfig) {
-  return post("/api/config/events", { event_config: eventConfig });
-}
-
 export async function generateReport() {
   return post("/api/report/daily");
 }
