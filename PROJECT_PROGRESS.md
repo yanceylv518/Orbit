@@ -570,6 +570,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **涉及文件**：新增 `frontend/src/pages/ResearchPage.vue`（或小页面组）；`stores/appStore.js`、`api/client.js`；导航加入口。
 - **改动**：三块只读视图——① 数据目录；② **候选履历「墓地」**（列出测过的假设 + PASS/FAIL 徽章，负结果本身是 IP）；③ 候选明细（逐市场/逐折对照**预注册固定 bar**、verdict、冻结时间与锁箱开箱溯源）。
 - **验收**：三视图渲染 UI-P0 数据；import/export 交叉验证 + 类名核对；`npm run check/build` Windows 侧复验后登记。
+- **完成结果（2026-07-14）**：新增 `ResearchPage.vue`（数据目录带过滤 + 候选墓地 PASS/FAIL 徽章 + 候选明细逐市场/逐折对照 verdict）；`api/client.js` 加 4 个研究 GET；`appStore.js` 加 research state + `loadResearchCatalog/selectResearchCandidate/selectResearchResult` 链式加载；App.vue 导航加「研究平台」入口。后端未动（`264 passed`）。
+- **验收结论（Claude，2026-07-14）：后端未动、前端静态验证通过；构建/渲染待 Windows 复验。** import/export 交叉验证干净——4 个 client 函数打对 P0 端点、appStore 全部导入并导出 3 个 action、ResearchPage 导入 `store`/3 action 均 resolve；模板引用的 `isPass/normalizeEvidence/evidenceRow/firstNumber` 等**均在脚本定义**；`onMounted(loadResearchCatalog)` 挂载即加载；App.vue 导航 import+入口+路由+渲染完整接入。纯只读消费 P0（无写入口）。合并在 `main`（`40bb010`）。**验证边界**：本机无 node，`npm run check/build` 与实际渲染需 Windows 侧复验后补记。路线图第 3 项（前端静态）完成。
 - **完成结果（2026-07-14）**：新增只读研究平台入口，完整接入 UI-P0 的数据目录、候选登记簿、候选明细与结果读模型。页面展示 M0/F1/G1/G2 的冻结参数、成本、市场矩阵、固定判定门槛、verdict、冻结哈希/时间与锁箱溯源，并按候选类型归一化呈现逐市场/逐折证据；无创建、改参、开箱、重跑或删除入口。
 - **验收结果**：真实环境渲染 `46` 个缓存数据集、`4` 个冻结候选和 `5` 份可用报告；候选切换、数据集类型/文本筛选通过浏览器交互验收。桌面端无页面横向溢出；移动端文档宽度与视口一致，导航和宽表保留各自容器内横向滚动。`npm run check`、`npm run build`、import/export 与关键类名核对均通过；live 默认开关未改动。
 
