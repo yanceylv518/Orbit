@@ -788,6 +788,27 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **验收证据（Codex，2026-07-30）**：单测覆盖四种持仓状态、方向翻转、容差等号边界、未配置/测试网阻断、权益幂等追加、归一化与逐周偏差、非法 paper 权益/时间戳隔离、哈希篡改检测；账户同步测试证明持久化提交先于观测追加，权限测试证明业务用户不能读取其他账户对账。完整后端 `292 tests OK`；`npm run check` 与生产 `npm run build` 通过；`git diff --check` 通过；本任务 diff 未新增 Binance 下单调用或开启 live 默认开关。
 - **验收结论（Claude，2026-07-30）：通过（`2a0f62e`）。** 独立复核关键项：① 只读成立——`read_only=True`、`auto_correction=False`，核对纯计算无状态变更，快照按账户可见性过滤（不可见回 `NOT_VISIBLE`）；② 四状态判定齐全、容差边界含等号（`test_tolerance_boundary_is_inclusive`），容差=步进+可配百分比，Hedge Mode `LONG/SHORT/BOTH` 折算正确（LONG 取正、SHORT 取负、同币聚合）；③ 权益账本哈希链只追加、拒绝重复与时间倒退、`fsync` 落盘，篡改检测有测试（`test_hash_chain_detects_tampered_equity_observation`）；④ 记录钩子在事务提交之外执行且异常不打断账户同步（`test_invalid_paper_equity_and_timestamp_do_not_raise_from_sync_hook`），testnet/dry_run/未配置账户被明确阻断；⑤ 前端双曲线（`MultiLineChart` 归一化实盘/paper）与偏差醒目展示确认存在；⑥ 本机全量测试绿。**部署提醒**：`live_account_id` 默认空，部署时须填入实盘账户 ID 核对才激活。附带验收 `4798672`（Windows 启动脚本 Python 解析可移植化：`PYTHON_BIN`→`.venv`→PATH，纯运维，无异议）。Codex 声称的 `npm run check/build` 通过系其 Windows 侧运行结果，本机无 node 无法独立复跑，予以采信并留此记录。
 
+### 任务 LIVE-3：自动执行冻结清单 + 逐单比对验证（优先级：高，依赖 LIVE-1/LIVE-2，交付 Codex）
+
+**决策背景（2026-07-30）**：用户明确要求实盘由自动下单执行，且实盘下单必须与策略计划比对、验证正确执行。协议已升级 `LIVE_SMALL.md` V2（执行方式改自动，四条铁律不变）。本任务首次打开 live 下单路径,护栏必须**机制化到位后才允许启用**。
+
+- **问题**：LIVE-1 产出冻结执行清单、LIVE-2 做持仓核对，但执行环节仍靠人工。需要：再平衡后自动把持仓调整到清单目标，且每笔订单可逐一映射回清单、成交结果逐币比对留痕。
+- **涉及文件**：新增 `application/live_execution.py`（自动执行服务）；复用 `16ce8d1` 已有下单端口（`order_execution.py` / `infrastructure/exchange/binance.py` 的 `place_order`）；新增只追加执行账本（哈希链，同 `live_equity_ledger` 构造）；`tools/run_tb4_forward.py` 轮询接线；snapshot 投影 + `ForwardPage.vue` 执行报告区；`config`；`backend/tests/`。
+- **改动**：
+  1. **触发与流程**：前向轮询检测到**新的已执行再平衡**（`rebalance_time_ms` 变化）后，对配置的实盘账户执行一轮：只读同步账户 → 以 LIVE-1 冻结清单的 `signed_target_quantity` 与实际持仓求差 → 差额按步进取整、低于最低量/最低名义则跳过（防尘埃单）→ 市价单逐币下单 → 再次同步 → 触发 LIVE-2 核对。每个 `rebalance_time_ms` 至多执行一轮（幂等,重启不得重复执行,以执行账本为准）。
+  2. **唯一指令源**：订单参数只能由冻结清单行派生；执行账本逐笔记录 `checklist 行 → 订单意图 → 交易所回执 → 成交结果` 的完整映射。出现任何无法映射到清单行的订单记录即标记 `PROTOCOL_VIOLATION` 并急停。
+  3. **逐单比对（用户核心要求）**：执行完成后生成执行报告：逐币输出 `目标数量 / 下单数量 / 实际成交数量 / 成交均价 vs 收盘价滑点 / 手续费 / 状态`（`EXECUTED_MATCH` / `PARTIAL_FILL` / `ORDER_FAILED` / `SKIPPED_DUST` / `SKIPPED_BELOW_MIN`），汇总执行成功率；随后 LIVE-2 持仓核对作为第二道独立验证。报告与账本只追加,snapshot 只读投影,前端展示。
+  4. **护栏（全部机制化,缺一不得启用）**：
+     - 总开关 `trend_forward.auto_execution_enabled` 默认 **false**;启用还须同时满足:`live_account_id` 已配置、账户为主网非 dry_run、账户为单向持仓模式（拒绝 Hedge Mode）、清单 `READY` 且规则未过期（`rules_stale=false`）、账户同步新鲜（可配置最大时龄）。任一不满足则本轮拒绝执行并记录原因。
+     - 单笔名义上限（config,默认 150 USDT）与单轮总名义上限（清单目标 gross 的 1.1 倍封顶）;超限拒绝并告警,不截断静默执行。
+     - **失败不追单**：单币下单失败记录后跳过,不重试超过 1 次、不改价追单;残余偏差交 LIVE-2 显式暴露,人工决定。
+     - **急停不对称**：管理员急停 API（`POST`,必填 reason,写审计）立即置停,拒绝一切新订单;重新启用只能改配置文件并重启进程。
+     - **协议停机制化**：执行前检查 LIVE-2 权益账本,实盘或 paper 自基准回撤 ≥ 30% 时拒绝执行并标记 `PROTOCOL_STOP`（`LIVE_SMALL.md` 1.3 的机制化）。
+     - 执行器**永不**修改杠杆/保证金模式/持仓模式;部署时人工设定（1x、单向）,执行器只校验不设置。
+  5. **不碰既有性质**：runner、TB4 账本、对齐性质、`TB4_SPEC` 零改动;paper 前向照常独立记账。
+- **验收**：① 默认关闭——全部现有测试在默认配置下无任何下单调用;启用条件缺一拒绝（逐条测试）;② 幂等——同一 `rebalance_time_ms` 重复触发/进程重启不重复下单（以账本为准）;③ 逐单映射——每笔订单可追溯到清单行,注入无映射订单记录触发 `PROTOCOL_VIOLATION` 急停;④ 比对报告——五种状态判定、滑点计算、部分成交与失败路径有单测（mock 网关,含下单异常）;⑤ 上限与回撤拒绝——超单笔/总额上限拒绝、权益回撤 ≥30% 拒绝并 `PROTOCOL_STOP` 有测试;⑥ 急停——API 急停后新订单被拒且写审计,重启前不可恢复;⑦ 执行账本哈希链只追加防篡改;⑧ 测试全绿,`git diff --check` 通过。
+- **约束**：唯一指令源为冻结清单;不改 `TB4_SPEC`/前向协议/TB4 账本;失败不追单;急停易于触发、启用刻意;`LIVE_SMALL.md` V2 为产品口径来源。**mock 网关完成全部测试,真实下单只在部署后由用户启用总开关**。
+
 ## 最近验证
 
 - `npm run check` 通过。
