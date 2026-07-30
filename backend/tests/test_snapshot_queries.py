@@ -93,6 +93,10 @@ class SnapshotQueryServiceTests(unittest.TestCase):
                 "account_id": "acc_001",
                 "status": "READY",
             },
+            "live_execution": {
+                "account_id": "acc_001",
+                "status": "ENABLED",
+            },
         }
 
         filtered = self.service.apply_permissions(
@@ -105,6 +109,7 @@ class SnapshotQueryServiceTests(unittest.TestCase):
         self.assertEqual(list(filtered["binance_account_snapshots"]), ["acc_001"])
         self.assertEqual(filtered["execution_plans"], [{"account_id": "acc_001"}])
         self.assertEqual(filtered["live_reconciliation"]["status"], "READY")
+        self.assertEqual(filtered["live_execution"]["status"], "ENABLED")
         self.assertEqual(filtered["risk_events"], [{"user_id": None}])
         self.assertTrue(filtered["risk_state"]["global_stop"])
         self.assertEqual(
@@ -138,6 +143,11 @@ class SnapshotQueryServiceTests(unittest.TestCase):
                 "status": "READY",
                 "positions": {"rows": [{"symbol": "BTCUSDT"}]},
             },
+            "live_execution": {
+                "account_id": "acc_002",
+                "status": "ENABLED",
+                "latest_report": {"rows": [{"symbol": "BTCUSDT"}]},
+            },
         }
 
         filtered = self.service.apply_permissions(
@@ -148,6 +158,8 @@ class SnapshotQueryServiceTests(unittest.TestCase):
 
         self.assertEqual(filtered["live_reconciliation"]["status"], "NOT_VISIBLE")
         self.assertNotIn("positions", filtered["live_reconciliation"])
+        self.assertEqual(filtered["live_execution"]["status"], "NOT_VISIBLE")
+        self.assertNotIn("latest_report", filtered["live_execution"])
 
     def test_blocked_decisions_include_only_info_level_blocked_events(self):
         rows = self.service.blocked_decision_rows([

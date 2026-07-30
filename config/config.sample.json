@@ -34,7 +34,13 @@
       "exchange_rules_path": "",
       "live_account_id": "",
       "quantity_tolerance_pct": 1.0,
-      "equity_ledger_path": "var/forward/live-small/equity.jsonl"
+      "equity_ledger_path": "var/forward/live-small/equity.jsonl",
+      "auto_execution_enabled": false,
+      "auto_execution_epoch": "",
+      "execution_ledger_path": "var/forward/live-small/executions.jsonl",
+      "max_snapshot_age_seconds": 120,
+      "max_order_notional_usdt": 150,
+      "round_gross_multiplier": 1.1
     },
     "research": {
       "calibration_dir": "var/calibration",

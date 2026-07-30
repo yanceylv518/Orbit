@@ -8,7 +8,10 @@ import unittest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
-from orbit.application.trend_execution_checklist import TrendExecutionChecklistProjector
+from orbit.application.trend_execution_checklist import (
+    TrendExecutionChecklistProjector,
+    build_tb4_exchange_rules,
+)
 from orbit.domain.strategy.trend_basket_runner import TB4_SPEC
 
 
@@ -40,6 +43,46 @@ class FakeRunner:
 
 
 class TrendExecutionChecklistProjectorTest(unittest.TestCase):
+    def test_builds_market_order_rules_from_exchange_info(self):
+        symbols = []
+        for symbol in TB4_SPEC.symbols:
+            symbols.append({
+                "symbol": symbol,
+                "status": "TRADING",
+                "quoteAsset": "USDT",
+                "contractType": "PERPETUAL",
+                "filters": [
+                    {
+                        "filterType": "LOT_SIZE",
+                        "minQty": "0.001",
+                        "stepSize": "0.001",
+                    },
+                    {
+                        "filterType": "MARKET_LOT_SIZE",
+                        "minQty": "0.01",
+                        "stepSize": "0.01",
+                    },
+                    {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                ],
+            })
+
+        rules = build_tb4_exchange_rules(
+            {"symbols": symbols},
+            fetched_at="2026-07-30T00:00:00Z",
+        )
+
+        self.assertEqual(set(rules["symbols"]), set(TB4_SPEC.symbols))
+        self.assertEqual(rules["symbols"]["BTCUSDT"]["quantity_step"], "0.01")
+        self.assertEqual(rules["symbols"]["BTCUSDT"]["min_quantity"], "0.01")
+        self.assertEqual(rules["symbols"]["BTCUSDT"]["min_notional_usdt"], "5")
+
+        symbols[0]["status"] = "BREAK"
+        with self.assertRaisesRegex(ValueError, "not a tradable"):
+            build_tb4_exchange_rules(
+                {"symbols": symbols},
+                fetched_at="2026-07-30T00:00:00Z",
+            )
+
     def test_projects_direction_quantity_flip_and_minimums_without_mutation(self):
         runner = FakeRunner()
         before = deepcopy(runner.__dict__)

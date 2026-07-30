@@ -87,6 +87,20 @@ class BinanceFuturesClient:
         """真实下单。调用方必须已通过 OrderExecutionService 的全部闸门。"""
         return self.signed_request("POST", "/fapi/v1/order", params)
 
+    def user_trades(
+        self,
+        symbol: str,
+        order_id: int | str | None = None,
+    ) -> list[dict[str, Any]]:
+        payload = self.signed_request(
+            "GET",
+            "/fapi/v1/userTrades",
+            {"symbol": symbol, "orderId": order_id},
+        )
+        if not isinstance(payload, list):
+            raise BinanceError("Unexpected userTrades response.")
+        return payload
+
     def signed_request(self, method: str, path: str, params: dict[str, Any] | None = None) -> Any:
         params = {k: v for k, v in (params or {}).items() if v is not None}
         params.setdefault("recvWindow", self.recv_window)

@@ -14,6 +14,59 @@ from orbit.domain.strategy.trend_basket_runner import TB4_SPEC
 DEFAULT_LIVE_CAPITAL_USDT = Decimal("500")
 
 
+def build_tb4_exchange_rules(
+    exchange_info: Mapping[str, Any],
+    *,
+    fetched_at: str,
+    source: str = "https://fapi.binance.com/fapi/v1/exchangeInfo",
+    refresh_after_days: int = 30,
+) -> dict[str, Any]:
+    """Normalize Binance exchangeInfo into the frozen LIVE-SMALL rule schema."""
+    raw_symbols = {
+        str(item.get("symbol") or ""): item
+        for item in exchange_info.get("symbols") or []
+    }
+    normalized: dict[str, dict[str, str]] = {}
+    for symbol in TB4_SPEC.symbols:
+        item = raw_symbols.get(symbol)
+        if not item:
+            raise ValueError(f"exchangeInfo is missing {symbol}")
+        if (
+            item.get("status") != "TRADING"
+            or item.get("quoteAsset") != "USDT"
+            or item.get("contractType") != "PERPETUAL"
+        ):
+            raise ValueError(f"{symbol} is not a tradable USDT perpetual contract")
+        filters = {
+            str(value.get("filterType") or ""): value
+            for value in item.get("filters") or []
+        }
+        lot = filters.get("MARKET_LOT_SIZE") or filters.get("LOT_SIZE")
+        notional = filters.get("MIN_NOTIONAL") or filters.get("NOTIONAL")
+        if not lot or not notional:
+            raise ValueError(f"{symbol} has incomplete market-order filters")
+        min_notional = notional.get("notional") or notional.get("minNotional")
+        normalized[symbol] = {
+            "status": "TRADING",
+            "quantity_step": str(lot.get("stepSize") or ""),
+            "min_quantity": str(lot.get("minQty") or ""),
+            "min_notional_usdt": str(min_notional or ""),
+        }
+    payload = {
+        "protocol": "TB4_BINANCE_USDT_FUTURES_RULES_V1",
+        "source": source,
+        "fetched_at": fetched_at,
+        "refresh_after_days": int(refresh_after_days),
+        "symbols": normalized,
+    }
+    # Reuse the production loader's numeric validation contract.
+    for symbol, rule in normalized.items():
+        for field in ("quantity_step", "min_quantity", "min_notional_usdt"):
+            if Decimal(rule[field]) <= 0:
+                raise ValueError(f"{symbol} has invalid {field}")
+    return payload
+
+
 def load_tb4_exchange_rules(path: Path | None = None) -> dict[str, Any]:
     if path is None:
         resource = files("orbit.config_data").joinpath("tb4_exchange_rules.json")
@@ -37,7 +90,7 @@ class TrendExecutionChecklistProjector:
 
     The checklist intentionally uses the latest *executed rebalance target*.
     The runner's current weights drift every close and are therefore not a
-    stable weekly manual-execution instruction.
+    stable weekly execution instruction.
     """
 
     def __init__(

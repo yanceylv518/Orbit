@@ -551,6 +551,28 @@ class AppState:
                 uow.commit()
                 return result
 
+    def emergency_stop_live_execution(self, *, actor: str, reason: str) -> dict[str, Any]:
+        with self.lock:
+            with self.app_uow as uow:
+                result = self.live_execution_service.emergency_stop(
+                    actor=actor,
+                    reason=reason,
+                )
+                if not result.get("ok"):
+                    return result
+                self.audit_service.record(
+                    actor=actor,
+                    action_type="EMERGENCY_STOP_LIVE_EXECUTION",
+                    reason=reason,
+                    after_value={
+                        "execution_epoch": self.live_execution_service.execution_epoch,
+                        "account_id": self.live_execution_service.live_account_id,
+                        "status": result["status"],
+                    },
+                )
+                uow.commit()
+                return result
+
     def record_execution_plan_export(self, plan_ids: list[Any], actor: str) -> dict[str, Any]:
         with self.lock:
             with self.app_uow as uow:
@@ -584,13 +606,34 @@ class AppState:
         feed_config = self.config["runtime"].get("market_feed", {})
         poll_seconds = max(5.0, float(feed_config.get("poll_seconds", 30)))
         last_poll = 0.0
+        trend_config = self.config["runtime"].get("trend_forward", {})
+        trend_poll_seconds = max(10.0, float(trend_config.get("poll_seconds", 60)))
+        last_trend_poll = 0.0
         while True:
             if self.running and self.mock_data_enabled:
                 self.tick_once()
             if not self.mock_data_enabled and time.time() - last_poll >= poll_seconds:
                 last_poll = time.time()
                 self.market_tick_once()
+            if (
+                not self.mock_data_enabled
+                and bool(trend_config.get("enabled", False))
+                and time.time() - last_trend_poll >= trend_poll_seconds
+            ):
+                last_trend_poll = time.time()
+                self.trend_forward_tick_once()
             time.sleep(interval if self.mock_data_enabled else 1)
+
+    def trend_forward_tick_once(self) -> dict[str, Any]:
+        """Single-writer TB4 poll followed by idempotent LIVE-SMALL execution."""
+        try:
+            result = self.trend_forward_poll()
+        except Exception as exc:
+            return {"ticks": 0, "error": str(exc), "live_execution": None}
+        execution = self.live_execution_service.execute_due(
+            lambda account_id: self.sync_binance_account(account_id, actor="system")
+        )
+        return result | {"live_execution": execution}
 
     def market_tick_once(self) -> dict[str, Any]:
         """真实模式行情 tick：锁外拉 K 线，锁内推进生命周期并重建计划。"""

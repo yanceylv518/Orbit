@@ -54,6 +54,24 @@ def emergency_stop(request: Request, payload: dict[str, Any], user: dict[str, An
     return app.snapshot(user)
 
 
+@router.post("/admin/live-execution/emergency-stop")
+def live_execution_emergency_stop(
+    request: Request,
+    payload: dict[str, Any],
+    user: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    app = app_state(request)
+    result = app.emergency_stop_live_execution(
+        actor=user["id"],
+        reason=str(payload.get("reason") or ""),
+    )
+    if not result.get("ok"):
+        return result
+    snapshot = app.snapshot(user)
+    snapshot["live_execution_stop_result"] = result
+    return snapshot
+
+
 @router.post("/admin/resume")
 def resume(request: Request, payload: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     app = app_state(request)

@@ -45,6 +45,10 @@ class BootstrapTests(unittest.TestCase):
                 app.live_reconciliation_service.snapshot()["status"],
                 "ACCOUNT_NOT_CONFIGURED",
             )
+            self.assertEqual(
+                app.live_execution_service.snapshot()["status"],
+                "DISABLED",
+            )
             self.assertEqual(app.research_catalog.datasets(), [])
         finally:
             tmp.cleanup()
@@ -65,6 +69,7 @@ class BootstrapTests(unittest.TestCase):
                 admin_snapshot["live_reconciliation"]["status"],
                 "ACCOUNT_NOT_CONFIGURED",
             )
+            self.assertEqual(admin_snapshot["live_execution"]["status"], "DISABLED")
         finally:
             tmp.cleanup()
 

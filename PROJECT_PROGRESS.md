@@ -808,12 +808,14 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
   5. **不碰既有性质**：runner、TB4 账本、对齐性质、`TB4_SPEC` 零改动;paper 前向照常独立记账。
 - **验收**：① 默认关闭——全部现有测试在默认配置下无任何下单调用;启用条件缺一拒绝（逐条测试）;② 幂等——同一 `rebalance_time_ms` 重复触发/进程重启不重复下单（以账本为准）;③ 逐单映射——每笔订单可追溯到清单行,注入无映射订单记录触发 `PROTOCOL_VIOLATION` 急停;④ 比对报告——五种状态判定、滑点计算、部分成交与失败路径有单测（mock 网关,含下单异常）;⑤ 上限与回撤拒绝——超单笔/总额上限拒绝、权益回撤 ≥30% 拒绝并 `PROTOCOL_STOP` 有测试;⑥ 急停——API 急停后新订单被拒且写审计,重启前不可恢复;⑦ 执行账本哈希链只追加防篡改;⑧ 测试全绿,`git diff --check` 通过。
 - **约束**：唯一指令源为冻结清单;不改 `TB4_SPEC`/前向协议/TB4 账本;失败不追单;急停易于触发、启用刻意;`LIVE_SMALL.md` V2 为产品口径来源。**mock 网关完成全部测试,真实下单只在部署后由用户启用总开关**。
+- **完成结果（Codex，2026-07-30）**：新增 `LiveExecutionService` 与 JSONL 哈希链执行账本；Orbit 后端成为 TB4 paper 轮询和 LIVE-SMALL 自动执行的唯一 writer。每轮先同步、按冻结清单计算目标差、按规则取整与过滤、落盘 `ROUND_STARTED` 后以确定性 `clientOrderId` 发送市价单，再同步并生成逐单成交/滑点/手续费与 LIVE-2 持仓核对报告。同一 epoch/再平衡只消费一次；未完成轮次、账本篡改、清单映射不一致、Hedge Mode、陈旧规则/账户快照、单笔/单轮超限及 paper/live 回撤 ≥30% 均 fail closed。管理员急停与下单门使用同一并发闸，急停返回后不会再发送新订单；重新启用必须改 epoch 并重启。默认 `auto_execution_enabled=false`，本轮没有真实下单。
+- **验收证据（Codex，2026-07-30）**：LIVE-3 定向回归 `40 tests OK`，完整后端 `304 tests OK`；`npm run check`、生产 `npm run build`、浏览器前向实盘页冒烟和控制台检查通过；执行测试全部使用 mock gateway，覆盖五种逐单状态、滑点/手续费、成交查询失败保留订单回执、启用闸门、幂等、金额上限、双权益回撤、急停、未映射记录、未完成轮次和账本篡改。新增公开 `exchangeInfo` 规则刷新工具及 MARKET_LOT_SIZE 解析测试，避免静态规则过期后无可持续恢复路径。部署手册已改为先 `--initialize --once`，随后由后端单 writer 常驻；禁止同时运行独立持续轮询器。
 
 ## 最近验证
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`292 tests OK`。
+- Python 单元测试及 API 契约测试：`304 tests OK`。
 - `git diff --check` 通过。
 - 新增 POSIX shell 脚本已通过 Git Bash `bash -n` 语法检查。
 - Linux AES-GCM vault 已验证随机 nonce、密文篡改/错密钥拒绝、缺失主密钥提示、环境变量引用与平台工厂选择。

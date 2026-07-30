@@ -14,6 +14,7 @@ from orbit.application.execution_plans import ExecutionPlanRefreshService, Execu
 from orbit.application.market_data import MarketFeedService
 from orbit.application.metrics import MetricHistoryService
 from orbit.application.live_reconciliation import LiveReconciliationService
+from orbit.application.live_execution import LiveExecutionService
 from orbit.application.order_execution import OrderExecutionService
 from orbit.application.paper_execution import PaperExecutionService
 from orbit.application.permissions import PermissionPolicy
@@ -28,6 +29,7 @@ from orbit.application.strategy_control import StrategyControlService
 from orbit.application.symbol_states import SymbolStateService
 from orbit.application.symbol_recovery import SymbolRecoveryService
 from orbit.application.trend_forward import TrendForwardService
+from orbit.application.trend_forward_market import TrendForwardMarketDriver
 from orbit.application.trend_execution_checklist import (
     TrendExecutionChecklistProjector,
     load_tb4_exchange_rules,
@@ -44,6 +46,7 @@ from orbit.infrastructure.persistence.event_history import InMemoryEventHistoryR
 from orbit.infrastructure.persistence.execution_plans import InMemoryExecutionPlanRepository
 from orbit.infrastructure.persistence.metrics import InMemoryMetricHistoryRepository
 from orbit.infrastructure.persistence.live_equity_ledger import AppendOnlyLiveEquityLedger
+from orbit.infrastructure.persistence.live_execution_ledger import AppendOnlyLiveExecutionLedger
 from orbit.infrastructure.persistence.reports import InMemoryReportRepository
 from orbit.infrastructure.persistence.research_registry import AppendOnlyResearchRegistry
 from orbit.infrastructure.persistence.research_runs import AppendOnlyResearchRunLedger
@@ -89,7 +92,9 @@ class ApplicationContainer:
     paper_execution_service: Any
     order_execution_service: Any
     trend_forward_snapshot: Any
+    trend_forward_poll: Any
     live_reconciliation_service: Any
+    live_execution_service: Any
     research_catalog: Any
     research_workflow: Any
     app_uow: Any
@@ -306,6 +311,25 @@ def build_application_container(
             trend_snapshot_cache["signature"] = signature
         return deepcopy(trend_snapshot_cache["snapshot"])
 
+    def trend_forward_poll() -> dict[str, Any]:
+        service = TrendForwardService(
+            TrendForwardLedger(trend_data_dir),
+            trend_checklist_projector,
+        )
+        if not service.ledger.manifest():
+            return {"ticks": 0, "status": "NOT_STARTED", "snapshot": service.snapshot()}
+        driver = TrendForwardMarketDriver(
+            BinanceKlineFeed(
+                base_url=str(
+                    trend_config.get("base_url", "https://fapi.binance.com")
+                )
+            ),
+            service,
+        )
+        result = driver.poll_once()
+        trend_snapshot_cache["signature"] = None
+        return result
+
     live_equity_path = Path(str(
         trend_config.get(
             "equity_ledger_path",
@@ -314,13 +338,45 @@ def build_application_container(
     ))
     if not live_equity_path.is_absolute():
         live_equity_path = root / live_equity_path
+    live_equity_ledger = AppendOnlyLiveEquityLedger(live_equity_path)
     live_reconciliation_service = LiveReconciliationService(
         live_account_id=str(trend_config.get("live_account_id") or ""),
         account_snapshots=account_snapshot_repository,
         trend_forward_snapshot=trend_forward_snapshot,
-        equity_ledger=AppendOnlyLiveEquityLedger(live_equity_path),
+        equity_ledger=live_equity_ledger,
         quantity_tolerance_pct=float(
             trend_config.get("quantity_tolerance_pct", 1.0)
+        ),
+    )
+    execution_ledger_path = Path(str(
+        trend_config.get(
+            "execution_ledger_path",
+            "var/forward/live-small/executions.jsonl",
+        )
+    ))
+    if not execution_ledger_path.is_absolute():
+        execution_ledger_path = root / execution_ledger_path
+    live_execution_service = LiveExecutionService(
+        enabled=bool(trend_config.get("auto_execution_enabled", False)),
+        execution_epoch=str(trend_config.get("auto_execution_epoch") or ""),
+        live_account_id=str(trend_config.get("live_account_id") or ""),
+        accounts=account_repository,
+        account_snapshots=account_snapshot_repository,
+        trend_forward_snapshot=trend_forward_snapshot,
+        gateway_factory=lambda account: BinanceFuturesClient.from_account(
+            account, credential_vault,
+        ),
+        execution_ledger=AppendOnlyLiveExecutionLedger(execution_ledger_path),
+        equity_ledger=live_equity_ledger,
+        reconciliation_snapshot=live_reconciliation_service.snapshot,
+        max_snapshot_age_seconds=int(
+            trend_config.get("max_snapshot_age_seconds", 120)
+        ),
+        max_order_notional_usdt=float(
+            trend_config.get("max_order_notional_usdt", 150)
+        ),
+        round_gross_multiplier=float(
+            trend_config.get("round_gross_multiplier", 1.1)
         ),
     )
 
@@ -345,6 +401,7 @@ def build_application_container(
         trend_forward_snapshot,
         mock_data_enabled=mock_data_enabled,
         live_reconciliation_snapshot=live_reconciliation_service.snapshot,
+        live_execution_snapshot=live_execution_service.snapshot,
     )
     app_uow = InMemoryApplicationUnitOfWork(
         account_repository,
@@ -391,7 +448,9 @@ def build_application_container(
         paper_execution_service=paper_execution_service,
         order_execution_service=order_execution_service,
         trend_forward_snapshot=trend_forward_snapshot,
+        trend_forward_poll=trend_forward_poll,
         live_reconciliation_service=live_reconciliation_service,
+        live_execution_service=live_execution_service,
         research_catalog=research_catalog,
         research_workflow=research_workflow,
         app_uow=app_uow,

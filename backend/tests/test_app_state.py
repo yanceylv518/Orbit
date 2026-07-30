@@ -55,6 +55,33 @@ class AppStateAdminTest(unittest.TestCase):
         app.symbol_state_repository.replace_all({f"{account_id}::{symbol}": state})
         return account_id, symbol
 
+    def test_trend_forward_tick_runs_paper_poll_then_live_execution(self):
+        tmp, app = self.make_app()
+        try:
+            calls = []
+            app.trend_forward_poll = lambda: calls.append("paper") or {
+                "ticks": 1,
+                "snapshot": {"status": "RUNNING"},
+            }
+
+            class Executor:
+                def execute_due(self, sync_account):
+                    calls.append("live")
+                    self.sync_account = sync_account
+                    return {"status": "DISABLED", "executed": False}
+
+            executor = Executor()
+            app.live_execution_service = executor
+
+            result = app.trend_forward_tick_once()
+
+            self.assertEqual(calls, ["paper", "live"])
+            self.assertEqual(result["ticks"], 1)
+            self.assertEqual(result["live_execution"]["status"], "DISABLED")
+            self.assertTrue(callable(executor.sync_account))
+        finally:
+            tmp.cleanup()
+
     def test_admin_can_resume_stopped_symbol_and_reset_drawdown_baseline(self):
         tmp, app = self.make_app()
         try:

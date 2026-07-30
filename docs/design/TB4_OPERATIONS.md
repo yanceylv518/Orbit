@@ -80,24 +80,55 @@
 
 ## 5. 启动并运行前向
 
-在 Binance 可达主机、仓库根目录首次执行：
+在 Binance 可达主机、仓库根目录先做一次初始化：
 
 ```bash
-python backend/tools/run_tb4_forward.py --initialize
+python backend/tools/run_tb4_forward.py --initialize --once
 ```
 
-该命令会拉取 12 市场共同连续的 1,009 根 4h 收盘进行暖机，锁定下一根收盘为前向起点，写入不可变清单，然后持续轮询。进程重启后执行：
+该命令会拉取 12 市场共同连续的 1,009 根 4h 收盘进行暖机，锁定下一根收盘为前向起点并写入不可变清单。
+
+生产运行时由 Orbit 后端充当 **唯一 TB4 轮询与自动执行 writer**。在 `config.local.json` 的
+`runtime.trend_forward` 中设置：
+
+```json
+{
+  "enabled": true,
+  "live_account_id": "专用实盘账户 ID",
+  "exchange_rules_path": "var/forward/live-small/tb4_exchange_rules.json",
+  "auto_execution_enabled": false,
+  "auto_execution_epoch": "",
+  "execution_ledger_path": "var/forward/live-small/executions.jsonl",
+  "max_snapshot_age_seconds": 120,
+  "max_order_notional_usdt": 150,
+  "round_gross_multiplier": 1.1
+}
+```
+
+先以 `auto_execution_enabled=false` 启动后端，完成清单、账户同步、规则快照和页面状态核对。
+先刷新主网市价单规则，并把输出路径写入配置的 `exchange_rules_path`：
 
 ```bash
-python backend/tools/run_tb4_forward.py
+python backend/tools/fetch_tb4_exchange_rules.py
 ```
 
-单次健康检查可使用 `--once`。账本默认位于 `var/forward/tb4/`，平台完整快照以只读字段 `trend_forward` 暴露当前进度。
+确认账户为 Binance 主网、`dry_run=false`、单向持仓模式、人工设置 1x 杠杆且 API Key
+只有合约交易权限（禁止提现、设置 IP 白名单）后，使用新的不可复用 epoch（例如
+`live-small-2026-08-01-v1`）并把 `auto_execution_enabled` 改为 `true`，再重启后端。
+
+启用后不要再并行运行持续版 `run_tb4_forward.py`；工具会在检测到
+`trend_forward.enabled=true` 时拒绝成为第二个 writer。TB4 paper 账本默认位于
+`var/forward/tb4/`，实盘执行账本默认位于 `var/forward/live-small/`。两者都必须持久化并备份。
+平台快照分别以只读字段 `trend_forward`、`live_execution` 暴露进度和逐单报告。
+
+自动执行规则以 `LIVE_SMALL.md` V2 为准：同一再平衡至多执行一次；失败不追单；急停后当前
+epoch 永久锁定，只能修改 epoch 并重启后再启用。账本损坏、存在未完成轮次或发现无法映射到
+冻结清单的订单记录时，系统 fail closed，不得通过删除账本恢复。
 
 启动器实现以下约束：
 
 1. **定时驱动**：每根 4h K 线收盘后，拉取 12 市场最新收盘价，喂给 `FrozenTrendBasketRunner.on_close(...)`。
-2. **状态持久化**：把累积的 paper 权益曲线、每次再平衡、当前 TB3 指标**只追加**落库（MySQL 或 JSON），进程重启可恢复、不丢状态。
+2. **状态持久化**：把累积的 paper 权益曲线、每次再平衡、当前 TB3 指标写入本地 JSONL 哈希链只追加账本，进程重启可恢复、不丢状态。
 3. **前向起点锁定**：记录预注册的**前向起始时间戳**与输入指纹，之后不可篡改。
 4. **监控暴露**：在控制台/快照只读展示前向进度（已跑多久）、权益曲线、当前指标 vs 冻结门、数据完整性、成交健康。
 5. **护栏**：期间不提供任何改参数/提前判定的入口。

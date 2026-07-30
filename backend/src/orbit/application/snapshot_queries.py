@@ -29,6 +29,7 @@ class SnapshotQueryService:
         *,
         mock_data_enabled: bool,
         live_reconciliation_snapshot: Callable[[], dict[str, Any]] | None = None,
+        live_execution_snapshot: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.config = config
         self.strategy = strategy
@@ -51,6 +52,14 @@ class SnapshotQueryService:
                 "status": "NOT_CONFIGURED",
                 "read_only": True,
                 "auto_correction": False,
+            })
+        )
+        self.live_execution_snapshot = (
+            live_execution_snapshot
+            or (lambda: {
+                "protocol": "LIVE_SMALL_EXECUTION_V1",
+                "status": "DISABLED",
+                "enabled": False,
             })
         )
         self.mock_data_enabled = mock_data_enabled
@@ -108,6 +117,7 @@ class SnapshotQueryService:
             "market_feed": deepcopy(market_feed) if market_feed else None,
             "trend_forward": deepcopy(self.trend_forward_snapshot()),
             "live_reconciliation": deepcopy(self.live_reconciliation_snapshot()),
+            "live_execution": deepcopy(self.live_execution_snapshot()),
             "plan_symbol_states": self.plan_symbol_state_rows(symbol_states),
             "stopped_symbols": stopped_symbols,
             "risk_state": risk_state,
@@ -307,6 +317,13 @@ class SnapshotQueryService:
                 "status": "NOT_VISIBLE",
                 "read_only": True,
                 "auto_correction": False,
+            }
+        live_execution = payload.get("live_execution") or {}
+        if live_execution.get("account_id") not in account_ids:
+            filtered["live_execution"] = {
+                "protocol": "LIVE_SMALL_EXECUTION_V1",
+                "status": "NOT_VISIBLE",
+                "enabled": False,
             }
         if not self.mock_data_enabled:
             filtered["symbols"] = self.portfolio_views.real_symbol_views(account_ids)

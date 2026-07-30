@@ -243,6 +243,66 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tmp.cleanup()
 
+    async def test_only_admin_can_emergency_stop_live_execution_with_reason(self):
+        tmp, api = self.make_api()
+        try:
+            app = api.state.orbit
+
+            class Stopper:
+                execution_epoch = "pilot-001"
+                live_account_id = "live_001"
+
+                def emergency_stop(self, *, actor, reason):
+                    if not reason:
+                        return {"ok": False, "error": "急停原因不能为空。"}
+                    return {
+                        "ok": True,
+                        "status": "EMERGENCY_STOPPED",
+                        "actor": actor,
+                    }
+
+            app.live_execution_service = Stopper()
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                await client.post(
+                    "/api/login",
+                    json={"login": "user_001", "password": "user123456"},
+                )
+                denied = await client.post(
+                    "/api/admin/live-execution/emergency-stop",
+                    json={"reason": "not allowed"},
+                )
+                await client.post("/api/logout")
+                await client.post(
+                    "/api/login",
+                    json={"login": "admin_001", "password": "admin123456"},
+                )
+                missing = await client.post(
+                    "/api/admin/live-execution/emergency-stop",
+                    json={"reason": ""},
+                )
+                stopped = await client.post(
+                    "/api/admin/live-execution/emergency-stop",
+                    json={"reason": "operator stop"},
+                )
+
+            self.assertEqual(denied.status_code, 403)
+            self.assertFalse(missing.json()["ok"])
+            self.assertEqual(
+                stopped.json()["live_execution_stop_result"]["status"],
+                "EMERGENCY_STOPPED",
+            )
+            audit = app.audit_repository.all()[-1]
+            self.assertEqual(
+                audit["action_type"],
+                "EMERGENCY_STOP_LIVE_EXECUTION",
+            )
+            self.assertEqual(audit["reason"], "operator stop")
+        finally:
+            tmp.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

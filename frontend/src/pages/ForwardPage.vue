@@ -27,7 +27,7 @@
     <article class="panel">
       <div class="panel-head">
         <div>
-          <h3>LIVE-SMALL V1 · 每周手动执行清单</h3>
+          <h3>LIVE-SMALL · 冻结执行清单</h3>
           <p class="muted checklist-meta">
             再平衡 {{ timeText(checklist.rebalance_time_ms) }} · 行情 {{ timeText(checklist.close_time_ms) }}
             · 规则 {{ checklist.rules?.fetched_at || "-" }}
@@ -92,11 +92,91 @@
     </article>
 
     <article class="panel guard-panel">
-      <h3>执行边界</h3>
-      <p class="muted">
-        本页只把冻结策略最近一次已执行再平衡目标换算为手工清单，不会调用交易所下单接口。
-        数量按 Binance 规则向下取整；低于最低下单额的目标保持空仓，其跟踪误差需在月度对账中单独归因。
-      </p>
+      <div class="panel-head">
+        <div>
+          <h3>LIVE-SMALL V2 自动执行边界</h3>
+          <p class="muted">
+            唯一指令源是本页冻结清单。自动执行默认关闭；启用后仍受单笔/单轮上限、
+            单向持仓、规则时效、30% 回撤停机和只追加幂等账本约束。
+          </p>
+        </div>
+        <button
+          class="button danger small"
+          :disabled="!liveExecution.enabled || liveExecution.status === 'EMERGENCY_STOPPED'"
+          @click="stopLiveExecution"
+        >
+          急停自动执行
+        </button>
+      </div>
+    </article>
+
+    <div class="metric-grid reconciliation-metrics">
+      <MetricCard
+        label="自动执行"
+        :value="executionStatusText"
+        :note="liveExecution.execution_epoch ? `epoch ${liveExecution.execution_epoch}` : '须修改配置并重启才能启用'"
+        :value-class="liveExecution.status === 'ENABLED' ? '' : 'negative'"
+      />
+      <MetricCard
+        label="最近执行轮次"
+        :value="timeText(executionReport.rebalance_time_ms)"
+        :note="executionReport.status || '尚无执行报告'"
+      />
+      <MetricCard
+        label="逐单成功率"
+        :value="executionReport.success_ratio == null ? '-' : percent(Number(executionReport.success_ratio) * 100)"
+        :note="`${executionReport.matched_count || 0}/${executionReport.attempted_count || 0} 笔完全成交`"
+        :value-class="Number(executionReport.failed_count || 0) ? 'negative' : ''"
+      />
+      <MetricCard
+        label="失败 / 证据异常"
+        :value="Number(executionReport.failed_count || 0) + Number(executionReport.evidence_error_count || 0)"
+        :note="liveExecution.stop_reason || '失败不自动追单'"
+        :value-class="Number(executionReport.failed_count || 0) + Number(executionReport.evidence_error_count || 0) ? 'negative' : ''"
+      />
+    </div>
+
+    <article class="panel">
+      <div class="panel-head">
+        <div>
+          <h3>自动执行逐单比对</h3>
+          <p class="muted checklist-meta">
+            清单 → 订单意图 → Binance 回执 → 成交与手续费，全链路只追加留痕。
+          </p>
+        </div>
+        <StatusBadge
+          :text="executionReport.status || liveExecution.status || 'DISABLED'"
+          :color="executionReport.status === 'COMPLETED_WITH_ERRORS' ? 'red' : (executionReport.status ? 'green' : 'orange')"
+        />
+      </div>
+      <div v-if="!executionReport.rows?.length" class="empty-state">
+        尚无自动执行报告。默认配置不会发送任何订单。
+      </div>
+      <div v-else class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>市场</th><th>状态</th><th>目标数量</th><th>下单数量</th>
+              <th>成交数量</th><th>成交均价</th><th>滑点</th><th>手续费</th><th>异常</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in executionReport.rows" :key="row.symbol">
+              <td><strong>{{ row.symbol }}</strong></td>
+              <td><StatusBadge :text="executionRowText(row.status)" :color="executionRowColor(row.status)" /></td>
+              <td class="mono">{{ signedQuantity(row.target_quantity) }}</td>
+              <td class="mono">{{ fmt(row.requested_quantity, 8) }}</td>
+              <td class="mono">{{ fmt(row.executed_quantity, 8) }}</td>
+              <td class="mono">{{ fmt(row.average_price, 6) }}</td>
+              <td class="mono" :class="cls(-Math.abs(Number(row.slippage_bps || 0)))">
+                {{ row.slippage_bps == null ? '-' : `${fmt(row.slippage_bps, 3)} bps` }}
+              </td>
+              <td class="mono">{{ fmt(row.fee, 6) }} {{ row.fee_assets?.join('/') || 'USDT' }}</td>
+              <td :class="row.error ? 'negative' : 'muted'">{{ row.error || "-" }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </article>
 
     <div class="metric-grid reconciliation-metrics">
@@ -203,7 +283,7 @@ import MetricCard from "../components/MetricCard.vue";
 import MultiLineChart from "../components/MultiLineChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { cls, fmt, percent } from "../core/format.js";
-import { store } from "../stores/appStore.js";
+import { post, store } from "../stores/appStore.js";
 
 const forward = computed(() => store.state?.trend_forward || {});
 const checklist = computed(() => forward.value.execution_checklist || {
@@ -221,6 +301,20 @@ const reconciliation = computed(() => store.state?.live_reconciliation || {
 });
 const positionResult = computed(() => reconciliation.value.positions || {});
 const equityResult = computed(() => reconciliation.value.equity || { points: [] });
+const liveExecution = computed(() => store.state?.live_execution || {
+  enabled: false,
+  status: "DISABLED",
+  latest_report: null,
+});
+const executionReport = computed(() => liveExecution.value.latest_report || {});
+const executionStatusText = computed(() => ({
+  DISABLED: "默认关闭",
+  ENABLED: "已启用",
+  EMERGENCY_STOPPED: "已急停",
+  PROTOCOL_VIOLATION: "协议违规停机",
+  DATA_INTEGRITY_ERROR: "账本异常停机",
+  NOT_VISIBLE: "无权查看",
+})[liveExecution.value.status] || liveExecution.value.status || "未知");
 const reconciliationStatusText = computed(() => ({
   ACCOUNT_NOT_CONFIGURED: "请在 trend_forward.live_account_id 显式指定专用实盘账户",
   AWAITING_ACCOUNT_SYNC: "专用账户尚未同步",
@@ -307,6 +401,29 @@ function reconciliationRowText(value) {
 
 function reconciliationRowColor(value) {
   return ["MATCH", "EXPECTED_FLAT"].includes(value) ? "green" : "red";
+}
+
+function executionRowText(value) {
+  return ({
+    EXECUTED_MATCH: "完全成交",
+    PARTIAL_FILL: "部分成交",
+    ORDER_FAILED: "下单失败",
+    SKIPPED_DUST: "尘埃跳过",
+    SKIPPED_BELOW_MIN: "低于最低额",
+  })[value] || value;
+}
+
+function executionRowColor(value) {
+  return ["EXECUTED_MATCH", "SKIPPED_DUST", "SKIPPED_BELOW_MIN"].includes(value)
+    ? "green"
+    : "red";
+}
+
+async function stopLiveExecution() {
+  const reason = prompt("请输入自动执行急停原因。急停后只能修改配置 epoch 并重启才能恢复：");
+  if (!reason?.trim()) return;
+  if (!confirm("确认立即停止所有新的 TB4 自动订单？")) return;
+  await post("/api/admin/live-execution/emergency-stop", { reason: reason.trim() });
 }
 
 function csvCell(value) {

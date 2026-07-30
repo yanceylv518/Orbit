@@ -16,6 +16,7 @@ sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
 from orbit.application.trend_forward import TrendForwardService  # noqa: E402
 from orbit.application.trend_forward_market import TrendForwardMarketDriver  # noqa: E402
+from orbit.config import load_config  # noqa: E402
 from orbit.infrastructure.exchange.kline_feed import BinanceKlineFeed  # noqa: E402
 from orbit.infrastructure.persistence.trend_forward_ledger import TrendForwardLedger  # noqa: E402
 
@@ -37,11 +38,21 @@ def git_commit() -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", default="var/forward/tb4")
+    parser.add_argument("--config", default=None)
     parser.add_argument("--base-url", default="https://fapi.binance.com")
     parser.add_argument("--initialize", action="store_true")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=60.0)
     args = parser.parse_args()
+    runtime_config = load_config(args.config).get("runtime", {}).get(
+        "trend_forward", {},
+    )
+    if bool(runtime_config.get("enabled", False)):
+        if not args.initialize or not args.once:
+            parser.error(
+                "trend_forward.enabled=true makes the Orbit backend the sole TB4 "
+                "poll/execution writer; initialization must use --initialize --once"
+            )
 
     data_dir = Path(args.data_dir)
     if not data_dir.is_absolute():
