@@ -1,0 +1,80 @@
+{
+  "protocol": "TB4_BINANCE_USDT_FUTURES_RULES_V1",
+  "source": "https://fapi.binance.com/fapi/v1/exchangeInfo",
+  "fetched_at": "2026-07-30T00:00:00Z",
+  "refresh_after_days": 30,
+  "symbols": {
+    "ADAUSDT": {
+      "status": "TRADING",
+      "quantity_step": "1",
+      "min_quantity": "1",
+      "min_notional_usdt": "5"
+    },
+    "AVAXUSDT": {
+      "status": "TRADING",
+      "quantity_step": "1",
+      "min_quantity": "1",
+      "min_notional_usdt": "5"
+    },
+    "BCHUSDT": {
+      "status": "TRADING",
+      "quantity_step": "0.001",
+      "min_quantity": "0.001",
+      "min_notional_usdt": "20"
+    },
+    "BNBUSDT": {
+      "status": "TRADING",
+      "quantity_step": "0.01",
+      "min_quantity": "0.01",
+      "min_notional_usdt": "5"
+    },
+    "BTCUSDT": {
+      "status": "TRADING",
+      "quantity_step": "0.001",
+      "min_quantity": "0.001",
+      "min_notional_usdt": "50"
+    },
+    "DOGEUSDT": {
+      "status": "TRADING",
+      "quantity_step": "1",
+      "min_quantity": "1",
+      "min_notional_usdt": "5"
+    },
+    "DOTUSDT": {
+      "status": "TRADING",
+      "quantity_step": "0.1",
+      "min_quantity": "0.1",
+      "min_notional_usdt": "5"
+    },
+    "ETHUSDT": {
+      "status": "TRADING",
+      "quantity_step": "0.001",
+      "min_quantity": "0.001",
+      "min_notional_usdt": "20"
+    },
+    "LINKUSDT": {
+      "status": "TRADING",
+      "quantity_step": "0.01",
+      "min_quantity": "0.01",
+      "min_notional_usdt": "20"
+    },
+    "LTCUSDT": {
+      "status": "TRADING",
+      "quantity_step": "0.001",
+      "min_quantity": "0.001",
+      "min_notional_usdt": "20"
+    },
+    "SOLUSDT": {
+      "status": "TRADING",
+      "quantity_step": "0.01",
+      "min_quantity": "0.01",
+      "min_notional_usdt": "5"
+    },
+    "XRPUSDT": {
+      "status": "TRADING",
+      "quantity_step": "0.1",
+      "min_quantity": "0.1",
+      "min_notional_usdt": "5"
+    }
+  }
+}

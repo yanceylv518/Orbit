@@ -12,14 +12,16 @@ from orbit.domain.strategy.trend_basket_runner import (
     TB4_SPEC,
     tb4_spec_fingerprint,
 )
+from orbit.application.trend_execution_checklist import TrendExecutionChecklistProjector
 
 
 class TrendForwardService:
     MIN_FORWARD_DAYS = 365
 
-    def __init__(self, ledger: Any):
+    def __init__(self, ledger: Any, checklist_projector: Any | None = None):
         self.ledger = ledger
         self.runner = FrozenTrendBasketRunner()
+        self.checklist_projector = checklist_projector or TrendExecutionChecklistProjector()
         self._manifest = self.ledger.manifest()
         if self._manifest:
             self._restore()
@@ -115,6 +117,7 @@ class TrendForwardService:
                 "verdict": None,
                 "parameters_mutable": False,
                 "live_trading": False,
+                "execution_checklist": self.checklist_projector.project(self.runner),
             }
         scored_periods = len(self.runner.net_returns_pct)
         elapsed_days = (
@@ -143,6 +146,7 @@ class TrendForwardService:
             "ledger": self.ledger.status(),
             "manifest_sha256": self._manifest["manifest_sha256"],
             "spec_sha256": self._manifest["spec_sha256"],
+            "execution_checklist": self.checklist_projector.project(self.runner),
         }
 
     def _append_close(self, item: Mapping[str, Any], *, record_return: bool) -> dict[str, Any]:

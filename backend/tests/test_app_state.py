@@ -225,6 +225,55 @@ class AppStateAdminTest(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_successful_sync_records_live_reconciliation_after_state_commit(self):
+        tmp, app = self.make_app()
+        try:
+            account_id = "binance_dry_run_001"
+            synced = {
+                "ok": True,
+                "status": "synced",
+                "account_id": account_id,
+                "testnet": False,
+                "dry_run": False,
+                "synced_at": 1_000,
+                "total_margin_balance": 500.0,
+                "positions": [],
+            }
+
+            class FakeSync:
+                def fetch(inner_self, *_args, **_kwargs):
+                    return {"ok": True, "account_id": account_id, "snapshot": synced}
+
+                def apply(inner_self, fetched, *, actor):
+                    app.account_snapshot_repository.save(account_id, fetched["snapshot"])
+                    return {"ok": True, "snapshot": fetched["snapshot"]}
+
+            class FakeReconciliation:
+                def __init__(inner_self):
+                    inner_self.calls = []
+
+                def record_snapshot(inner_self, incoming_account_id, snapshot):
+                    inner_self.calls.append((
+                        incoming_account_id,
+                        snapshot,
+                        app.store.load()["binance_account_snapshots"][account_id],
+                    ))
+                    return {"recorded": True}
+
+            reconciliation = FakeReconciliation()
+            app.account_sync_service = FakeSync()
+            app.live_reconciliation_service = reconciliation
+
+            result = app.sync_binance_account(account_id, actor="admin_001")
+
+            self.assertTrue(result["live_reconciliation_record"]["recorded"])
+            self.assertEqual(len(reconciliation.calls), 1)
+            self.assertEqual(reconciliation.calls[0][0], account_id)
+            self.assertEqual(reconciliation.calls[0][1], synced)
+            self.assertEqual(reconciliation.calls[0][2], synced)
+        finally:
+            tmp.cleanup()
+
     def test_no_login_mode_uses_default_operator(self):
         tmp, app = self.make_app(login_required=False)
         try:

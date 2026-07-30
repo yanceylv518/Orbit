@@ -441,15 +441,20 @@ class AppState:
         if not fetched.get("ok"):
             return fetched
 
-        with self.lock, self.app_uow as uow:
-            result = self.account_sync_service.apply(fetched, actor=actor)
-            audit = result.pop("_audit", None)
-            if not result.get("ok"):
-                return result
-            if audit:
-                self.audit_service.record(**audit)
-            uow.commit()
-            return result["snapshot"]
+        with self.lock:
+            with self.app_uow as uow:
+                result = self.account_sync_service.apply(fetched, actor=actor)
+                audit = result.pop("_audit", None)
+                if not result.get("ok"):
+                    return result
+                if audit:
+                    self.audit_service.record(**audit)
+                uow.commit()
+                snapshot = result["snapshot"]
+            reconciliation = self.live_reconciliation_service.record_snapshot(
+                account_id, snapshot,
+            )
+            return deepcopy(snapshot) | {"live_reconciliation_record": reconciliation}
 
     def update_binance_credentials(
         self,

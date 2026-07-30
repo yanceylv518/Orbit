@@ -13,6 +13,7 @@ from orbit.application.credentials import CredentialService
 from orbit.application.execution_plans import ExecutionPlanRefreshService, ExecutionPlanService
 from orbit.application.market_data import MarketFeedService
 from orbit.application.metrics import MetricHistoryService
+from orbit.application.live_reconciliation import LiveReconciliationService
 from orbit.application.order_execution import OrderExecutionService
 from orbit.application.paper_execution import PaperExecutionService
 from orbit.application.permissions import PermissionPolicy
@@ -27,6 +28,10 @@ from orbit.application.strategy_control import StrategyControlService
 from orbit.application.symbol_states import SymbolStateService
 from orbit.application.symbol_recovery import SymbolRecoveryService
 from orbit.application.trend_forward import TrendForwardService
+from orbit.application.trend_execution_checklist import (
+    TrendExecutionChecklistProjector,
+    load_tb4_exchange_rules,
+)
 from orbit.infrastructure.credentials.account_connection import VaultAccountConnectionInspector
 from orbit.infrastructure.credentials.factory import create_credential_vault
 from orbit.infrastructure.exchange.binance import BinanceFuturesClient
@@ -38,6 +43,7 @@ from orbit.infrastructure.persistence.audits import InMemoryAuditRepository
 from orbit.infrastructure.persistence.event_history import InMemoryEventHistoryRepository
 from orbit.infrastructure.persistence.execution_plans import InMemoryExecutionPlanRepository
 from orbit.infrastructure.persistence.metrics import InMemoryMetricHistoryRepository
+from orbit.infrastructure.persistence.live_equity_ledger import AppendOnlyLiveEquityLedger
 from orbit.infrastructure.persistence.reports import InMemoryReportRepository
 from orbit.infrastructure.persistence.research_registry import AppendOnlyResearchRegistry
 from orbit.infrastructure.persistence.research_runs import AppendOnlyResearchRunLedger
@@ -83,6 +89,7 @@ class ApplicationContainer:
     paper_execution_service: Any
     order_execution_service: Any
     trend_forward_snapshot: Any
+    live_reconciliation_service: Any
     research_catalog: Any
     research_workflow: Any
     app_uow: Any
@@ -273,6 +280,14 @@ def build_application_container(
     trend_data_dir = Path(str(trend_config.get("data_dir", "var/forward/tb4")))
     if not trend_data_dir.is_absolute():
         trend_data_dir = root / trend_data_dir
+    trend_rules_path_value = str(trend_config.get("exchange_rules_path") or "").strip()
+    trend_rules_path = Path(trend_rules_path_value) if trend_rules_path_value else None
+    if trend_rules_path is not None and not trend_rules_path.is_absolute():
+        trend_rules_path = root / trend_rules_path
+    trend_checklist_projector = TrendExecutionChecklistProjector(
+        live_capital_usdt=trend_config.get("live_capital_usdt", 500),
+        exchange_rules=load_tb4_exchange_rules(trend_rules_path),
+    )
     trend_snapshot_cache: dict[str, Any] = {"signature": None, "snapshot": None}
 
     def trend_forward_snapshot() -> dict[str, Any]:
@@ -285,9 +300,29 @@ def build_application_container(
             for path in (ledger.manifest_path, ledger.events_path)
         )
         if trend_snapshot_cache["signature"] != signature:
-            trend_snapshot_cache["snapshot"] = TrendForwardService(ledger).snapshot()
+            trend_snapshot_cache["snapshot"] = TrendForwardService(
+                ledger, trend_checklist_projector,
+            ).snapshot()
             trend_snapshot_cache["signature"] = signature
         return deepcopy(trend_snapshot_cache["snapshot"])
+
+    live_equity_path = Path(str(
+        trend_config.get(
+            "equity_ledger_path",
+            "var/forward/live-small/equity.jsonl",
+        )
+    ))
+    if not live_equity_path.is_absolute():
+        live_equity_path = root / live_equity_path
+    live_reconciliation_service = LiveReconciliationService(
+        live_account_id=str(trend_config.get("live_account_id") or ""),
+        account_snapshots=account_snapshot_repository,
+        trend_forward_snapshot=trend_forward_snapshot,
+        equity_ledger=AppendOnlyLiveEquityLedger(live_equity_path),
+        quantity_tolerance_pct=float(
+            trend_config.get("quantity_tolerance_pct", 1.0)
+        ),
+    )
 
     snapshot_queries = SnapshotQueryService(
         config,
@@ -309,6 +344,7 @@ def build_application_container(
         },
         trend_forward_snapshot,
         mock_data_enabled=mock_data_enabled,
+        live_reconciliation_snapshot=live_reconciliation_service.snapshot,
     )
     app_uow = InMemoryApplicationUnitOfWork(
         account_repository,
@@ -355,6 +391,7 @@ def build_application_container(
         paper_execution_service=paper_execution_service,
         order_execution_service=order_execution_service,
         trend_forward_snapshot=trend_forward_snapshot,
+        live_reconciliation_service=live_reconciliation_service,
         research_catalog=research_catalog,
         research_workflow=research_workflow,
         app_uow=app_uow,

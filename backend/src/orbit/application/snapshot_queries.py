@@ -28,6 +28,7 @@ class SnapshotQueryService:
         trend_forward_snapshot: Callable[[], dict[str, Any]],
         *,
         mock_data_enabled: bool,
+        live_reconciliation_snapshot: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.config = config
         self.strategy = strategy
@@ -43,6 +44,15 @@ class SnapshotQueryService:
         self.portfolio_views = portfolio_views
         self.storage_status = storage_status
         self.trend_forward_snapshot = trend_forward_snapshot
+        self.live_reconciliation_snapshot = (
+            live_reconciliation_snapshot
+            or (lambda: {
+                "protocol": "LIVE_SMALL_RECONCILIATION_V1",
+                "status": "NOT_CONFIGURED",
+                "read_only": True,
+                "auto_correction": False,
+            })
+        )
         self.mock_data_enabled = mock_data_enabled
 
     def public_snapshot(self) -> dict[str, Any]:
@@ -97,6 +107,7 @@ class SnapshotQueryService:
             "storage": self.storage_status(),
             "market_feed": deepcopy(market_feed) if market_feed else None,
             "trend_forward": deepcopy(self.trend_forward_snapshot()),
+            "live_reconciliation": deepcopy(self.live_reconciliation_snapshot()),
             "plan_symbol_states": self.plan_symbol_state_rows(symbol_states),
             "stopped_symbols": stopped_symbols,
             "risk_state": risk_state,
@@ -289,6 +300,14 @@ class SnapshotQueryService:
             plan for plan in payload.get("execution_plans", [])
             if plan.get("account_id") in account_ids
         ]
+        reconciliation = payload.get("live_reconciliation") or {}
+        if reconciliation.get("account_id") not in account_ids:
+            filtered["live_reconciliation"] = {
+                "protocol": "LIVE_SMALL_RECONCILIATION_V1",
+                "status": "NOT_VISIBLE",
+                "read_only": True,
+                "auto_correction": False,
+            }
         if not self.mock_data_enabled:
             filtered["symbols"] = self.portfolio_views.real_symbol_views(account_ids)
             filtered["strategy"] = self.portfolio_views.strategy_summary(

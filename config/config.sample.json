@@ -29,7 +29,12 @@
     "trend_forward": {
       "enabled": false,
       "data_dir": "var/forward/tb4",
-      "poll_seconds": 60
+      "poll_seconds": 60,
+      "live_capital_usdt": 500,
+      "exchange_rules_path": "",
+      "live_account_id": "",
+      "quantity_tolerance_pct": 1.0,
+      "equity_ledger_path": "var/forward/live-small/equity.jsonl"
     },
     "research": {
       "calibration_dir": "var/calibration",

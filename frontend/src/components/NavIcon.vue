@@ -32,6 +32,11 @@
       <path d="M10 3v5.2l-5 8.5A2.8 2.8 0 0 0 7.4 21h9.2a2.8 2.8 0 0 0 2.4-4.3l-5-8.5V3" />
       <path d="M7.2 15h9.6" />
     </template>
+    <template v-else-if="name === 'forward'">
+      <path d="M4 18 9 13l3 3 7-8" />
+      <path d="M14 8h5v5" />
+      <path d="M4 21h16" />
+    </template>
     <template v-else-if="name === 'symbol'">
       <path d="M8 5v3M8 16v3M8 8h-2.2v8H8V8ZM8 8h2.2v8H8" />
       <path d="M16 4v3M16 17v3M16 7h-2.2v10H16V7ZM16 7h2.2v10H16" />

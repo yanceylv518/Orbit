@@ -1,3 +1,4 @@
+from copy import deepcopy
 import json
 import math
 import tempfile
@@ -122,6 +123,24 @@ class TrendForwardServiceTest(unittest.TestCase):
         self.assertIsNone(snapshot["verdict"])
         self.assertFalse(snapshot["parameters_mutable"])
         self.assertFalse(snapshot["live_trading"])
+
+    def test_execution_checklist_is_read_only_and_uses_latest_rebalance(self):
+        service = self.service()
+        self.initialize(service)
+        row = close_row(self.warmup_count)
+        service.ingest_close(row["close_time_ms"], row["closes"], row["funding_rates"])
+        state_before = deepcopy(service.runner.export_state())
+        ledger_count = service.ledger.status()["event_count"]
+
+        first = service.snapshot()["execution_checklist"]
+        second = service.snapshot()["execution_checklist"]
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["status"], "READY")
+        self.assertEqual(first["capital_usdt"], 500.0)
+        self.assertEqual(len(first["rows"]), len(TB4_SPEC.symbols))
+        self.assertEqual(service.runner.export_state(), state_before)
+        self.assertEqual(service.ledger.status()["event_count"], ledger_count)
 
 
 class FakeTrendFeed:

@@ -37,6 +37,14 @@ class BootstrapTests(unittest.TestCase):
             self.assertIs(app.app_uow.metrics, app.metric_repository)
             self.assertIs(app.app_uow.accounts, app.account_repository)
             self.assertEqual(app.trend_forward_snapshot()["status"], "NOT_STARTED")
+            self.assertEqual(
+                app.trend_forward_snapshot()["execution_checklist"]["capital_usdt"],
+                500.0,
+            )
+            self.assertEqual(
+                app.live_reconciliation_service.snapshot()["status"],
+                "ACCOUNT_NOT_CONFIGURED",
+            )
             self.assertEqual(app.research_catalog.datasets(), [])
         finally:
             tmp.cleanup()
@@ -50,6 +58,13 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(app.config["storage"]["driver"], "json")
             admin_snapshot = app.snapshot(app.user_by_id("admin_001"))
             self.assertEqual(admin_snapshot["trend_forward"]["status"], "NOT_STARTED")
+            self.assertFalse(
+                admin_snapshot["trend_forward"]["execution_checklist"]["live_trading"],
+            )
+            self.assertEqual(
+                admin_snapshot["live_reconciliation"]["status"],
+                "ACCOUNT_NOT_CONFIGURED",
+            )
         finally:
             tmp.cleanup()
 

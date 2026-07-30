@@ -102,6 +102,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import NavIcon from "./components/NavIcon.vue";
 import AccountsPage from "./pages/AccountsPage.vue";
 import DashboardPage from "./pages/DashboardPage.vue";
+import ForwardPage from "./pages/ForwardPage.vue";
 import PlansPage from "./pages/PlansPage.vue";
 import ReportsPage from "./pages/ReportsPage.vue";
 import ResearchPage from "./pages/ResearchPage.vue";
@@ -139,6 +140,7 @@ const navGroups = [
     label: "策略",
     items: [
       { id: "research", label: "研究平台" },
+      { id: "forward", label: "前向实盘" },
       { id: "plans", label: "执行计划" },
       { id: "symbol", label: "币种视图" },
     ],
@@ -160,6 +162,7 @@ const pageComponents = {
   dashboard: DashboardPage,
   accounts: AccountsPage,
   research: ResearchPage,
+  forward: ForwardPage,
   plans: PlansPage,
   symbol: SymbolPage,
   risk: RiskPage,

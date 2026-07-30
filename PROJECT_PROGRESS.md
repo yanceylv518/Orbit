@@ -768,6 +768,9 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
   3. **不接任何自动下单**：不新增任何触达交易所下单接口的代码路径，live 通道维持焊死。
 - **验收**：① 清单为纯投影，重复计算幂等、不改 runner/账本状态（保持 TB4-A/TB4-B 对齐与哈希链性质）；② 权重×资金×价格换算有单测（含 FLAT/反向翻转/资金规模变化、低于最低下单额标记与可执行比例场景）；③ 全库 grep 无新增下单调用；④ 前端只读展示；⑤ 测试全绿。
 - **约束**：不改 `TB4_SPEC` 与前向协议语义；不改 live 默认开关；`LIVE_SMALL.md` 为本任务的产品口径来源。
+- **完成结果（Codex，2026-07-30）**：新增独立纯投影 `TrendExecutionChecklistProjector`，只读取最近一次**已执行再平衡的冻结目标权重**（不误用每根 K 线后会漂移的 paper 当前权重），按 `live_capital_usdt=500` 输出 LONG/SHORT/FLAT、目标名义、相对上次目标变化、最新收盘折算数量及按步进向下取整后的可执行数量；低于 `MIN_NOTIONAL`/`minQty` 的目标明确标为 `BELOW_MIN_NOTIONAL → 保持 FLAT`，汇总目标/可执行 gross 与覆盖比例。Binance 12 市场规则以版本化只读 JSON 随包交付，来源为官方 `/fapi/v1/exchangeInfo`、获取日 2026-07-30，并在超过刷新周期时向 UI 暴露 stale 警告；配置可替换规则文件但必须完整覆盖冻结 12 市场且数值合法。`TrendForwardService.snapshot()` 只读附加 `execution_checklist`，未启动/首笔再平衡前分别给出明确空态；不写 runner、不写账本。
+- **前端交付**：新增“前向实盘”页面，展示前向状态、500 USDT 换算规模、目标 gross、可执行覆盖率和逐币手动执行清单；提供只在 READY 时可用的 UTF-8 CSV 成交记录模板（预留真实方向/数量/均价/手续费/订单号/时间/备注字段）。页面明确“不自动下单”，规则过期时阻止用户把清单当作可靠执行依据。
+- **验收证据（Codex，2026-07-30）**：新增投影单测覆盖幂等无状态变更、LONG/SHORT/FLAT、反向翻转的名义变化、资金规模变化、步进取整、最低额与可执行比例；前向服务测试验证 snapshot 重复读取不改变 runner export state 与 ledger event count。完整后端 `284 tests OK`；`npm run check` 与生产 `npm run build` 通过；真实本地 `/api/state` 浏览器冒烟确认未启动空态、500 USDT、禁用 CSV、执行边界正常渲染且控制台无错误；`git diff --check` 通过；本任务 diff 未新增 `place_order`、`/fapi/v1/order` 或开启 live 的代码。
 
 ### 任务 LIVE-2：实盘执行核对——真实持仓 vs 目标清单 + 权益对账（优先级：高，依赖 LIVE-1，交付 Codex）
 
@@ -779,12 +782,15 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
   3. **只读、不纠偏**：发现偏差只展示和提示,不自动下单纠正（live 通道维持焊死）；`DEVIATION`/`UNEXPECTED_POSITION` 在前向监控页醒目标出，供用户当场手动处理或记录原因。
 - **验收**：① 核对与对账均为纯只读投影，不改 runner/账本/同步状态；② 四种状态判定（含容差边界、方向翻转、EXPECTED_FLAT、清单外持仓）有单测；③ 实盘权益序列只追加持久化有测试；④ 全库 grep 无新增下单调用；⑤ 前端展示核对结果与双曲线对比；⑥ 测试全绿。
 - **约束**：不改 `TB4_SPEC` 与前向协议语义；不改 live 默认开关；偏差处理永远归人工。
+- **完成结果（Codex，2026-07-30）**：新增独立 `LiveReconciliationService`，只对配置项 `trend_forward.live_account_id` 显式指定的主网、非 dry-run 账户生效，不猜测账户。每次只读同步成功并提交后，以 LIVE-1 最近一次冻结再平衡清单核对实际持仓；按“数量步进 + 目标数量百分比”容差输出 `MATCH`、`DEVIATION`、`EXPECTED_FLAT`、`UNEXPECTED_POSITION`，并汇总执行正确率和偏差清单。核对仅展示，不生成纠偏计划、不调用订单接口、不改变 runner、TB4 账本或账户同步状态。
+- **权益对账交付**：新增独立 JSONL SHA-256 哈希链账本，账户同步成功后幂等追加实盘权益、同期 paper 权益、paper 行情/再平衡时点及可执行名义比例；拒绝倒序记录、重复同步不重复写入，写入前验完整链并 `fsync`。同步状态先提交、观测后追加；观测异常会随同步响应和监控投影显式报告，不回滚已成功的账户同步。监控投影将首个有效点归一为 1.0，同图展示实盘/paper 曲线，输出累计偏差、按 ISO 周最后观测点计算的逐周偏差和结构性可执行比例；账本篡改显示 `DATA_INTEGRITY_ERROR`。前端无自动纠偏入口。
+- **验收证据（Codex，2026-07-30）**：单测覆盖四种持仓状态、方向翻转、容差等号边界、未配置/测试网阻断、权益幂等追加、归一化与逐周偏差、非法 paper 权益/时间戳隔离、哈希篡改检测；账户同步测试证明持久化提交先于观测追加，权限测试证明业务用户不能读取其他账户对账。完整后端 `292 tests OK`；`npm run check` 与生产 `npm run build` 通过；`git diff --check` 通过；本任务 diff 未新增 Binance 下单调用或开启 live 默认开关。
 
 ## 最近验证
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`280 tests OK`。
+- Python 单元测试及 API 契约测试：`292 tests OK`。
 - `git diff --check` 通过。
 - 新增 POSIX shell 脚本已通过 Git Bash `bash -n` 语法检查。
 - Linux AES-GCM vault 已验证随机 nonce、密文篡改/错密钥拒绝、缺失主密钥提示、环境变量引用与平台工厂选择。

@@ -89,6 +89,10 @@ class SnapshotQueryServiceTests(unittest.TestCase):
                 {"account_id": "acc_001"},
                 {"account_id": "acc_002"},
             ],
+            "live_reconciliation": {
+                "account_id": "acc_001",
+                "status": "READY",
+            },
         }
 
         filtered = self.service.apply_permissions(
@@ -100,6 +104,7 @@ class SnapshotQueryServiceTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in filtered["exchange_accounts"]], ["acc_001"])
         self.assertEqual(list(filtered["binance_account_snapshots"]), ["acc_001"])
         self.assertEqual(filtered["execution_plans"], [{"account_id": "acc_001"}])
+        self.assertEqual(filtered["live_reconciliation"]["status"], "READY")
         self.assertEqual(filtered["risk_events"], [{"user_id": None}])
         self.assertTrue(filtered["risk_state"]["global_stop"])
         self.assertEqual(
@@ -111,6 +116,38 @@ class SnapshotQueryServiceTests(unittest.TestCase):
             [{"exchange_account_id": "acc_001"}],
         )
         self.assertEqual(filtered["strategy"]["symbols"], ["BTCUSDT"])
+
+    def test_business_user_cannot_view_other_accounts_live_reconciliation(self):
+        payload = {
+            "users": [],
+            "exchange_accounts": [],
+            "account_run_configs": [],
+            "binance_account_snapshots": {},
+            "admin_overview": {"users": [], "accounts": []},
+            "strategy_events": [],
+            "trade_events": [],
+            "risk_events": [],
+            "risk_state": {
+                "global_stop": False,
+                "stopped_symbols": [],
+                "blocked_decisions": [],
+            },
+            "execution_plans": [],
+            "live_reconciliation": {
+                "account_id": "acc_002",
+                "status": "READY",
+                "positions": {"rows": [{"symbol": "BTCUSDT"}]},
+            },
+        }
+
+        filtered = self.service.apply_permissions(
+            payload,
+            {"id": "user_001", "role": "user"},
+            running=False,
+        )
+
+        self.assertEqual(filtered["live_reconciliation"]["status"], "NOT_VISIBLE")
+        self.assertNotIn("positions", filtered["live_reconciliation"])
 
     def test_blocked_decisions_include_only_info_level_blocked_events(self):
         rows = self.service.blocked_decision_rows([
