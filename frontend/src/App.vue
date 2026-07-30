@@ -5,7 +5,7 @@
         <div class="brand-mark">O</div>
         <div>
           <strong>ORBIT</strong>
-          <span>Dynamic Dual Grid 管理控制台</span>
+          <span>策略研究与实盘控制台</span>
         </div>
       </div>
       <label class="login-field">
@@ -28,7 +28,7 @@
         <div class="brand-mark">O</div>
         <div>
           <strong>ORBIT</strong>
-          <span>Dynamic Dual Grid</span>
+          <span>纪律化策略研究与实盘</span>
         </div>
       </div>
 
@@ -45,6 +45,29 @@
             <NavIcon :name="item.id" />
             <span>{{ item.label }}</span>
           </a>
+        </div>
+        <div class="nav-group archive-nav-group">
+          <button
+            class="nav-group-toggle"
+            type="button"
+            :aria-expanded="archiveOpen"
+            @click="archiveOpen = !archiveOpen"
+          >
+            <span>旧网格（存档）</span>
+            <span aria-hidden="true">{{ archiveOpen ? "−" : "+" }}</span>
+          </button>
+          <div v-show="archiveOpen" class="archive-nav-items">
+            <a
+              v-for="item in archiveItems"
+              :key="item.id"
+              href="#"
+              :class="{ active: store.activePage === item.id }"
+              @click.prevent="setActivePage(item.id)"
+            >
+              <NavIcon :name="item.id" />
+              <span>{{ item.label }}</span>
+            </a>
+          </div>
         </div>
       </nav>
 
@@ -71,8 +94,19 @@
             风控 {{ riskStatusText }}
           </button>
           <!-- 只读模式：第一阶段主动作；模拟模式：dry_run 控件 -->
-          <template v-if="store.activePage === 'research'">
+          <template v-if="store.activePage === 'strategy'">
+            <span class="pill">冻结定义 · 只读</span>
+          </template>
+          <template v-else-if="store.activePage === 'research'">
             <span class="pill">研究护栏 · 冻结执行</span>
+          </template>
+          <template v-else-if="store.activePage === 'forward'">
+            <span class="pill">自动执行与核对</span>
+          </template>
+          <template v-else-if="store.activePage === 'accounts'">
+            <button class="button ghost" :disabled="store.syncAllBusy" @click="syncAllAccounts">
+              {{ store.syncAllBusy ? "同步中..." : "同步全部账户" }}
+            </button>
           </template>
           <template v-else-if="readOnlyMode">
             <button class="button ghost" :disabled="store.syncAllBusy" @click="syncAllAccounts">
@@ -107,6 +141,7 @@ import PlansPage from "./pages/PlansPage.vue";
 import ReportsPage from "./pages/ReportsPage.vue";
 import ResearchPage from "./pages/ResearchPage.vue";
 import RiskPage from "./pages/RiskPage.vue";
+import StrategyCenterPage from "./pages/StrategyCenterPage.vue";
 import SymbolPage from "./pages/SymbolPage.vue";
 import {
   currentUser,
@@ -126,39 +161,35 @@ import { login } from "./stores/appStore.js";
 
 const loginId = ref("admin_001");
 const password = ref("");
+const archiveOpen = ref(false);
 let timer = null;
 
 const navGroups = [
   {
-    label: "运营",
+    label: "核心",
     items: [
-      { id: "dashboard", label: "工作台" },
-      { id: "accounts", label: "用户与账户" },
-    ],
-  },
-  {
-    label: "策略",
-    items: [
+      { id: "strategy", label: "策略中心" },
       { id: "research", label: "研究平台" },
-      { id: "forward", label: "前向实盘" },
-      { id: "plans", label: "执行计划" },
-      { id: "symbol", label: "币种视图" },
-    ],
-  },
-  {
-    label: "治理",
-    items: [
-      { id: "risk", label: "风控中心" },
-      { id: "reports", label: "报表" },
+      { id: "forward", label: "实盘中心" },
+      { id: "accounts", label: "账户中心" },
     ],
   },
 ];
+const archiveItems = [
+  { id: "dashboard", label: "工作台" },
+  { id: "plans", label: "执行计划" },
+  { id: "symbol", label: "币种视图" },
+  { id: "risk", label: "风控中心" },
+  { id: "reports", label: "报表" },
+];
+const archivePageIds = new Set(archiveItems.map((item) => item.id));
 
-const pageMeta = computed(() => PAGE_META[store.activePage] || PAGE_META.dashboard);
+const pageMeta = computed(() => PAGE_META[store.activePage] || PAGE_META.forward);
 const readOnlyMode = computed(() => store.state?.strategy?.mode === "read_only");
 const riskStatusText = computed(() => (store.state?.strategy?.risk_status === "normal" ? "正常" : "关注"));
 const riskStatusClass = computed(() => (store.state?.strategy?.risk_status === "normal" ? "ok" : "warn"));
 const pageComponents = {
+  strategy: StrategyCenterPage,
   dashboard: DashboardPage,
   accounts: AccountsPage,
   research: ResearchPage,
@@ -168,7 +199,7 @@ const pageComponents = {
   risk: RiskPage,
   reports: ReportsPage,
 };
-const activeComponent = computed(() => pageComponents[store.activePage] || DashboardPage);
+const activeComponent = computed(() => pageComponents[store.activePage] || ForwardPage);
 
 async function submitLogin() {
   const ok = await login(loginId.value, password.value);
@@ -176,9 +207,12 @@ async function submitLogin() {
 }
 
 function syncHash() {
-  const raw = location.hash.replace("#", "") || "dashboard";
+  const raw = location.hash.replace("#", "") || "forward";
   const page = LEGACY_PAGE_ALIASES[raw] || raw;
-  if (PAGE_META[page]) setActivePage(page);
+  if (PAGE_META[page]) {
+    if (archivePageIds.has(page)) archiveOpen.value = true;
+    setActivePage(page);
+  }
 }
 
 onMounted(() => {

@@ -25,6 +25,7 @@ from orbit.application.research.runs import CachedToolEvaluator, ResearchWorkflo
 from orbit.application.runtime_events import RuntimeEventService
 from orbit.application.snapshot_queries import SnapshotQueryService
 from orbit.application.strategy_config import StrategyEventConfigService
+from orbit.application.strategy_catalog import StrategyCatalogService
 from orbit.application.strategy_control import StrategyControlService
 from orbit.application.symbol_states import SymbolStateService
 from orbit.application.symbol_recovery import SymbolRecoveryService
@@ -95,6 +96,7 @@ class ApplicationContainer:
     trend_forward_poll: Any
     live_reconciliation_service: Any
     live_execution_service: Any
+    strategy_catalog_service: Any
     research_catalog: Any
     research_workflow: Any
     app_uow: Any
@@ -379,6 +381,12 @@ def build_application_container(
             trend_config.get("round_gross_multiplier", 1.1)
         ),
     )
+    strategy_catalog_service = StrategyCatalogService(
+        trend_forward_snapshot,
+        live_execution_service.snapshot,
+        live_capital_usdt=float(trend_config.get("live_capital_usdt", 500)),
+        live_configured=bool(str(trend_config.get("live_account_id") or "").strip()),
+    )
 
     snapshot_queries = SnapshotQueryService(
         config,
@@ -451,6 +459,7 @@ def build_application_container(
         trend_forward_poll=trend_forward_poll,
         live_reconciliation_service=live_reconciliation_service,
         live_execution_service=live_execution_service,
+        strategy_catalog_service=strategy_catalog_service,
         research_catalog=research_catalog,
         research_workflow=research_workflow,
         app_uow=app_uow,

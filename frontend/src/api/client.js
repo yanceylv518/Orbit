@@ -63,6 +63,14 @@ export function fetchResearchRun(runId) {
   return getJson(`/api/research/runs/${encodeURIComponent(runId)}`);
 }
 
+export function fetchStrategies() {
+  return getJson("/api/strategies");
+}
+
+export function fetchStrategy(strategyId) {
+  return getJson(`/api/strategies/${encodeURIComponent(strategyId)}`);
+}
+
 export async function postJson(path, payload = {}) {
   const response = await fetch(path, {
     method: "POST",

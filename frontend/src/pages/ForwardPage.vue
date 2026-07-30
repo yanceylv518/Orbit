@@ -1,5 +1,33 @@
 <template>
   <section class="page active">
+    <div class="system-health-strip" aria-label="实盘系统健康">
+      <div class="system-health-title">
+        <span>系统健康</span>
+        <small>每 2.5 秒随服务状态刷新</small>
+      </div>
+      <div class="metric-grid system-health-grid">
+        <MetricCard label="纸面前向" :value="forwardStatus" :note="paperHealthNote" />
+        <MetricCard
+          label="自动执行"
+          :value="executionStatusText"
+          :note="liveExecution.stop_reason || (liveExecution.enabled ? '执行闸门已开启' : '默认关闭，不会下单')"
+          :value-class="executionHealthClass"
+        />
+        <MetricCard
+          label="最近持仓核对"
+          :value="reconciliationHealthValue"
+          :note="reconciliationHealthNote"
+          :value-class="Number(positionResult.deviation_count || 0) ? 'negative' : ''"
+        />
+        <MetricCard
+          label="实盘账户同步"
+          :value="syncAgeText"
+          :note="reconciliation.account_synced_at ? timeText(reconciliation.account_synced_at) : reconciliationStatusText"
+          :value-class="reconciliation.status === 'READY' ? '' : 'negative'"
+        />
+      </div>
+    </div>
+
     <div class="metric-grid">
       <MetricCard label="前向状态" :value="forwardStatus" :note="forwardNote" />
       <MetricCard
@@ -312,6 +340,7 @@ const executionStatusText = computed(() => ({
   ENABLED: "已启用",
   EMERGENCY_STOPPED: "已急停",
   PROTOCOL_VIOLATION: "协议违规停机",
+  PROTOCOL_STOP: "回撤协议停机",
   DATA_INTEGRITY_ERROR: "账本异常停机",
   NOT_VISIBLE: "无权查看",
 })[liveExecution.value.status] || liveExecution.value.status || "未知");
@@ -333,6 +362,38 @@ const forwardNote = computed(() => (
     ? "需先在 Binance 可达主机初始化"
     : `已计分 ${forward.value.scored_periods || 0} 根 4h K线`
 ));
+const paperHealthNote = computed(() => {
+  if (forward.value.status === "NOT_STARTED") return "尚未初始化，纸面基准未开始";
+  const elapsed = forward.value.elapsed_days;
+  const minimum = forward.value.minimum_forward_days;
+  return elapsed == null ? forwardNote.value : `已运行 ${elapsed} / ${minimum ?? "-"} 天`;
+});
+const executionHealthClass = computed(() => (
+  ["EMERGENCY_STOPPED", "PROTOCOL_VIOLATION", "PROTOCOL_STOP", "DATA_INTEGRITY_ERROR", "INCOMPLETE_ROUND"]
+    .includes(liveExecution.value.status)
+    ? "negative"
+    : ""
+));
+const reconciliationHealthValue = computed(() => {
+  if (reconciliation.value.status !== "READY") return "未就绪";
+  return Number(positionResult.value.deviation_count || 0)
+    ? `偏差 ${positionResult.value.deviation_count}`
+    : "全部符合";
+});
+const reconciliationHealthNote = computed(() => (
+  reconciliation.value.status === "READY"
+    ? `${positionResult.value.correct_count || 0}/${positionResult.value.total_count || 0} 项符合冻结目标`
+    : reconciliationStatusText.value
+));
+const syncAgeText = computed(() => {
+  if (!reconciliation.value.account_synced_at) return "无同步记录";
+  const syncedAt = new Date(reconciliation.value.account_synced_at).getTime();
+  if (Number.isNaN(syncedAt)) return "时间无效";
+  const seconds = Math.max(0, Math.floor((Date.now() - syncedAt) / 1000));
+  if (seconds < 60) return `${seconds} 秒前`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
+  return `${Math.floor(seconds / 3600)} 小时前`;
+});
 const emptyText = computed(() => {
   const map = {
     NOT_AVAILABLE: "TB4 前向尚未启动，当前没有可执行目标。",

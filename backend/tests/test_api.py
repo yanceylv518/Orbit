@@ -106,6 +106,36 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tmp.cleanup()
 
+    async def test_strategy_catalog_requires_login_and_hides_deployment_details(self):
+        tmp, api = self.make_api()
+        try:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                anonymous = await client.get("/api/strategies")
+                login = await client.post(
+                    "/api/login",
+                    json={"login": "user_001", "password": "user123456"},
+                )
+                catalog = await client.get("/api/strategies")
+                detail = await client.get("/api/strategies/TB4_TREND_BASKET_V1")
+                missing = await client.get("/api/strategies/missing")
+
+            self.assertEqual(anonymous.status_code, 401)
+            self.assertEqual(login.status_code, 200)
+            self.assertEqual(catalog.status_code, 200)
+            self.assertEqual(catalog.json()["count"], 1)
+            self.assertEqual(detail.status_code, 200)
+            self.assertEqual(detail.json()["spec"]["symbols"][0], "BTCUSDT")
+            serialized = json.dumps(detail.json())
+            self.assertNotIn("account_id", serialized)
+            self.assertNotIn("execution_epoch", serialized)
+            self.assertNotIn("ledger", serialized)
+            self.assertEqual(missing.status_code, 404)
+        finally:
+            tmp.cleanup()
+
     async def test_admin_can_read_research_catalog_candidates_and_results(self):
         tmp, api = self.make_api(login_required=False)
         try:

@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from orbit.api.routers import accounts, auth, binance, execution_plans, research, system
+from orbit.api.routers import accounts, auth, binance, execution_plans, research, strategies, system
 from orbit.bootstrap import create_app_state
 
 
@@ -17,7 +17,7 @@ REPORTS = ROOT / "reports"
 
 
 def create_api(app_state: Any | None = None) -> FastAPI:
-    app = FastAPI(title="Dynamic Dual Grid V1", docs_url="/api/docs", redoc_url=None)
+    app = FastAPI(title="Orbit", docs_url="/api/docs", redoc_url=None)
     app.state.orbit = app_state or create_app_state()
 
     @app.exception_handler(HTTPException)
@@ -40,6 +40,7 @@ def create_api(app_state: Any | None = None) -> FastAPI:
     app.include_router(binance.router)
     app.include_router(execution_plans.router)
     app.include_router(research.router)
+    app.include_router(strategies.router)
     app.mount("/reports", StaticFiles(directory=REPORTS, check_dir=False), name="reports")
     app.mount("/", StaticFiles(directory=WEB, html=True, check_dir=False), name="frontend")
     return app

@@ -10,7 +10,12 @@
     stroke-linejoin="round"
     aria-hidden="true"
   >
-    <template v-if="name === 'dashboard'">
+    <template v-if="name === 'strategy'">
+      <path d="M4 5.5h10M4 10h7M4 14.5h5" />
+      <path d="m13 15 2.2 2.2L20 12.4" />
+      <path d="M3 3h18v18H3z" />
+    </template>
+    <template v-else-if="name === 'dashboard'">
       <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
       <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
       <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />

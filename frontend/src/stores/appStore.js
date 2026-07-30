@@ -11,6 +11,8 @@ import {
   fetchResearchRun,
   fetchResearchRuns,
   fetchResearchTemplates,
+  fetchStrategies,
+  fetchStrategy,
   loginRequest,
   logoutRequest,
   postJson,
@@ -19,7 +21,7 @@ import {
 
 export const store = reactive({
   state: null,
-  activePage: location.hash.replace("#", "") || "dashboard",
+  activePage: location.hash.replace("#", "") || "forward",
   selectedSymbol: "",
   selectedPlanAccount: "",
   loginBusy: false,
@@ -37,6 +39,10 @@ export const store = reactive({
   researchResultBusy: false,
   researchWorkflowBusy: false,
   researchError: "",
+  strategies: [],
+  selectedStrategy: null,
+  strategyCatalogBusy: false,
+  strategyCatalogError: "",
 });
 
 export const isAuthenticated = computed(() => Boolean(store.state?.auth?.authenticated));
@@ -232,6 +238,35 @@ export async function loadResearchCatalog() {
     return false;
   } finally {
     store.researchBusy = false;
+  }
+}
+
+export async function loadStrategyCatalog() {
+  if (store.strategyCatalogBusy) return false;
+  store.strategyCatalogBusy = true;
+  store.strategyCatalogError = "";
+  try {
+    const catalog = await fetchStrategies();
+    if (!catalog.response.ok || catalog.data.error) {
+      throw new Error(catalog.data.error || `读取策略目录失败（HTTP ${catalog.response.status}）。`);
+    }
+    store.strategies = catalog.data.items || [];
+    const strategyId = store.selectedStrategy?.id || store.strategies[0]?.id;
+    if (!strategyId) {
+      store.selectedStrategy = null;
+      return true;
+    }
+    const detail = await fetchStrategy(strategyId);
+    if (!detail.response.ok || detail.data.error) {
+      throw new Error(detail.data.error || `读取策略定义失败（HTTP ${detail.response.status}）。`);
+    }
+    store.selectedStrategy = detail.data;
+    return true;
+  } catch (error) {
+    store.strategyCatalogError = error instanceof Error ? error.message : "读取策略目录失败。";
+    return false;
+  } finally {
+    store.strategyCatalogBusy = false;
   }
 }
 
