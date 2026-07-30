@@ -4,5 +4,11 @@ $BackendRoot = Split-Path -Parent $ScriptRoot
 $ProjectRoot = Split-Path -Parent $BackendRoot
 Set-Location $ProjectRoot
 
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" (Join-Path $ScriptRoot "use_mysql_storage.py")
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" (Join-Path $BackendRoot "main.py")
+. (Join-Path $ScriptRoot "resolve_python.ps1")
+$Python = Get-OrbitPython -ProjectRoot $ProjectRoot
+
+& $Python (Join-Path $ScriptRoot "use_mysql_storage.py")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+& $Python (Join-Path $BackendRoot "main.py")

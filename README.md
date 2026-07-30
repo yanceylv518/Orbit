@@ -24,16 +24,17 @@ config/    配置样例；本地敏感配置仍使用根目录 config.local.json
 
 ## Windows 启动
 
-先安装后端运行依赖：
+建议创建项目虚拟环境并安装后端运行依赖：
 
 ```powershell
-python -m pip install -r requirements.txt
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 运行后端测试时安装开发依赖：
 
 ```powershell
-python -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
 首次启动前先构建前端：
@@ -46,13 +47,7 @@ cd ..
 ```
 
 ```powershell
-python backend/main.py
-```
-
-如果要使用 Codex bundled Python：
-
-```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/main.py
+.\backend\scripts\run_server_mysql.cmd
 ```
 
 启动后访问：
@@ -113,8 +108,8 @@ user_001 / user123456
 首次使用 MySQL 登录时，如果用户还没有密码哈希，系统会用上述本地开发密码完成一次初始化并写入 `users.password_hash`。实盘测试前必须修改密码：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/set_user_password.py admin_001
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/set_user_password.py user_001
+.\backend\scripts\set_user_password.cmd admin_001
+.\backend\scripts\set_user_password.cmd user_001
 ```
 
 本系统的使用者是管理员：管理员登录后运行整个平台，维护业务用户与交易账户，并把平台提供的策略挂到账户上运行。业务用户只是交易账户的归属方（提供 Binance API Key/Secret），不设计、不维护、也不运行策略。若开启登录，业务用户会话仅用于隔离数据可见范围，不承担任何策略操作职责。
@@ -154,13 +149,13 @@ var/data/runtime_state.json
 1. 安装 MySQL 驱动：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m pip install PyMySQL
+.\.venv\Scripts\python.exe -m pip install PyMySQL
 ```
 
 2. 执行建库建表。脚本会读取 `DDG_MYSQL_PASSWORD`；如果没有设置，并且你在交互式 PowerShell 中运行，它会安全提示输入密码：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/setup_mysql.py
+.\backend\scripts\setup_mysql.cmd
 ```
 
 也可以直接运行包装器：
@@ -180,7 +175,7 @@ $env:DDG_MYSQL_PASSWORD = "你的 MySQL root 密码"
 3. 切换本地配置到 MySQL：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/use_mysql_storage.py
+.\.venv\Scripts\python.exe backend/scripts/use_mysql_storage.py
 ```
 
 这会生成或更新：
@@ -192,7 +187,7 @@ config.local.json
 如果要把数据库用户名和密码写入本地配置，可运行：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/configure_mysql.py
+.\.venv\Scripts\python.exe backend/scripts/configure_mysql.py
 ```
 
 `config.local.json` 已加入 `.gitignore`，不会提交。
@@ -229,7 +224,7 @@ config.local.json
 5. 启动服务后检查写入：
 
 ```powershell
-& "C:\Users\Yancey\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/scripts/check_mysql.py
+.\backend\scripts\check_mysql.cmd
 ```
 
 或者：
