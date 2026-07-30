@@ -812,6 +812,13 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **验收证据（Codex，2026-07-30）**：LIVE-3 定向回归 `40 tests OK`，完整后端 `304 tests OK`；`npm run check`、生产 `npm run build`、浏览器前向实盘页冒烟和控制台检查通过；执行测试全部使用 mock gateway，覆盖五种逐单状态、滑点/手续费、成交查询失败保留订单回执、启用闸门、幂等、金额上限、双权益回撤、急停、未映射记录、未完成轮次和账本篡改。新增公开 `exchangeInfo` 规则刷新工具及 MARKET_LOT_SIZE 解析测试，避免静态规则过期后无可持续恢复路径。部署手册已改为先 `--initialize --once`，随后由后端单 writer 常驻；禁止同时运行独立持续轮询器。
 - **验收结论（Claude，2026-07-30）：通过（`87f772b`）。** 逐条独立复核八项验收：① 默认关闭实证——`test_default_disabled_performs_no_sync_or_order`，且全库 `place_order` 调用点仅旧 `order_execution.py:131` 与新 `live_execution.py:442`（后者在下单闸内、逐单前复查急停）；② 幂等实证——重复触发返回 `ALREADY_CONSUMED` 且 mock 网关订单数保持 1，重启后未完成轮次触发 `PROTOCOL_STOP`（`test_incomplete_claim_stops_later_round_after_restart`）；③ 逐单映射——`ROUND_STARTED` 固化清单 SHA-256 与逐行哈希，`ORDER_RESULT` 带 `checklist_row_sha256`，注入无映射记录触发 `PROTOCOL_VIOLATION` 闩锁（`test_emergency_stop_and_injected_unmapped_order_latch_execution`）；④ 五状态/滑点（BUY/SELL 符号正确）/手续费/成交查询失败保留回执均有测试；⑤ 单笔与单轮上限、双权益回撤 ≥30% 拒绝有测试；⑥ 急停与下单同闸、写审计、恢复须改 epoch+重启（不对称成立）；⑦ 执行账本哈希链防篡改有测试；⑧ 本机全量 `303 passed / 1 skipped`（+12，含 4 子测试）。**关键安全点专项核实**：Hedge Mode 拦截字段链路 `dualSidePosition→position_mode.dual_side_position` 正确，且 position_mode 与账户/持仓同一 try 拉取、失败即非 `synced`，护栏无静默放行路径。**两个超规格的好设计（认可）**：`trend_forward.enabled=true` 时独立轮询工具被限制为仅 `--initialize --once`（单 writer，防双执行器）；新增 `fetch_tb4_exchange_rules.py` 公开接口规则刷新工具（解决 LIVE-1 验收提醒的静态规则可持续性）。**已知运营行为（刻意 fail-closed，接受并须知晓）**：`ROUND_REJECTED` 永久消耗该再平衡——瞬时故障（如同步失败）会跳过整周执行不重试，残余偏差由 LIVE-2 暴露、状态页显示 REJECTED；协议第 2 节的每周人工查看即为此兜底。Codex 报告 `304 tests OK` 与本机口径一致（303+1 skipped）；`npm run check/build` 系 Windows 侧结果，采信留痕。
 
+### 任务 SC-1～SC-5：正式策略中心（设计完成，尚未实现）
+
+- **决策背景（2026-07-30）**：当前页面能展示 TB4 冻结清单和实盘执行，但没有统一入口解释“当前策略是什么、为什么产生该仓位、历史证据如何”。研究平台仅服务白名单实验候选，执行计划/币种视图仍属于旧双网格，用户容易混淆。
+- **正式设计**：`docs/design/STRATEGY_CENTER.md`。新增只读策略中心，分别呈现冻结定义、当前同源信号、结构化回测证据、paper/live 对照与已知风险；研究平台继续负责候选实验，前向实盘继续负责订单与核对。
+- **架构要求**：参数从 `TB4_SPEC` 唯一导出；回测指标来自带定义/数据/代码哈希的 `StrategyEvidenceBundle`；当前信号复用冻结 runner，不允许前端重算；定义或证据失配时 fail closed。不得用 Vue 常量、Markdown 抓取或简化公式填充页面。
+- **实施顺序**：SC-1 后端策略目录与 evidence bundle；SC-2 首屏与导航；SC-3 当前信号诊断；SC-4 回测图表；SC-5 paper/live 对照。设计任务不改变当前交易行为，后续实现需独立验收。
+
 ## 最近验证
 
 - `npm run check` 通过。
