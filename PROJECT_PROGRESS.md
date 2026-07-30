@@ -888,6 +888,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 页面收敛（2026-07-14）：按产品判断删除无明确独立职责的“策略中心”页面、导航、专用样式和图标；策略运行状态继续由工作台承载，研究证据、执行动作、币种生命周期和风险结果分别进入研究平台、执行计划、币种视图和风控中心。历史 `#strategy/#events` 统一重定向到工作台，后端策略内核与账户绑定数据未删除。
 
+**验收结论（Claude，2026-07-30）：通过（`8e88702`）。** 产品判断成立：三个区块中两块为纯展示（策略卡、只读运行配置表——行内编辑从未建成），唯一写动作是双网格事件参数保存，而双网格已全线 NO-GO 且近半字段本就标注「未生效」禁用。静态核查干净：全前端无 `StrategyPage`/`saveEventConfig`/`#strategy` 残留引用；`LEGACY_PAGE_ALIASES` 新增 `strategy→dashboard`、`events→dashboard` 且 `App.vue` 消费点正常；`event-card`/`event-config-grid` 专用样式与模板同步移除无孤儿类名；后端 `POST /config/events`（`routers/system.py:34`）与账户运行配置 API 均保留未动。后端全量 `279 passed / 1 skipped`。按项目约定 `npm run check/build` 仍待 Windows 侧复验。
+
 验证说明：本轮在 Linux 环境完成（无 node），已做 import/export 交叉验证与 script 块配平静态检查；`npm run check`/`npm run build` 需在 Windows 侧复验。
 
 视觉重做（2026-07-12，应「风格不够大气、页面粗糙」反馈）：
