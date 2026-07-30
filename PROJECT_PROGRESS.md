@@ -1,4 +1,4 @@
-# Dynamic Dual Grid V1 项目进度
+# Orbit 项目进度（原 Dynamic Dual Grid V1）
 
 最后更新：2026-07-30
 
@@ -812,6 +812,27 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **验收证据（Codex，2026-07-30）**：LIVE-3 定向回归 `40 tests OK`，完整后端 `304 tests OK`；`npm run check`、生产 `npm run build`、浏览器前向实盘页冒烟和控制台检查通过；执行测试全部使用 mock gateway，覆盖五种逐单状态、滑点/手续费、成交查询失败保留订单回执、启用闸门、幂等、金额上限、双权益回撤、急停、未映射记录、未完成轮次和账本篡改。新增公开 `exchangeInfo` 规则刷新工具及 MARKET_LOT_SIZE 解析测试，避免静态规则过期后无可持续恢复路径。部署手册已改为先 `--initialize --once`，随后由后端单 writer 常驻；禁止同时运行独立持续轮询器。
 - **验收结论（Claude，2026-07-30）：通过（`87f772b`）。** 逐条独立复核八项验收：① 默认关闭实证——`test_default_disabled_performs_no_sync_or_order`，且全库 `place_order` 调用点仅旧 `order_execution.py:131` 与新 `live_execution.py:442`（后者在下单闸内、逐单前复查急停）；② 幂等实证——重复触发返回 `ALREADY_CONSUMED` 且 mock 网关订单数保持 1，重启后未完成轮次触发 `PROTOCOL_STOP`（`test_incomplete_claim_stops_later_round_after_restart`）；③ 逐单映射——`ROUND_STARTED` 固化清单 SHA-256 与逐行哈希，`ORDER_RESULT` 带 `checklist_row_sha256`，注入无映射记录触发 `PROTOCOL_VIOLATION` 闩锁（`test_emergency_stop_and_injected_unmapped_order_latch_execution`）；④ 五状态/滑点（BUY/SELL 符号正确）/手续费/成交查询失败保留回执均有测试；⑤ 单笔与单轮上限、双权益回撤 ≥30% 拒绝有测试；⑥ 急停与下单同闸、写审计、恢复须改 epoch+重启（不对称成立）；⑦ 执行账本哈希链防篡改有测试；⑧ 本机全量 `303 passed / 1 skipped`（+12，含 4 子测试）。**关键安全点专项核实**：Hedge Mode 拦截字段链路 `dualSidePosition→position_mode.dual_side_position` 正确，且 position_mode 与账户/持仓同一 try 拉取、失败即非 `synced`，护栏无静默放行路径。**两个超规格的好设计（认可）**：`trend_forward.enabled=true` 时独立轮询工具被限制为仅 `--initialize --once`（单 writer，防双执行器）；新增 `fetch_tb4_exchange_rules.py` 公开接口规则刷新工具（解决 LIVE-1 验收提醒的静态规则可持续性）。**已知运营行为（刻意 fail-closed，接受并须知晓）**：`ROUND_REJECTED` 永久消耗该再平衡——瞬时故障（如同步失败）会跳过整周执行不重试，残余偏差由 LIVE-2 暴露、状态页显示 REJECTED；协议第 2 节的每周人工查看即为此兜底。Codex 报告 `304 tests OK` 与本机口径一致（303+1 skipped）；`npm run check/build` 系 Windows 侧结果，采信留痕。
 - **文档验收（Claude，2026-07-30）：`TB4_OPERATIONS.md` 修订通过，另修正 3 处（已由本人直接修正并留痕）。** 核对通过项：§5 配置键与 `config.sample.json` 一致；`--initialize --once` 与单 writer 守卫一致；急停 epoch 锁定语义与代码一致；暖机 1,009 根（168 天 × 6 + 1）正确；§4 判定门与 TB3 冻结门逐项一致；`fetch_tb4_exchange_rules.py` 默认输出路径与配置示例吻合；账户安全清单（主网/单向/1x/仅合约权限/禁提现/IP 白名单）与代码护栏对应。修正项：① §0/§6/§7 仍保留旧路线「不上真钱、PASS 才讨论小资金 live」表述,与已冻结的 `LIVE_SMALL.md` V2（小资金实盘并行）矛盾——已补澄清:并行实盘受 LIVE-SMALL 协议管辖,规模变更只走协议 1.2/1.3,paper 早期表现不是加仓依据,两本账独立；② §1 环境准备缺实盘部署必需的 `ORBIT_CREDENTIAL_MASTER_KEY` / `cryptography` 步骤（不配则实盘凭证无法保存）——已补第 6 步并交叉引用 README；③ 版本行未随实质修订更新——已改为 2026-07-30 V2。
+
+### 任务 UI-R1：四核心导航重构 + 策略中心首屏（优先级：高，交付 Codex；含 SC-2 精简版）
+
+**决策背景（2026-07-30，用户拍板）**：现导航仍围绕已 NO-GO 的双网格工作流组织（工作台漏斗/执行计划/币种视图），与项目真实形态（趋势策略 + 研究平台 + 小资金实盘）脱节,用户明确「菜单看不懂,核心应是策略中心、账户中心、研究平台、实盘中心」。据此重构信息架构;策略中心首屏与本任务合并交付,避免核心导航挂空页。
+
+- **目标导航**：
+  ```
+  核心（一级,无分组标题或单组）
+  ├── 策略中心  #strategy   （新页,SC-2 精简版,见下）
+  ├── 研究平台  #research   （现有,不动）
+  ├── 实盘中心  id=forward  （现前向实盘改名,新增别名 #live→forward）
+  └── 账户中心  #accounts   （现「用户与账户」改名）
+  旧网格（存档,折叠分组,默认收起）
+  ├── 工作台 / 执行计划 / 币种视图 / 风控中心 / 报表
+  ```
+- **改动**：
+  1. `App.vue` navGroups 按上表重构；默认登陆页由 `dashboard` 改为**实盘中心**（`forward`）；`labels.js` 改名与 `PAGE_META` 文案同步,新增 `live→forward` 别名,删除 `strategy→dashboard` 别名（`#strategy` 让位给新页）;既有 `#dashboard/#plans/#symbol/#risk/#reports/#events/#logs` 全部保持可达（归档组或重定向）。
+  2. **策略中心首屏（SC-2 精简版,遵循 `STRATEGY_CENTER.md`,不越界）**：① 身份与状态区——策略名/ID/版本/冻结定义哈希/运行模式,**并行态强制表述**（采纳设计评审意见①:显示 `LIVE_PILOT(500 USDT)` 时必须同时显示 paper 前向进度,不得表述为已从 paper 毕业）;② 普通语言原理摘要;③ 冻结参数表——由后端从 `TB4_SPEC` 序列化导出（SC-1 的定义部分:`StrategyDefinition` + `GET /api/strategies`、`GET /api/strategies/{id}` 定义摘要,证据接口后置）,前端零参数副本;④ 已知风险区（`STRATEGY_CENTER.md` §4.6 文案）;⑤ 「查看实盘中心/研究平台/风控」跳转。**证据区如实显示「结构化证据尚未接入（待 SC-1 bundle + SC-4）」,禁止手抄任何回测指标充数。**
+  3. 归档组页面功能零改动。
+- **验收**：① 导航呈现四核心 + 折叠归档,默认页为实盘中心;② 全部旧锚点可达（逐条测试重定向/归档可达）;③ 策略中心冻结参数与 `TB4_SPEC` 逐项相等且来自后端接口（对照测试）,全前端 grep 无 TB4 参数常量副本;④ 无任何手抄回测指标;⑤ 匿名 401、业务用户不见部署细节（权限测试）;⑥ 后端测试全绿,`npm run check/build` + 桌面/窄屏冒烟（Windows 侧）;⑦ `git diff --check` 通过。
+- **约束**：不改交易行为、`TB4_SPEC`、各账本与 LIVE-3 协议;SC-3（信号表）/SC-4（证据图表）/SC-5（对照）不在本批,后续独立交付;`STRATEGY_CENTER.md` 为策略中心的设计上限,本批只做其子集,不新增设计外内容。
 
 ### 任务 SC-1～SC-5：正式策略中心（设计完成，尚未实现）
 
