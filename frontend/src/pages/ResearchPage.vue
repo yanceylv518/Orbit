@@ -2,15 +2,15 @@
   <section class="page active research-page">
     <div class="page-toolbar">
       <div>
-        <h2>研究档案</h2>
-        <p>所有结论均对照冻结时的参数、成本与判定门槛。</p>
+        <h2>候选策略检验记录</h2>
+        <p>每个结论都必须对照跑数前写死的参数、成本和及格线。</p>
       </div>
       <div class="toolbar">
         <button class="button ghost" :disabled="store.researchBusy" @click="loadResearchCatalog">
           {{ store.researchBusy ? "读取中..." : "刷新档案" }}
         </button>
         <button class="button primary" @click="showCreate = !showCreate">
-          {{ showCreate ? "收起预注册" : "新建预注册" }}
+          {{ showCreate ? "收起新候选" : "登记新候选" }}
         </button>
       </div>
     </div>
@@ -20,15 +20,15 @@
     <article v-if="showCreate" class="panel research-create-panel">
       <div class="panel-head research-panel-head">
         <div>
-          <h3>冻结新候选</h3>
-          <p class="muted">提交后参数、成本、数据指纹与判定门槛永久不可修改。</p>
+          <h3>先写死规则，再登记新候选 <HelpTip term="预注册" /></h3>
+          <p class="muted">提交后参数、成本、数据指纹与及格线永久不可修改。</p>
         </div>
         <StatusBadge text="预注册" color="blue" />
       </div>
       <div class="research-create-grid">
         <section class="research-create-fields">
           <label>
-            <span>研究协议</span>
+            <span>使用哪套固定检验规则</span>
             <select v-model="draft.protocol" @change="applySuggestedDatasets">
               <option v-for="template in store.researchTemplates" :key="template.id" :value="template.id">
                 {{ template.id }} · {{ template.name }}
@@ -44,7 +44,7 @@
             <input v-model.trim="draft.name" maxlength="120" :placeholder="selectedTemplate?.name || '候选名称'" />
           </label>
           <div v-if="selectedTemplate" class="research-template-preview">
-            <p>{{ selectedTemplate.signal_definition }}</p>
+            <p>{{ candidateCopy(selectedTemplate).summary }}</p>
             <dl class="research-kv">
               <template v-for="entry in entries(selectedTemplate.parameters)" :key="`p-${entry[0]}`">
                 <dt>{{ fieldLabel(entry[0]) }}</dt><dd>{{ definitionValue(entry[1]) }}</dd>
@@ -57,14 +57,14 @@
         </section>
         <section class="research-dataset-picker">
           <div class="research-picker-head">
-            <div><h4>冻结数据矩阵</h4><p class="muted">已选 {{ draft.datasetIds.length }} 个缓存文件</p></div>
+            <div><h4>本候选固定使用哪些数据</h4><p class="muted">已选 {{ draft.datasetIds.length }} 个本地缓存文件</p></div>
             <button class="button ghost compact" type="button" @click="applySuggestedDatasets">推荐选择</button>
           </div>
           <div class="research-picker-list">
             <label v-for="dataset in compatibleDatasets" :key="dataset.id" class="research-picker-row">
               <input v-model="draft.datasetIds" type="checkbox" :value="dataset.id" />
               <span><strong>{{ dataset.id }}</strong><small>{{ dataset.market || "-" }} · {{ kindLabel(dataset.kind) }} · {{ dataset.interval || "-" }}</small></span>
-              <code>{{ shortHash(dataset.sha256) }}</code>
+              <code :title="`数据内容指纹：${dataset.sha256}`">{{ shortHash(dataset.sha256) }}</code>
             </label>
           </div>
         </section>
@@ -72,7 +72,7 @@
       <div class="research-freeze-footer">
         <label class="research-confirm-check">
           <input v-model="draft.confirmed" type="checkbox" />
-          <span>确认冻结后只能创建新候选，不能修改或覆盖本候选。</span>
+          <span>我确认：登记后只能新建另一个候选，不能修改或覆盖这个候选。</span>
         </label>
         <button class="button primary" :disabled="!canFreeze || store.researchWorkflowBusy" @click="freezeCandidate">
           {{ store.researchWorkflowBusy ? "冻结中..." : "冻结候选" }}
@@ -82,22 +82,22 @@
 
     <div class="summary-grid research-summary">
       <div class="summary-item">
-        <span>缓存数据集</span>
+        <span>可用的本地数据</span>
         <strong>{{ store.researchDatasets.length }}</strong>
         <small>{{ totalRows.toLocaleString("zh-CN") }} 行记录</small>
       </div>
       <div class="summary-item">
-        <span>冻结候选</span>
+        <span>已登记候选</span>
         <strong>{{ store.researchCandidates.length }}</strong>
         <small>登记后不可修改</small>
       </div>
       <div class="summary-item">
-        <span>保留结论</span>
+        <span>未通过的候选</span>
         <strong class="negative">{{ failedCandidates }}</strong>
-        <small>NO-GO / FAIL</small>
+        <small>没有通过预先写定的门槛</small>
       </div>
       <div class="summary-item">
-        <span>可用报告</span>
+        <span>可以查看的结果报告</span>
         <strong>{{ availableResults }}</strong>
         <small>本地结构化结果</small>
       </div>
@@ -105,7 +105,7 @@
 
     <article v-if="store.researchRuns.length" class="panel research-runs-panel">
       <div class="panel-head">
-        <div><h3>评估任务</h3><p class="muted">单任务串行 · 状态与结果只追加</p></div>
+        <div><h3>正在做和做完的检验</h3><p class="muted">一次只运行一个；历史状态和结果只能新增，不能覆盖</p></div>
         <span class="pill">{{ store.researchRuns.length }} 次</span>
       </div>
       <div class="research-run-list">
@@ -113,7 +113,7 @@
           <span class="candidate-id mono">{{ run.job_type === "dataset_fetch" ? "DATA" : run.candidate_id }}</span>
           <span class="research-run-copy"><strong>{{ runLabel(run) }}</strong><small>{{ dateTime(run.updated_at) }} · {{ run.id }}</small></span>
           <span class="research-progress"><i :style="{ width: `${run.progress || 0}%` }"></i></span>
-          <StatusBadge :text="runStatusLabel(run)" :color="runStatusColor(run)" />
+          <StatusBadge :text="runStatusLabel(run)" :raw="run.status" :color="runStatusColor(run)" />
         </button>
       </div>
     </article>
@@ -121,7 +121,7 @@
     <article class="panel research-dataset-panel">
       <div class="panel-head research-panel-head">
         <div>
-          <h3>数据目录</h3>
+          <h3>研究可以使用哪些本地数据？</h3>
           <p class="muted">{{ filteredDatasets.length }} / {{ store.researchDatasets.length }} 个缓存文件</p>
         </div>
         <div class="research-filters">
@@ -142,19 +142,19 @@
       </div>
       <div v-if="showFetch" class="research-fetch-strip">
         <label><span>市场</span><input v-model.trim="fetchDraft.symbol" maxlength="20" placeholder="BTCUSDT" /></label>
-        <label><span>数据类型</span><select v-model="fetchDraft.kind"><option value="ohlc">K 线</option><option value="funding">Funding</option></select></label>
+        <label><span>数据类型</span><select v-model="fetchDraft.kind"><option value="ohlc">K 线价格</option><option value="funding">资金费率（Funding）</option></select></label>
         <label v-if="fetchDraft.kind === 'ohlc'"><span>周期</span><select v-model="fetchDraft.interval"><option v-for="interval in fetchIntervals" :key="interval" :value="interval">{{ interval }}</option></select></label>
         <label><span>天数</span><input v-model.number="fetchDraft.days" type="number" min="1" max="2000" /></label>
         <button class="button primary" :disabled="store.researchWorkflowBusy || hasActiveRun" @click="fetchDataset">开始拉取</button>
       </div>
       <div class="table-wrap research-data-table">
         <table>
-          <thead><tr><th>数据集</th><th>市场</th><th>类型</th><th>周期</th><th>记录数</th><th>数据区间</th><th>SHA-256</th></tr></thead>
+          <thead><tr><th>数据集</th><th>市场</th><th>类型</th><th>周期</th><th>记录数</th><th>数据区间</th><th>内容指纹 <HelpTip term="哈希指纹" /></th></tr></thead>
           <tbody>
             <tr v-for="dataset in filteredDatasets" :key="dataset.id">
               <td><strong>{{ dataset.id }}</strong><div class="muted">{{ dataset.relative_path }}</div></td>
               <td>{{ dataset.market || "-" }}</td>
-              <td><StatusBadge :text="kindLabel(dataset.kind)" :color="kindColor(dataset.kind)" /></td>
+              <td><StatusBadge :text="kindLabel(dataset.kind)" :raw="dataset.kind" :color="kindColor(dataset.kind)" /></td>
               <td class="mono">{{ dataset.interval || "-" }}</td>
               <td class="mono">{{ Number(dataset.rows || 0).toLocaleString("zh-CN") }}</td>
               <td class="mono research-date-range">
@@ -173,8 +173,8 @@
       <article class="panel research-history-panel">
         <div class="panel-head">
           <div>
-            <h3>候选履历</h3>
-            <p class="muted">已检验假设永久留档</p>
+            <h3>以前检验过哪些想法？</h3>
+            <p class="muted">通过和失败都永久保留，不能只留下好看的结果</p>
           </div>
           <span class="pill">{{ store.researchCandidates.length }} 项</span>
         </div>
@@ -188,10 +188,10 @@
           >
             <span class="candidate-id mono">{{ candidate.id }}</span>
             <span class="candidate-copy">
-              <strong>{{ candidate.name }}</strong>
+              <strong :title="candidateCopy(candidate).originalName">{{ candidateCopy(candidate).name }}</strong>
               <small>冻结于 {{ dateTime(candidate.frozen_at) }}</small>
             </span>
-            <StatusBadge :text="verdictLabel(candidate.latest_verdict)" :color="verdictColor(candidate.latest_verdict)" />
+            <StatusBadge :text="verdictLabel(candidate.latest_verdict)" :raw="candidate.latest_verdict || 'PENDING'" :color="verdictColor(candidate.latest_verdict)" />
           </button>
           <p v-if="!store.researchCandidates.length && !store.researchBusy" class="muted">暂无冻结候选。</p>
         </div>
@@ -203,32 +203,32 @@
             <div>
               <div class="research-title-line">
                 <span class="candidate-id large mono">{{ candidate.id }}</span>
-                <h3>{{ candidate.name }}</h3>
-                <StatusBadge :text="verdictLabel(candidate.latest_verdict)" :color="verdictColor(candidate.latest_verdict)" />
+                <h3 :title="candidateCopy(candidate).originalName">{{ candidateCopy(candidate).name }}</h3>
+                <StatusBadge :text="verdictLabel(candidate.latest_verdict)" :raw="candidate.latest_verdict || 'PENDING'" :color="verdictColor(candidate.latest_verdict)" />
               </div>
-              <p>{{ candidate.signal_definition }}</p>
+              <p :title="candidateCopy(candidate).originalSummary">{{ candidateCopy(candidate).summary }}</p>
             </div>
             <div class="research-freeze-state">
-              <span>冻结指纹</span>
+              <span>冻结内容指纹 <HelpTip term="哈希指纹" /></span>
               <strong class="mono" :title="candidate.frozen_hash">{{ shortHash(candidate.frozen_hash) }}</strong>
             </div>
           </div>
 
           <div class="research-audit-strip">
             <div><span>冻结时间</span><strong>{{ dateTime(candidate.frozen_at) }}</strong></div>
-            <div><span>登记状态</span><strong>{{ candidate.status }}</strong></div>
-            <div><span>锁箱开箱</span><strong>{{ candidate.effective_lockbox_opened_at ? dateTime(candidate.effective_lockbox_opened_at) : "未开箱" }}</strong></div>
-            <div><span>当前判定</span><strong :class="verdictClass(candidate.latest_verdict)">{{ candidate.latest_verdict }}</strong></div>
+            <div><span>登记状态</span><strong :title="`系统原始值：${candidate.status}`">{{ enumLabel(candidate.status) }}</strong></div>
+            <div><span>一次性考卷 <HelpTip term="锁箱" /></span><strong>{{ candidate.effective_lockbox_opened_at ? dateTime(candidate.effective_lockbox_opened_at) : "尚未打开" }}</strong></div>
+            <div><span>当前结论</span><strong :class="verdictClass(candidate.latest_verdict)" :title="`系统原始值：${candidate.latest_verdict || 'PENDING'}`">{{ verdictLabel(candidate.latest_verdict) }}</strong></div>
           </div>
 
           <div v-if="candidate.status === 'frozen'" class="research-run-control">
             <div>
-              <h4>运行冻结评估</h4>
-              <p>只读取冻结时登记的缓存文件与 SHA-256，不接受临时改参。</p>
+              <h4>按登记时的规则开始检验</h4>
+              <p>只读取登记时选定的缓存文件和内容指纹，不接受临时改参数。</p>
             </div>
             <label class="research-confirm-check">
               <input v-model="openLockbox" type="checkbox" :disabled="Boolean(candidate.effective_lockbox_opened_at)" />
-              <span>{{ candidate.effective_lockbox_opened_at ? "锁箱已开，不可再次开启" : "本次为一次性锁箱开箱" }}</span>
+              <span>{{ candidate.effective_lockbox_opened_at ? "考卷已经打开，不能再次开启" : "本次将永久记录为打开一次性考卷" }}</span>
             </label>
             <button class="button primary" :disabled="store.researchWorkflowBusy || hasActiveRun" @click="runCandidate">
               {{ hasActiveRun ? "已有任务运行中" : openLockbox ? "开箱并运行" : "运行缓存评估" }}
@@ -237,7 +237,7 @@
 
           <div class="research-definition-grid">
             <section>
-              <h4>预注册参数</h4>
+              <h4>跑数前写死的参数 <HelpTip term="预注册" /></h4>
               <dl class="research-kv">
                 <template v-for="entry in entries(candidate.parameters)" :key="entry[0]">
                   <dt>{{ fieldLabel(entry[0]) }}</dt><dd>{{ definitionValue(entry[1]) }}</dd>
@@ -261,7 +261,7 @@
               </dl>
             </section>
             <section class="research-bars">
-              <h4>固定判定门槛</h4>
+              <h4>跑数前写死的及格线</h4>
               <div v-for="entry in entries(candidate.thresholds)" :key="entry[0]" class="fixed-bar-row">
                 <span>{{ fieldLabel(entry[0]) }}</span>
                 <strong>{{ definitionValue(entry[1]) }}</strong>
@@ -271,8 +271,8 @@
 
           <div class="research-result-head">
             <div>
-              <h4>结果证据</h4>
-              <p class="muted">逐市场或逐配置对照冻结门槛</p>
+              <h4>结果为什么通过或失败？</h4>
+              <p class="muted">逐个市场或配置对照跑数前写死的及格线</p>
             </div>
             <div class="research-segments">
               <button
@@ -292,7 +292,7 @@
           <template v-else-if="result">
             <div class="research-result-meta">
               <span>{{ result.protocol || candidate.id }}</span>
-              <span class="mono" :title="result.sha256">SHA {{ shortHash(result.sha256) }}</span>
+              <span class="mono" :title="result.sha256">报告指纹 <HelpTip term="哈希指纹" /> {{ shortHash(result.sha256) }}</span>
               <span>{{ result.relative_path }}</span>
             </div>
             <div class="table-wrap research-evidence-table">
@@ -305,9 +305,9 @@
                     <td class="mono">{{ integerValue(row.samples) }}</td>
                     <td class="mono" :class="numberClass(row.net)">{{ percentValue(row.net) }}</td>
                     <td class="mono" :class="numberClass(row.lower)">{{ percentValue(row.lower) }}</td>
-                    <td><StatusBadge :text="row.admitted ? 'PASS' : 'FAIL'" :color="row.admitted ? 'green' : 'red'" /></td>
+                    <td><StatusBadge :text="enumLabel(row.admitted ? 'PASS' : 'FAIL')" :raw="row.admitted ? 'PASS' : 'FAIL'" :color="row.admitted ? 'green' : 'red'" /></td>
                   </tr>
-                  <tr v-if="!evidenceRows.length"><td colspan="6" class="muted">该历史报告没有可归一化的逐项证据，最终 verdict 仍以冻结登记为准。</td></tr>
+                  <tr v-if="!evidenceRows.length"><td colspan="6" class="muted">该历史报告没有可以统一展示的逐项证据，最终结论仍以冻结登记为准。</td></tr>
                 </tbody>
               </table>
             </div>
@@ -322,7 +322,9 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import HelpTip from "../components/HelpTip.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import { candidateCopy, enumLabel } from "../domain/labels.js";
 import {
   createResearchCandidate,
   isAuthenticated,
@@ -347,7 +349,7 @@ let runPollTimer = null;
 const datasetKinds = [
   { value: "all", label: "全部" },
   { value: "ohlc", label: "K 线" },
-  { value: "funding", label: "Funding" },
+  { value: "funding", label: "资金费率" },
   { value: "series", label: "序列" },
 ];
 
@@ -511,14 +513,19 @@ function runLabel(run) {
     const request = run.request || {};
     return run.status === "succeeded"
       ? `已新增 ${run.dataset_id}`
-      : `拉取 ${request.symbol || "-"} ${request.kind === "funding" ? "Funding" : request.interval || "K 线"}`;
+      : `拉取 ${request.symbol || "-"} ${request.kind === "funding" ? "资金费率" : request.interval || "K 线"}`;
   }
-  if (run.status === "succeeded") return `冻结判定 ${run.verdict}`;
+  if (run.status === "succeeded") return `冻结结论：${verdictLabel(run.verdict)}`;
   return run.status === "running" ? "正在运行缓存评估" : "等待执行";
 }
 
 function runStatusLabel(run) {
-  return { queued: "排队", running: `${run.progress || 0}%`, succeeded: run.verdict || "完成", failed: "失败" }[run.status] || run.status;
+  return {
+    queued: enumLabel("queued"),
+    running: `正在运行 ${run.progress || 0}%`,
+    succeeded: run.verdict ? verdictLabel(run.verdict) : enumLabel("succeeded"),
+    failed: enumLabel("failed"),
+  }[run.status] || enumLabel(run.status);
 }
 
 function runStatusColor(run) {
@@ -560,9 +567,9 @@ function testLabel(row) {
   if (row.a_pct !== undefined) parts.push(`a=${row.a_pct}%`);
   if (row.lookback_settlements !== undefined) parts.push(`LB=${row.lookback_settlements}`);
   if (row.extreme_quantile !== undefined) parts.push(`q=${row.extreme_quantile}`);
-  if (row.holding_ticks !== undefined) parts.push(`H=${row.holding_ticks} ticks`);
-  if (row.holding_settlements !== undefined) parts.push(`H=${row.holding_settlements}`);
-  if (row.window_settlements !== undefined) parts.push(`${row.window_settlements} settlements`);
+  if (row.holding_ticks !== undefined) parts.push(`持有 ${row.holding_ticks} 个周期`);
+  if (row.holding_settlements !== undefined) parts.push(`持有 ${row.holding_settlements} 个结算期`);
+  if (row.window_settlements !== undefined) parts.push(`${row.window_settlements} 个结算期`);
   return parts.join(" · ") || "固定配置";
 }
 
@@ -581,7 +588,7 @@ function fieldLabel(value) {
   const labels = {
     a_pct: "锚点偏离",
     theta_pct: "趋势阈值",
-    holding_ticks: "持有 ticks",
+    holding_ticks: "持有周期数",
     holding_settlements: "持有结算期",
     lookback_settlements: "回看结算期",
     extreme_quantile: "极端分位",
@@ -603,7 +610,7 @@ function fieldLabel(value) {
 }
 
 function kindLabel(value) {
-  return { ohlc: "K 线", funding: "Funding", series: "序列" }[value] || value || "未知";
+  return enumLabel(value);
 }
 
 function kindColor(value) {
@@ -615,8 +622,8 @@ function isPass(value) {
 }
 
 function verdictLabel(value) {
-  if (!value || String(value).toUpperCase() === "PENDING") return "PENDING";
-  return isPass(value) ? "PASS" : "FAIL";
+  if (!value || String(value).toUpperCase() === "PENDING") return enumLabel("PENDING");
+  return enumLabel(isPass(value) ? "PASS" : "FAIL");
 }
 
 function verdictColor(value) {

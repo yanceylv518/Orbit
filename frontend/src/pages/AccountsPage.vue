@@ -26,12 +26,12 @@
             <thead><tr><th>用户</th><th>状态</th><th>账户数</th><th>总权益</th><th>今日盈亏</th><th>风险</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="user in users" :key="user.user_id">
-                <td><strong>{{ user.user_name }}</strong><div class="muted">{{ user.user_id }} · {{ user.role }}</div></td>
-                <td><StatusBadge :text="statusLabel(user.status)" :color="statusColor(user.status)" /></td>
+                <td><strong>{{ user.user_name }}</strong><div class="muted">{{ user.user_id }} · {{ enumLabel(user.role) }}</div></td>
+                <td><StatusBadge :text="statusLabel(user.status)" :raw="user.status" :color="statusColor(user.status)" /></td>
                 <td>{{ user.account_count }}</td>
                 <td>{{ fmt(user.total_equity) }} USDT</td>
                 <td :class="cls(user.today_pnl)">{{ fmt(user.today_pnl) }} USDT</td>
-                <td><StatusBadge :text="user.risk_status === 'normal' ? '正常' : '关注'" :color="user.risk_status === 'normal' ? 'green' : 'orange'" /></td>
+                <td><StatusBadge :text="enumLabel(user.risk_status)" :raw="user.risk_status" :color="user.risk_status === 'normal' ? 'green' : 'orange'" /></td>
                 <td><button v-if="isAdmin" class="button ghost small" @click="openUser(user)">编辑</button><span v-else class="muted">-</span></td>
               </tr>
               <tr v-if="!users.length"><td colspan="7" class="muted">暂无业务用户。</td></tr>
@@ -55,7 +55,7 @@
               <label><span>状态</span><select v-model="accountEditor.form.status"><option value="active">正常</option><option value="disabled">已禁用</option><option value="paused_by_admin">管理员暂停</option></select></label>
               <label class="inline-check"><input v-model="accountEditor.form.testnet" type="checkbox" /><span>测试网</span></label>
               <label class="inline-check"><input v-model="accountEditor.form.dry_run" type="checkbox" /><span>只读 / 不下单</span></label>
-              <label class="inline-check"><input v-model="accountEditor.form.hedge_mode_required" type="checkbox" /><span>要求 Hedge Mode</span></label>
+              <label class="inline-check"><input v-model="accountEditor.form.hedge_mode_required" type="checkbox" /><span>要求双向持仓模式</span></label>
             </div>
             <div class="editor-actions">
               <button class="button ghost small" @click="accountEditor.open = false">取消</button>
@@ -72,19 +72,24 @@
                   <strong>{{ row.account_label }}</strong>
                   <div class="account-meta-line">
                     <span>{{ row.account_id }}</span>
-                    <span>{{ row.exchange }} / {{ row.market_type }}</span>
+                    <span>{{ row.exchange }} / {{ enumLabel(row.market_type) }}</span>
                     <StatusBadge :text="accountModeLabel(row)" :color="accountModeColor(row)" />
                     <StatusBadge v-if="positionMode(row).hedge_mode_ok !== undefined" :text="positionMode(row).hedge_mode_ok ? '通过' : '未通过'" :color="positionMode(row).hedge_mode_ok ? 'green' : 'orange'" />
                     <StatusBadge v-else-if="row.hedge_mode_required" text="需双向" color="blue" />
                   </div>
                 </td>
                 <td><strong>{{ row.user_name }}</strong><div class="muted">{{ row.user_id }}</div></td>
-                <td><StatusBadge :text="statusLabel(row.account_status)" :color="statusColor(row.account_status)" /></td>
+                <td><StatusBadge :text="statusLabel(row.account_status)" :raw="row.account_status" :color="statusColor(row.account_status)" /></td>
                 <td>
                   <div class="account-inline-actions">
                     <div>
                       <StatusBadge :text="credentialText(row)" :color="credentialColor(row)" />
-                      <span class="muted">{{ statusLabel(snapshot(row).status || (exchangeAccount(row).api_key_configured ? 'unsynced' : 'missing_credentials')) }}</span>
+                      <StatusBadge
+                        class="account-sync-status"
+                        :text="statusLabel(snapshotStatus(row))"
+                        :raw="snapshotStatus(row)"
+                        :color="snapshotStatus(row) === 'synced' ? 'green' : (snapshotStatus(row) === 'error' ? 'red' : 'orange')"
+                      />
                       <div v-if="exchangeAccount(row).credential_error" class="sync-error compact">{{ exchangeAccount(row).credential_error }}</div>
                       <div v-if="snapshot(row).error" class="sync-error compact">{{ snapshot(row).error }}</div>
                     </div>
@@ -113,7 +118,7 @@
 import { reactive, watchEffect } from "vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { cls, fmt } from "../core/format.js";
-import { accountModeColor, accountModeLabel, statusColor, statusLabel } from "../domain/labels.js";
+import { accountModeColor, accountModeLabel, enumLabel, statusColor, statusLabel } from "../domain/labels.js";
 import {
   accounts,
   currentUser,
@@ -142,6 +147,10 @@ function exchangeAccount(row) {
 
 function snapshot(row) {
   return (store.state?.binance_account_snapshots || {})[row.account_id] || {};
+}
+
+function snapshotStatus(row) {
+  return snapshot(row).status || (exchangeAccount(row).api_key_configured ? "unsynced" : "missing_credentials");
 }
 
 function positionMode(row) {

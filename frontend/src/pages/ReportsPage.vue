@@ -3,7 +3,7 @@
     <div class="page-toolbar">
       <div>
         <h2>{{ activeTab === "reports" ? "每日复盘报告" : "策略事件日志" }}</h2>
-        <p>{{ activeTab === "reports" ? "先选择报告资源，再查看 Markdown 或图表。" : "父事件、子成交和执行原因。" }}</p>
+        <p>{{ activeTab === "reports" ? "先选择日报，再查看报告正文或图表。" : "查看每次策略动作、成交和执行原因。" }}</p>
       </div>
       <div class="action-row">
         <button class="tab" :class="{ active: activeTab === 'reports' }" @click="activeTab = 'reports'">复盘日报</button>
@@ -16,7 +16,7 @@
     <div v-else class="resource-workspace">
       <article class="panel resource-list-panel">
         <div class="panel-head">
-          <h3>资源列表</h3>
+          <h3>日报内容</h3>
           <span class="pill">{{ resources.length }} 项</span>
         </div>
 
@@ -39,14 +39,14 @@
             <span>{{ resource.title }}</span>
             <small>{{ resource.date }} · {{ resource.typeLabel }}</small>
           </button>
-          <p v-if="!resources.length" class="muted">暂无报告资源。生成日报后可在这里选择 Markdown 或图表。</p>
+          <p v-if="!resources.length" class="muted">暂无日报。生成日报后，可在这里查看报告正文和图表。</p>
         </div>
       </article>
 
       <article class="panel resource-preview-panel">
         <div class="panel-head">
           <div>
-            <h3>{{ selectedResource ? selectedResource.title : "资源预览" }}</h3>
+            <h3>{{ selectedResource ? selectedResource.title : "报告预览" }}</h3>
             <p v-if="selectedResource" class="muted">{{ selectedResource.date }} · {{ selectedResource.typeLabel }}</p>
           </div>
           <a v-if="selectedResource" class="button ghost small" :href="selectedResource.href" target="_blank">新窗口打开</a>
@@ -57,13 +57,13 @@
         </div>
 
         <div v-else-if="selectedResource?.type === 'markdown'" class="resource-preview markdown-preview">
-          <p v-if="markdownLoading" class="muted">正在读取 Markdown...</p>
+          <p v-if="markdownLoading" class="muted">正在读取报告正文...</p>
           <p v-else-if="markdownError" class="login-error">{{ markdownError }}</p>
           <pre v-else>{{ markdownText }}</pre>
         </div>
 
         <div v-else class="resource-preview empty-preview">
-          <p class="muted">请选择左侧资源。</p>
+          <p class="muted">请选择左侧日报内容。</p>
         </div>
       </article>
     </div>
@@ -91,7 +91,7 @@ const resources = computed(() => {
       items.push({
         key: `${reportKey}:markdown`,
         type: "markdown",
-        typeLabel: "Markdown",
+        typeLabel: "报告正文",
         title: `${report.date} 日报正文`,
         date: report.date,
         path: report.markdown_path,
@@ -144,7 +144,7 @@ watch(selectedKey, async () => {
     if (!response.ok) throw new Error(`读取失败（HTTP ${response.status}）`);
     markdownText.value = await response.text();
   } catch (error) {
-    markdownError.value = error instanceof Error ? error.message : "读取 Markdown 失败。";
+    markdownError.value = error instanceof Error ? error.message : "读取报告正文失败。";
   } finally {
     markdownLoading.value = false;
   }

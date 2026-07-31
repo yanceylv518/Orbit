@@ -1,6 +1,6 @@
 <template>
   <div class="summary-item">
-    <span>{{ label }}</span>
+    <span>{{ label }} <HelpTip v-if="help" :term="help" /></span>
     <strong>
       <slot>{{ value }}</slot>
     </strong>
@@ -9,9 +9,12 @@
 </template>
 
 <script setup>
+import HelpTip from "./HelpTip.vue";
+
 defineProps({
   label: { type: String, required: true },
   value: { type: [String, Number], default: "--" },
   note: { type: String, default: "" },
+  help: { type: String, default: "" },
 });
 </script>

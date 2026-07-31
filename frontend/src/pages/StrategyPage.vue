@@ -2,11 +2,13 @@
   <section class="strategy-workspace-page">
     <div class="page-toolbar strategy-tabs-toolbar">
       <div>
-        <h2>{{ activeTab === "official" ? "正式策略" : "研究候选" }}</h2>
+        <h2>{{ activeTab === "official" ? "正式运行的策略" : "正在检验的候选" }}</h2>
         <p>
           {{ activeTab === "official"
-            ? "查看已准入策略的冻结定义、运行阶段和已知风险。"
-            : "按预注册、冻结和锁箱纪律检验下一个候选。" }}
+            ? "看清系统现在交易什么、为什么这样做，以及有哪些已知风险。"
+            : "跑数据前先写死规则和及格线，再用一次性考卷检验候选。" }}
+          <HelpTip v-if="activeTab === 'research'" term="预注册" />
+          <HelpTip v-if="activeTab === 'research'" term="锁箱" />
         </p>
       </div>
       <div class="action-row" role="tablist" aria-label="策略工作区">
@@ -38,6 +40,7 @@
 
 <script setup>
 import { computed } from "vue";
+import HelpTip from "../components/HelpTip.vue";
 import ResearchPage from "./ResearchPage.vue";
 import StrategyCenterPage from "./StrategyCenterPage.vue";
 import { setStrategyTab, store } from "../stores/appStore.js";

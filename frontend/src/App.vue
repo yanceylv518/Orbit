@@ -67,6 +67,7 @@
           <p>{{ pageMeta[2] }}</p>
         </div>
         <div class="toolbar">
+          <button class="button ghost" @click="glossaryOpen = true">术语帮助</button>
           <button class="risk-pill" :class="riskStatusClass" @click="setActivePage('risk')" title="点击进入风控中心">
             风控 {{ riskStatusText }}
           </button>
@@ -81,7 +82,7 @@
             <span class="pill">只读复盘 · 不修改执行状态</span>
           </template>
           <template v-else-if="store.activePage === 'risk'">
-            <span class="pill">LIVE-SMALL · 30% 停机线</span>
+            <span class="pill" title="协议阶段：LIVE-SMALL">小资金实盘 · 30% 强制停机线</span>
           </template>
           <template v-else-if="store.activePage === 'accounts'">
             <button class="button ghost" :disabled="store.syncAllBusy" @click="syncAllAccounts">
@@ -108,12 +109,14 @@
 
       <component :is="activeComponent" v-if="store.state" />
     </main>
+    <GlossaryModal :open="glossaryOpen" @close="glossaryOpen = false" />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import NavIcon from "./components/NavIcon.vue";
+import GlossaryModal from "./components/GlossaryModal.vue";
 import AccountsPage from "./pages/AccountsPage.vue";
 import ForwardPage from "./pages/ForwardPage.vue";
 import ReviewPage from "./pages/ReviewPage.vue";
@@ -137,6 +140,7 @@ import { login } from "./stores/appStore.js";
 
 const loginId = ref("admin_001");
 const password = ref("");
+const glossaryOpen = ref(false);
 let timer = null;
 
 const navGroups = [
@@ -154,7 +158,7 @@ const navGroups = [
 
 const pageMeta = computed(() => PAGE_META[store.activePage] || PAGE_META.forward);
 const readOnlyMode = computed(() => store.state?.strategy?.mode === "read_only");
-const riskStatusText = computed(() => (store.state?.strategy?.risk_status === "normal" ? "正常" : "关注"));
+const riskStatusText = computed(() => statusLabel(store.state?.strategy?.risk_status || "normal"));
 const riskStatusClass = computed(() => (store.state?.strategy?.risk_status === "normal" ? "ok" : "warn"));
 const pageComponents = {
   strategy: StrategyPage,

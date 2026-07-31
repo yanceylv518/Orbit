@@ -10,12 +10,14 @@
     <div class="metric-grid">
       <MetricCard
         label="实盘当前回撤"
+        help="回撤"
         :value="metricPercent(equity.live_drawdown_pct)"
         :note="`距 ${percent(threshold)} 停机线 ${distanceText(equity.live_drawdown_pct)}`"
         :value-class="drawdownClass(equity.live_drawdown_pct)"
       />
       <MetricCard
-        label="paper 当前回撤"
+        label="模拟盘当前回撤"
+        help="回撤"
         :value="metricPercent(equity.paper_drawdown_pct)"
         :note="`距 ${percent(threshold)} 停机线 ${distanceText(equity.paper_drawdown_pct)}`"
         :value-class="drawdownClass(equity.paper_drawdown_pct)"
@@ -28,8 +30,8 @@
       />
       <MetricCard
         label="执行账本"
-        :value="liveExecution.ledger?.status || '未就绪'"
-        :note="liveExecution.ledger?.error || '哈希链只追加校验'"
+        :value="liveExecution.ledger?.status ? enumLabel(liveExecution.ledger.status) : '尚未建立账本'"
+        :note="liveExecution.ledger?.error || (liveExecution.ledger?.status ? `防篡改校验 · ${liveExecution.ledger.status}` : '等待第一条执行记录')"
         :value-class="liveExecution.ledger?.status === 'INVALID' ? 'negative' : ''"
       />
     </div>
@@ -38,10 +40,10 @@
       <article class="panel">
         <div class="panel-head">
           <div>
-            <h3>LIVE-SMALL 回撤水位</h3>
+            <h3>账户离强制停止还有多远？ <HelpTip term="回撤" /></h3>
             <p class="muted">与自动执行停机检查同源；达到或超过 30% 时机制性拒绝新订单。</p>
           </div>
-          <StatusBadge :text="equity.status || 'NO_OBSERVATIONS'" :color="equity.status === 'READY' ? 'green' : 'orange'" />
+          <StatusBadge :text="enumLabel(equity.status || 'NO_OBSERVATIONS')" :raw="equity.status || 'NO_OBSERVATIONS'" :color="equity.status === 'READY' ? 'green' : 'orange'" />
         </div>
         <div class="drawdown-stack">
           <div v-for="item in drawdownItems" :key="item.label" class="drawdown-row">
@@ -56,14 +58,14 @@
           </div>
         </div>
         <p v-if="equity.status !== 'READY'" class="empty-note">
-          权益账本尚无有效基准；自动执行会以 EQUITY_BASELINE_MISSING 关闭失败，不会静默放行。
+          权益账本尚无有效起点；没有起点时自动下单会直接拒绝，不会在无法计算回撤时继续交易。
         </p>
       </article>
 
       <article class="panel">
         <div class="panel-head">
           <div>
-            <h3>停止条件</h3>
+            <h3>出现什么情况必须停止？</h3>
             <p class="muted">任一条件触发即停止；无法程序判定的条件明确保留人工复核。</p>
           </div>
         </div>
@@ -79,7 +81,7 @@
     <article class="panel guards-panel">
       <div class="panel-head">
         <div>
-          <h3>自动执行护栏</h3>
+          <h3>自动下单的四道保护</h3>
           <p class="muted">显示当前执行投影，不提供绕过、重试或原地恢复入口。</p>
         </div>
         <button
@@ -110,8 +112,8 @@
       </div>
       <div class="audit-list">
         <div v-for="item in auditLogs.slice(0, 20)" :key="item.id" class="audit-item">
-          <strong>{{ item.action_type }}</strong>
-          <div class="muted">{{ timeText(item.timestamp) }} / {{ item.admin_user_id || "-" }}</div>
+          <strong :title="`系统原始值：${item.action_type}`">{{ enumLabel(item.action_type) }}</strong>
+          <div class="muted">{{ timeText(item.timestamp) }} / {{ item.admin_user_id || "-" }} · {{ item.action_type }}</div>
           <p>{{ item.reason || "未提供原因" }}</p>
         </div>
         <p v-if="!auditLogs.length" class="muted">暂无管理员操作记录。</p>
@@ -121,7 +123,7 @@
     <details v-if="hasLegacyPlanOnly" class="legacy-risk-details">
       <summary>旧网格 plan_only 风控（仍有启用配置）</summary>
       <p class="muted legacy-explanation">
-        以下内容仅服务仍在运行的旧网格计划；它不参与 TB4 LIVE-SMALL 的回撤与停机判断。
+        以下内容仅服务仍在运行的旧网格计划；它不参与当前趋势策略的回撤与停止判断。
       </p>
       <LegacyRiskPanel />
     </details>
@@ -130,9 +132,11 @@
 
 <script setup>
 import { computed } from "vue";
+import HelpTip from "../components/HelpTip.vue";
 import MetricCard from "../components/MetricCard.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { percent } from "../core/format.js";
+import { enumLabel } from "../domain/labels.js";
 import { post, store } from "../stores/appStore.js";
 import LegacyRiskPanel from "./LegacyRiskPanel.vue";
 
@@ -163,19 +167,10 @@ const stoppedStatuses = new Set([
   "INCOMPLETE_ROUND",
 ]);
 const isStopped = computed(() => stoppedStatuses.has(liveExecution.value.status));
-const executionStatusText = computed(() => ({
-  DISABLED: "默认关闭",
-  ENABLED: "已启用",
-  EMERGENCY_STOPPED: "管理员急停",
-  PROTOCOL_STOP: "回撤协议停机",
-  PROTOCOL_VIOLATION: "协议违规停机",
-  DATA_INTEGRITY_ERROR: "数据完整性停机",
-  INCOMPLETE_ROUND: "未完成轮次停机",
-  NOT_VISIBLE: "无权查看",
-})[liveExecution.value.status] || liveExecution.value.status || "未知");
+const executionStatusText = computed(() => enumLabel(liveExecution.value.status));
 const drawdownItems = computed(() => [
   { label: "实盘权益", value: equity.value.live_drawdown_pct },
-  { label: "paper 基准", value: equity.value.paper_drawdown_pct },
+  { label: "模拟盘基准", value: equity.value.paper_drawdown_pct },
 ]);
 const dataIntegrityFailure = computed(() => (
   liveExecution.value.status === "DATA_INTEGRITY_ERROR"
@@ -185,9 +180,9 @@ const dataIntegrityFailure = computed(() => (
 ));
 const stopConditions = computed(() => [
   drawdownCondition("实盘权益回撤达到停机线", equity.value.live_drawdown_pct),
-  drawdownCondition("paper 基准回撤达到停机线", equity.value.paper_drawdown_pct),
+  drawdownCondition("模拟盘基准回撤达到停机线", equity.value.paper_drawdown_pct),
   {
-    label: "实盘与 paper 无法解释的系统性偏离",
+    label: "实盘与模拟盘出现无法解释的持续差距",
     state: "人工复核",
     color: "blue",
     note: "需要结合多周偏差、滑点、成交时点和结构性不可执行做书面归因。",
@@ -206,7 +201,7 @@ const guards = computed(() => [
     label: "30% 协议停机",
     state: liveExecution.value.status === "PROTOCOL_STOP" ? "已触发" : "未触发",
     color: liveExecution.value.status === "PROTOCOL_STOP" ? "red" : "green",
-    note: "实盘或 paper 回撤达到阈值时拒绝该轮执行。",
+    note: "实盘或模拟盘回撤达到阈值时拒绝该轮执行。",
   },
   {
     label: "清单映射与协议违规",
@@ -218,13 +213,13 @@ const guards = computed(() => [
     label: "未完成轮次",
     state: liveExecution.value.status === "INCOMPLETE_ROUND" ? "已触发" : "未触发",
     color: liveExecution.value.status === "INCOMPLETE_ROUND" ? "red" : "green",
-    note: "重启发现 ROUND_STARTED 未完成时不重复下单。",
+    note: "重启后发现上一次调仓没有完整结束时，不会重复下单。",
   },
   {
     label: "管理员急停",
     state: liveExecution.value.status === "EMERGENCY_STOPPED" ? "已触发" : "未触发",
     color: liveExecution.value.status === "EMERGENCY_STOPPED" ? "red" : "green",
-    note: "恢复必须修改 execution epoch 并重启，页面没有直接恢复入口。",
+    note: "恢复必须创建新的执行批次并重启，页面没有直接恢复入口。",
   },
 ]);
 
@@ -267,7 +262,7 @@ function timeText(value) {
 }
 
 async function stopLiveExecution() {
-  const reason = prompt("请输入自动执行急停原因。急停后只能修改配置 epoch 并重启才能恢复：");
+  const reason = prompt("请输入自动下单急停原因。急停后只能创建新的执行批次并重启才能恢复：");
   if (!reason?.trim()) return;
   if (!confirm("确认立即停止所有新的 TB4 自动订单？")) return;
   await post("/api/admin/live-execution/emergency-stop", { reason: reason.trim() });

@@ -2,17 +2,17 @@
   <section class="page active">
     <div v-if="riskState.global_stop" class="global-stop-banner" role="alert">
       <div>
-        <strong>GLOBAL_STOP 已激活</strong>
-        <span>组合级回撤已触发全局拦截，当前不会生成新的开仓动作。</span>
+        <strong title="系统原始值：GLOBAL_STOP">旧网格已触发全局停止</strong>
+        <span>旧网格组合亏损已达到停止线，当前不会生成新的开仓动作。</span>
       </div>
     </div>
 
     <div class="metric-grid risk-metrics">
       <MetricCard label="运行用户" :value="users.length" note="业务用户" />
-      <MetricCard label="运行账户" :value="accounts.length" note="Binance futures" />
-      <MetricCard label="STOPPED 币种" :value="stoppedSymbols.length" note="等待管理员复核" :value-class="stoppedSymbols.length ? 'negative' : ''" />
+      <MetricCard label="运行账户" :value="accounts.length" note="Binance 永续合约" />
+      <MetricCard label="已停止币种" :value="stoppedSymbols.length" note="等待管理员复核" :value-class="stoppedSymbols.length ? 'negative' : ''" />
       <MetricCard label="计划拦截" :value="blockedCount" note="来自计划风控检查" :value-class="blockedCount ? 'negative' : ''" />
-      <MetricCard label="决策阻断" :value="blockedDecisions.length" note="info / 不产生成交" />
+      <MetricCard label="决策阻断" :value="blockedDecisions.length" note="仅提示，不产生成交" />
       <MetricCard label="实质告警" :value="materialRiskEvents.length" :note="materialRiskEvents.length ? '需要关注' : '当前正常'" :value-class="materialRiskEvents.length ? 'negative' : ''" />
     </div>
 
@@ -24,7 +24,7 @@
         :value-class="syncBucket.length ? 'negative' : ''"
       />
       <MetricCard
-        label="Hedge Mode 风险"
+        label="双向持仓模式风险"
         :value="hedgeBucket.length"
         note="账户未开启双向持仓"
         :value-class="hedgeBucket.length ? 'negative' : ''"
@@ -32,7 +32,7 @@
       <MetricCard
         label="计划动作风险"
         :value="actionBucket.length"
-        note="动作被 RiskGuard 拦截"
+        note="动作被风险规则拦截"
         :value-class="actionBucket.length ? 'negative' : ''"
       />
     </div>
@@ -41,8 +41,8 @@
       <article class="panel stopped-symbol-panel">
         <div class="panel-head">
           <div>
-            <h3>STOPPED 币种</h3>
-            <p class="muted">恢复会重置该账户币种的回撤基准，并写入管理员审计。</p>
+            <h3>已停止币种</h3>
+            <p class="muted">回撤 <HelpTip term="回撤" /> · 恢复会重置该账户币种的亏损基准，并写入管理员审计。</p>
           </div>
           <StatusBadge :text="stoppedSymbols.length ? `${stoppedSymbols.length} 项待复核` : '无待复核项'" :color="stoppedSymbols.length ? 'red' : 'green'" />
         </div>
@@ -69,7 +69,7 @@
                   <span v-else class="muted">仅管理员</span>
                 </td>
               </tr>
-              <tr v-if="!stoppedSymbols.length"><td colspan="7" class="muted">当前没有处于 STOPPED 状态的账户币种。</td></tr>
+              <tr v-if="!stoppedSymbols.length"><td colspan="7" class="muted">当前没有被停止的账户币种。</td></tr>
             </tbody>
           </table>
         </div>
@@ -86,8 +86,8 @@
                 <td>{{ risk.user_id || "-" }}</td>
                 <td>{{ risk.exchange_account_id || "-" }}</td>
                 <td>{{ risk.symbol || "-" }}</td>
-                <td><StatusBadge :text="risk.risk_type" :color="risk.risk_level === 'high' ? 'red' : 'orange'" /></td>
-                <td><StatusBadge :text="risk.risk_level || '-'" :color="risk.risk_level === 'high' ? 'red' : 'orange'" /></td>
+                <td><StatusBadge :text="enumLabel(risk.risk_type)" :raw="risk.risk_type" :color="risk.risk_level === 'high' ? 'red' : 'orange'" /></td>
+                <td><StatusBadge :text="enumLabel(risk.risk_level)" :raw="risk.risk_level" :color="risk.risk_level === 'high' ? 'red' : 'orange'" /></td>
                 <td>{{ risk.action_taken }}</td>
               </tr>
               <tr v-if="!materialRiskEvents.length"><td colspan="7" class="muted">暂无实质风险告警。</td></tr>
@@ -111,7 +111,7 @@
                 <td>{{ displayTime(item.timestamp) }}</td>
                 <td>{{ accountName(item.exchange_account_id) }}</td>
                 <td>{{ item.symbol || "-" }}</td>
-                <td><strong>{{ item.risk_type || "BLOCKED" }}</strong><div class="muted">{{ item.message || "未提供说明" }}</div></td>
+                <td><strong :title="`系统原始值：${item.risk_type || 'BLOCKED'}`">{{ enumLabel(item.risk_type || "blocked") }}</strong><div class="muted">{{ item.message || "未提供说明" }}</div></td>
                 <td>{{ item.trigger?.block_source || item.context?.block_source || "-" }}</td>
               </tr>
               <tr v-if="!blockedDecisions.length"><td colspan="5" class="muted">暂无决策阻断记录。</td></tr>
@@ -129,7 +129,7 @@
               <tr v-for="plan in executionPlans.slice(0, 14)" :key="plan.id">
                 <td><strong>{{ accountName(plan.account_id) }}</strong><div class="muted">{{ plan.account_id }}</div></td>
                 <td>{{ plan.symbol }}</td>
-                <td><StatusBadge :text="statusLabel(plan.status)" :color="planStatusColor(plan.status)" /></td>
+                <td><StatusBadge :text="statusLabel(plan.status)" :raw="plan.status" :color="planStatusColor(plan.status)" /></td>
                 <td>
                   <div v-for="check in plan.risk_checks || []" :key="check.name">
                     <StatusBadge :text="check.ok ? '通过' : '拦截'" :color="check.ok ? 'green' : 'orange'" />
@@ -149,8 +149,8 @@
         <div class="panel-head"><h3>审计日志</h3></div>
         <div class="audit-list">
           <div v-for="item in auditLogs.slice(0, 12)" :key="item.id" class="audit-item">
-            <strong>{{ item.action_type }}</strong>
-            <div class="muted">{{ displayTime(item.timestamp) }} / {{ item.admin_user_id }}</div>
+            <strong :title="`系统原始值：${item.action_type}`">{{ enumLabel(item.action_type) }}</strong>
+            <div class="muted">{{ displayTime(item.timestamp) }} / {{ item.admin_user_id }} · {{ item.action_type }}</div>
             <p>{{ item.reason }}</p>
           </div>
           <p v-if="!auditLogs.length" class="muted">暂无管理员操作。</p>
@@ -172,7 +172,7 @@
       <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="recovery-title">
         <div class="modal-head">
           <div>
-            <h3 id="recovery-title">复核恢复 STOPPED 币种</h3>
+            <h3 id="recovery-title">复核恢复已停止币种</h3>
             <p class="muted">{{ accountName(recoveryTarget.account_id) }} / {{ recoveryTarget.symbol }}</p>
           </div>
           <button class="modal-close" type="button" title="关闭" aria-label="关闭" @click="closeRecovery">×</button>
@@ -200,9 +200,10 @@
 
 <script setup>
 import { computed, ref } from "vue";
+import HelpTip from "../components/HelpTip.vue";
 import MetricCard from "../components/MetricCard.vue";
 import StatusBadge from "../components/StatusBadge.vue";
-import { planStatusColor, statusLabel } from "../domain/labels.js";
+import { enumLabel, planStatusColor, statusLabel } from "../domain/labels.js";
 import {
   accounts,
   emergencyStop,

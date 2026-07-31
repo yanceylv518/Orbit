@@ -6,7 +6,7 @@
         <small>每 2.5 秒随服务状态刷新</small>
       </div>
       <div class="metric-grid system-health-grid">
-        <MetricCard label="纸面前向" :value="forwardStatus" :note="paperHealthNote" />
+        <MetricCard label="模拟盘前向" help="纸面前向" :value="forwardStatus" :note="paperHealthNote" />
         <MetricCard
           label="自动执行"
           :value="executionStatusText"
@@ -36,9 +36,10 @@
         note="仅用于只读清单，不进入策略状态"
       />
       <MetricCard
-        label="目标总名义"
+        label="目标仓位总价值"
+        help="名义金额"
         :value="`${fmt(summary.target_gross_notional_usdt)} USDT`"
-        :note="`gross 权重 ${percent(Number(summary.target_gross_weight || 0) * 100)}`"
+        :note="`占资金比例 ${percent(Number(summary.target_gross_weight || 0) * 100)}`"
       />
       <MetricCard
         label="可执行覆盖"
@@ -55,9 +56,10 @@
     <article class="panel">
       <div class="panel-head">
         <div>
-          <h3>LIVE-SMALL · 冻结执行清单</h3>
+          <h3>本周调仓清单</h3>
           <p class="muted checklist-meta">
-            再平衡 {{ timeText(checklist.rebalance_time_ms) }} · 行情 {{ timeText(checklist.close_time_ms) }}
+            小资金实盘 · 每周调仓 <HelpTip term="再平衡" /> {{ timeText(checklist.rebalance_time_ms) }}
+            · 使用行情 {{ timeText(checklist.close_time_ms) }}
             · 规则 {{ checklist.rules?.fetched_at || "-" }}
           </p>
         </div>
@@ -76,7 +78,7 @@
               <th>市场</th>
               <th>方向</th>
               <th>权重</th>
-              <th>目标名义</th>
+              <th>目标仓位价值 <HelpTip term="名义金额" /></th>
               <th>较上次变化</th>
               <th>目标数量</th>
               <th>最低额 / 步进</th>
@@ -100,14 +102,14 @@
                 <div class="muted">step {{ row.quantity_step }}</div>
               </td>
               <td>
-                <StatusBadge :text="checklistStatusText(row.status)" :color="checklistStatusColor(row.status)" />
+                <StatusBadge :text="checklistStatusText(row.status)" :raw="row.status" :color="checklistStatusColor(row.status)" />
                 <div class="muted row-action">{{ row.action }}</div>
               </td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="3"><strong>合计 gross</strong></td>
+              <td colspan="3"><strong>目标仓位总价值</strong></td>
               <td class="mono">{{ fmt(summary.target_gross_notional_usdt, 4) }} USDT</td>
               <td></td>
               <td class="mono">{{ fmt(summary.executable_gross_notional_usdt, 4) }} USDT 可执行</td>
@@ -122,10 +124,10 @@
     <article class="panel guard-panel">
       <div class="panel-head">
         <div>
-          <h3>LIVE-SMALL V2 自动执行边界</h3>
+          <h3>自动下单保护规则</h3>
           <p class="muted">
-            唯一指令源是本页冻结清单。自动执行默认关闭；启用后仍受单笔/单轮上限、
-            单向持仓、规则时效、30% 回撤停机和只追加幂等账本约束。
+            小资金实盘第二版协议只允许执行上面的冻结清单。自动下单默认关闭；启用后仍受金额上限、
+            单向持仓、规则时效、30% 回撤停止和防重复下单账本约束。
           </p>
         </div>
         <button
@@ -142,13 +144,13 @@
       <MetricCard
         label="自动执行"
         :value="executionStatusText"
-        :note="liveExecution.execution_epoch ? `epoch ${liveExecution.execution_epoch}` : '须修改配置并重启才能启用'"
+        :note="liveExecution.execution_epoch ? `执行批次 ${liveExecution.execution_epoch}` : '须修改配置并重启才能启用'"
         :value-class="liveExecution.status === 'ENABLED' ? '' : 'negative'"
       />
       <MetricCard
         label="最近执行轮次"
         :value="timeText(executionReport.rebalance_time_ms)"
-        :note="executionReport.status || '尚无执行报告'"
+        :note="executionReport.status ? `${enumLabel(executionReport.status)}（${executionReport.status}）` : '尚无执行报告'"
       />
       <MetricCard
         label="逐单成功率"
@@ -173,7 +175,8 @@
           </p>
         </div>
         <StatusBadge
-          :text="executionReport.status || liveExecution.status || 'DISABLED'"
+          :text="enumLabel(executionReport.status || liveExecution.status || 'DISABLED')"
+          :raw="executionReport.status || liveExecution.status || 'DISABLED'"
           :color="executionReport.status === 'COMPLETED_WITH_ERRORS' ? 'red' : (executionReport.status ? 'green' : 'orange')"
         />
       </div>
@@ -185,13 +188,13 @@
           <thead>
             <tr>
               <th>市场</th><th>状态</th><th>目标数量</th><th>下单数量</th>
-              <th>成交数量</th><th>成交均价</th><th>滑点</th><th>手续费</th><th>异常</th>
+              <th>成交数量</th><th>成交均价</th><th>成交价偏差 <HelpTip term="滑点" /></th><th>手续费</th><th>异常</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in executionReport.rows" :key="row.symbol">
               <td><strong>{{ row.symbol }}</strong></td>
-              <td><StatusBadge :text="executionRowText(row.status)" :color="executionRowColor(row.status)" /></td>
+              <td><StatusBadge :text="executionRowText(row.status)" :raw="row.status" :color="executionRowColor(row.status)" /></td>
               <td class="mono">{{ signedQuantity(row.target_quantity) }}</td>
               <td class="mono">{{ fmt(row.requested_quantity, 8) }}</td>
               <td class="mono">{{ fmt(row.executed_quantity, 8) }}</td>
@@ -227,7 +230,8 @@
         :value-class="Number(positionResult.deviation_count || 0) ? 'negative' : ''"
       />
       <MetricCard
-        label="累计 paper 偏差"
+        label="实盘与模拟累计差距"
+        help="纸面前向"
         :value="equityResult.cumulative_deviation_pct == null ? '-' : percent(equityResult.cumulative_deviation_pct)"
         :note="`结构性可执行比例 ${percent(Number(equityResult.structural_tracking_ratio || 0) * 100)}`"
         :value-class="cls(equityResult.cumulative_deviation_pct)"
@@ -237,7 +241,7 @@
     <article class="panel">
       <div class="panel-head">
         <div>
-          <h3>真实持仓 vs 冻结目标</h3>
+          <h3>真实持仓是否符合计划？</h3>
           <p class="muted checklist-meta">
             同步 {{ timeText(reconciliation.account_synced_at) }} ·
             数量容差 = 步进 + 目标数量的 {{ fmt(reconciliation.quantity_tolerance_pct) }}%
@@ -262,7 +266,7 @@
           <tbody>
             <tr v-for="row in positionResult.rows" :key="row.symbol">
               <td><strong>{{ row.symbol }}</strong></td>
-              <td><StatusBadge :text="reconciliationRowText(row.status)" :color="reconciliationRowColor(row.status)" /></td>
+              <td><StatusBadge :text="reconciliationRowText(row.status)" :raw="row.status" :color="reconciliationRowColor(row.status)" /></td>
               <td class="mono">{{ signedQuantity(row.target_quantity) }}</td>
               <td class="mono">{{ signedQuantity(row.actual_quantity) }}</td>
               <td class="mono" :class="cls(-Math.abs(Number(row.difference_quantity || 0)))">
@@ -281,7 +285,7 @@
         <div>
           <h3>执行结果进入复盘</h3>
           <p class="muted checklist-meta">
-            实盘与 paper 权益曲线、逐轮报告、滑点和手续费归因已集中到复盘页。
+            实盘与模拟基准的权益曲线、每轮报告、成交价偏差和手续费分析已集中到复盘页。
           </p>
         </div>
         <button class="button ghost small" @click="setActivePage('review')">查看完整复盘</button>
@@ -293,8 +297,10 @@
 <script setup>
 import { computed } from "vue";
 import MetricCard from "../components/MetricCard.vue";
+import HelpTip from "../components/HelpTip.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { cls, fmt, percent } from "../core/format.js";
+import { enumLabel } from "../domain/labels.js";
 import { post, setActivePage, store } from "../stores/appStore.js";
 
 const forward = computed(() => store.state?.trend_forward || {});
@@ -319,27 +325,18 @@ const liveExecution = computed(() => store.state?.live_execution || {
   latest_report: null,
 });
 const executionReport = computed(() => liveExecution.value.latest_report || {});
-const executionStatusText = computed(() => ({
-  DISABLED: "默认关闭",
-  ENABLED: "已启用",
-  EMERGENCY_STOPPED: "已急停",
-  PROTOCOL_VIOLATION: "协议违规停机",
-  PROTOCOL_STOP: "回撤协议停机",
-  DATA_INTEGRITY_ERROR: "账本异常停机",
-  NOT_VISIBLE: "无权查看",
-})[liveExecution.value.status] || liveExecution.value.status || "未知");
+const executionStatusText = computed(() => enumLabel(liveExecution.value.status));
 const reconciliationStatusText = computed(() => ({
-  ACCOUNT_NOT_CONFIGURED: "请在 trend_forward.live_account_id 显式指定专用实盘账户",
-  AWAITING_ACCOUNT_SYNC: "专用账户尚未同步",
-  ACCOUNT_NOT_SYNCED: "专用账户同步失败或凭证未就绪",
-  ACCOUNT_NOT_LIVE: "账户必须为主网且非 dry-run",
-  PAPER_NOT_READY: "等待 TB4 第一笔正式再平衡",
-  READY: "只读核对已就绪",
-  NOT_VISIBLE: "当前用户无权查看该实盘账户",
-})[reconciliation.value.status] || reconciliation.value.status || "尚未就绪");
+  ACCOUNT_NOT_CONFIGURED: "尚未选择用于小资金实盘的专用账户",
+  AWAITING_ACCOUNT_SYNC: "等待专用实盘账户首次同步",
+  ACCOUNT_NOT_SYNCED: "专用账户同步失败，或 API 凭证尚未就绪",
+  ACCOUNT_NOT_LIVE: "该账户不是真实资金主网账户，不能用于小资金实盘",
+  PAPER_NOT_READY: "模拟基准还没有产生第一次每周调仓",
+  READY: "持仓核对数据已就绪",
+  NOT_VISIBLE: "当前用户无权查看这个实盘账户",
+})[reconciliation.value.status] || enumLabel(reconciliation.value.status));
 const forwardStatus = computed(() => {
-  const map = { NOT_STARTED: "未启动", RUNNING: "运行中", MATURE: "已到期" };
-  return map[forward.value.status] || forward.value.status || "未知";
+  return enumLabel(forward.value.status);
 });
 const forwardNote = computed(() => (
   forward.value.status === "NOT_STARTED"
@@ -397,7 +394,7 @@ function timeText(value) {
 }
 
 function directionText(value) {
-  return ({ LONG: "做多", SHORT: "做空", FLAT: "空仓" })[value] || value;
+  return enumLabel(value);
 }
 
 function directionColor(value) {
@@ -405,12 +402,7 @@ function directionColor(value) {
 }
 
 function checklistStatusText(value) {
-  return ({
-    EXECUTABLE: "可执行",
-    BELOW_MIN_NOTIONAL: "低于最低额",
-    FLAT: "保持空仓",
-    MARKET_NOT_TRADING: "市场不可交易",
-  })[value] || value;
+  return enumLabel(value);
 }
 
 function checklistStatusColor(value) {
@@ -436,12 +428,7 @@ function signedQuantity(value) {
 }
 
 function reconciliationRowText(value) {
-  return ({
-    MATCH: "符合目标",
-    DEVIATION: "存在偏差",
-    EXPECTED_FLAT: "预期空仓",
-    UNEXPECTED_POSITION: "清单外持仓",
-  })[value] || value;
+  return enumLabel(value);
 }
 
 function reconciliationRowColor(value) {
@@ -449,13 +436,7 @@ function reconciliationRowColor(value) {
 }
 
 function executionRowText(value) {
-  return ({
-    EXECUTED_MATCH: "完全成交",
-    PARTIAL_FILL: "部分成交",
-    ORDER_FAILED: "下单失败",
-    SKIPPED_DUST: "尘埃跳过",
-    SKIPPED_BELOW_MIN: "低于最低额",
-  })[value] || value;
+  return enumLabel(value);
 }
 
 function executionRowColor(value) {

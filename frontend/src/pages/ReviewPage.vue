@@ -5,7 +5,7 @@
         <h2>{{ activeTab === "execution" ? "实盘执行复盘" : "历史日报" }}</h2>
         <p>
           {{ activeTab === "execution"
-            ? "用同期 paper 基准拆分策略表现、执行偏差与真实交易成本。"
+            ? "用同期模拟基准拆分策略表现、执行偏差与真实交易成本。"
             : "查看旧网格与平台运行期间生成的日报和事件日志。" }}
         </p>
       </div>
@@ -24,36 +24,37 @@
     <template v-else>
       <div class="metric-grid">
         <MetricCard
-          label="累计 paper 偏差"
+          label="实盘与模拟累计差距"
+          help="纸面前向"
           :value="metricPercent(equity.cumulative_deviation_pct)"
-          note="实盘归一化权益减 paper 归一化权益"
+          note="实盘账户涨跌幅减去同期模拟盘涨跌幅"
           :value-class="deviationClass(equity.cumulative_deviation_pct)"
         />
         <MetricCard
           label="最近逐周偏差"
           :value="metricPercent(equity.latest_weekly_deviation_pct)"
-          note="最近 ISO 周的实盘收益减 paper 收益"
+          note="最近一周的实盘收益减去模拟盘收益"
           :value-class="deviationClass(equity.latest_weekly_deviation_pct)"
         />
         <MetricCard
-          label="结构性跟踪比例"
+          label="计划可执行比例"
           :value="equity.structural_tracking_ratio == null ? '-' : percent(Number(equity.structural_tracking_ratio) * 100)"
-          note="最低名义额与取整后可表达的目标比例"
+          note="扣除最低下单额和数量取整后，实际能表达多少目标仓位"
         />
         <MetricCard
           label="权益观测"
           :value="equity.points?.length || 0"
-          note="来自只追加 LIVE-2 权益账本"
+          note="来自只追加的实盘权益账本"
         />
       </div>
 
       <article class="panel equity-review-panel">
         <div class="panel-head">
           <div>
-            <h3>实盘与 paper 归一化权益</h3>
-            <p class="muted">首个有效同步点统一为 1.0；曲线差异只展示，不自动推断原因。</p>
+            <h3>实盘和模拟盘，谁涨得更多？</h3>
+            <p class="muted">纸面前向 <HelpTip term="纸面前向" /> · 起点统一记为 1.0；差距只展示，不擅自判断原因。</p>
           </div>
-          <StatusBadge :text="equity.status || 'NO_OBSERVATIONS'" :color="equity.status === 'READY' ? 'green' : 'orange'" />
+          <StatusBadge :text="enumLabel(equity.status || 'NO_OBSERVATIONS')" :raw="equity.status || 'NO_OBSERVATIONS'" :color="equity.status === 'READY' ? 'green' : 'orange'" />
         </div>
         <div v-if="!equity.points?.length" class="empty-state">
           配置专用实盘账户并在 TB4 清单 READY 后同步，才会开始记录权益对照。
@@ -68,7 +69,7 @@
           />
           <div class="chart-legend">
             <span><i class="live-line"></i>实盘</span>
-            <span><i class="paper-line"></i>paper</span>
+            <span><i class="paper-line"></i>模拟盘</span>
             <span>最后同步 {{ timeText(equity.points.at(-1)?.synced_at_ms) }}</span>
           </div>
         </div>
@@ -78,17 +79,18 @@
         <article class="panel">
           <div class="panel-head">
             <div>
-              <h3>滑点与费用累计</h3>
+              <h3>成交价偏差与费用</h3>
               <p class="muted">仅汇总执行账本中的已完成轮次；不同手续费资产不做汇率换算。</p>
             </div>
           </div>
           <div class="metric-grid compact-metrics">
-            <MetricCard label="完成轮次" :value="reports.length" note="ROUND_COMPLETED" />
+            <MetricCard label="完成的调仓次数" :value="reports.length" note="只统计已经完整结束的执行轮次" />
             <MetricCard label="尝试订单" :value="costSummary.attempted" note="排除尘埃与低于最低额" />
             <MetricCard
-              label="名义加权滑点"
+              label="成交价平均偏差"
+              help="滑点"
               :value="costSummary.weightedSlippageBps == null ? '-' : `${fmt(costSummary.weightedSlippageBps, 3)} bps`"
-              note="按实际成交名义绝对值加权"
+              note="按每笔实际成交金额加权"
             />
             <MetricCard
               label="失败 / 证据异常"
@@ -111,7 +113,7 @@
         <article class="panel checkpoint-panel">
           <div class="panel-head">
             <div>
-              <h3>LIVE-SMALL 三个月检查点</h3>
+            <h3>每三个月是否可以考虑加仓？</h3>
               <p class="muted">只允许在日历检查点评估；短期盈利不会提前授权加仓。</p>
             </div>
             <StatusBadge :text="checkpoint.badge" :color="checkpoint.due ? 'orange' : 'blue'" />
@@ -136,7 +138,7 @@
       <article class="panel report-history-panel">
         <div class="panel-head">
           <div>
-            <h3>逐轮执行报告</h3>
+              <h3>每次调仓执行得对不对？</h3>
             <p class="muted">按执行账本倒序读取，不改变账本、执行状态或策略参数。</p>
           </div>
           <button v-if="isAdmin" class="button ghost small" :disabled="store.liveExecutionReportsBusy" @click="loadReports">
@@ -158,7 +160,7 @@
                   @click="selectedReportKey = reportKey(report)"
                 >
                   <td>{{ timeText(report.rebalance_time_ms) }}</td>
-                  <td><StatusBadge :text="report.status" :color="report.status === 'COMPLETED' ? 'green' : 'red'" /></td>
+                  <td><StatusBadge :text="enumLabel(report.status)" :raw="report.status" :color="report.status === 'COMPLETED' ? 'green' : 'red'" /></td>
                   <td>{{ report.matched_count || 0 }}/{{ report.attempted_count || 0 }}</td>
                   <td :class="Number(report.failed_count || 0) ? 'negative' : ''">{{ report.failed_count || 0 }}</td>
                 </tr>
@@ -168,12 +170,12 @@
           <div class="table-wrap report-detail">
             <table>
               <thead>
-                <tr><th>市场</th><th>状态</th><th>成交量</th><th>成交均价</th><th>滑点</th><th>手续费</th></tr>
+                <tr><th>市场</th><th>结果</th><th>成交量</th><th>成交均价</th><th>成交价偏差 <HelpTip term="滑点" /></th><th>手续费</th></tr>
               </thead>
               <tbody>
                 <tr v-for="row in selectedReport?.rows || []" :key="row.symbol">
                   <td><strong>{{ row.symbol }}</strong></td>
-                  <td><StatusBadge :text="rowStatusText(row.status)" :color="rowStatusColor(row.status)" /></td>
+                  <td><StatusBadge :text="rowStatusText(row.status)" :raw="row.status" :color="rowStatusColor(row.status)" /></td>
                   <td class="mono">{{ fmt(row.executed_quantity, 8) }}</td>
                   <td class="mono">{{ fmt(row.average_price, 6) }}</td>
                   <td class="mono">{{ row.slippage_bps == null ? "-" : `${fmt(row.slippage_bps, 3)} bps` }}</td>
@@ -192,9 +194,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import MetricCard from "../components/MetricCard.vue";
+import HelpTip from "../components/HelpTip.vue";
 import MultiLineChart from "../components/MultiLineChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { fmt, percent } from "../core/format.js";
+import { enumLabel } from "../domain/labels.js";
 import ReportsPage from "./ReportsPage.vue";
 import {
   isAdmin,
@@ -297,7 +301,7 @@ const checkpoint = computed(() => {
       badge: "等待首个观测点",
       conditions: [
         { label: "满 3 个日历月", state: "未开始", color: "orange", note: "权益账本尚无实盘起点。" },
-        { label: "未触发 30% 停止线", state: "待数据", color: "orange", note: "需要实盘与 paper 回撤水位。" },
+        { label: "未触发 30% 停止线", state: "待数据", color: "orange", note: "需要实盘与模拟盘回撤水位。" },
         { label: "偏差已完全归因", state: "人工复核", color: "blue", note: "必须以滑点、成交时点和结构性不可执行逐项解释。" },
       ],
     };
@@ -330,7 +334,7 @@ const checkpoint = computed(() => {
         label: "当前未处于停止状态",
         state: drawdownSafe && !executionStopped ? "未停止" : "不满足",
         color: drawdownSafe && !executionStopped ? "green" : "red",
-        note: `实盘回撤 ${metricPercent(liveDd)}，paper 回撤 ${metricPercent(paperDd)}，停机线 ${percent(threshold)}。`,
+        note: `实盘回撤 ${metricPercent(liveDd)}，模拟盘回撤 ${metricPercent(paperDd)}，停机线 ${percent(threshold)}。`,
       },
       {
         label: "偏差可完全归因",
@@ -357,13 +361,7 @@ function timeText(value) {
 }
 
 function rowStatusText(value) {
-  return ({
-    EXECUTED_MATCH: "完全成交",
-    PARTIAL_FILL: "部分成交",
-    ORDER_FAILED: "下单失败",
-    SKIPPED_DUST: "尘埃跳过",
-    SKIPPED_BELOW_MIN: "低于最低额",
-  })[value] || value;
+  return enumLabel(value);
 }
 
 function rowStatusColor(value) {
