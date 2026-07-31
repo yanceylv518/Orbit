@@ -34,7 +34,7 @@
 
       <nav>
         <div v-for="group in navGroups" :key="group.label" class="nav-group">
-          <div class="nav-group-label">{{ group.label }}</div>
+          <div v-if="group.label" class="nav-group-label">{{ group.label }}</div>
           <a
             v-for="item in group.items"
             :key="item.id"
@@ -166,11 +166,11 @@ let timer = null;
 
 const navGroups = [
   {
-    label: "核心",
+    label: "",
     items: [
+      { id: "forward", label: "实盘中心" },
       { id: "strategy", label: "策略中心" },
       { id: "research", label: "研究平台" },
-      { id: "forward", label: "实盘中心" },
       { id: "accounts", label: "账户中心" },
     ],
   },
