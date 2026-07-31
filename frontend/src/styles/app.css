@@ -306,49 +306,6 @@ a:hover { text-decoration: underline; }
 .operator-actions { display: flex; gap: 6px; margin-top: 10px; }
 .operator-actions .button { flex: 1; padding: 5px 0; font-size: 11.5px; }
 
-.help-tip {
-  position: relative;
-  display: inline-flex;
-  vertical-align: middle;
-  margin-left: 3px;
-}
-.help-tip-trigger {
-  display: inline-grid;
-  width: 17px;
-  height: 17px;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
-  background: var(--panel-inset);
-  color: var(--accent-strong);
-  font: 700 11px/1 sans-serif;
-  cursor: help;
-}
-.help-tip-content {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  z-index: 80;
-  display: none;
-  width: min(290px, 78vw);
-  padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  box-shadow: var(--shadow);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.55;
-  text-align: left;
-  transform: translateX(-50%);
-  white-space: normal;
-}
-.help-tip-content strong { display: block; margin-bottom: 3px; color: var(--text-strong); }
-.help-tip:hover .help-tip-content,
-.help-tip:focus-within .help-tip-content,
-.help-tip-content.open { display: block; }
 .glossary-backdrop { z-index: 100; }
 .glossary-dialog { width: min(980px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 32px)); }
 .glossary-table { max-height: 610px; }
@@ -1514,6 +1471,60 @@ td .muted { font-size: 11.5px; }
 .event-item strong { color: var(--text-strong); font-size: 12.5px; }
 .event-item .muted { font-size: 11px; }
 .event-item p { margin: 4px 0 8px; font-size: 12px; color: var(--muted); }
+
+/*
+ * 放在卡片、表格等通用 span/strong 规则之后，确保浮层默认隐藏且字号不被覆盖。
+ * 帮助内容只在鼠标悬停问号时显示，点击不会锁定。
+ */
+span.help-tip {
+  position: relative;
+  display: inline-flex;
+  margin-left: 3px;
+  vertical-align: middle;
+  letter-spacing: normal;
+}
+span.help-tip-trigger {
+  display: inline-grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--panel-inset);
+  color: var(--accent-strong);
+  font: 700 11px/1 sans-serif;
+  cursor: help;
+}
+.help-tip > span.help-tip-content {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 80;
+  display: none;
+  width: min(290px, 78vw);
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  text-align: left;
+  transform: translateX(-50%);
+  white-space: normal;
+}
+.help-tip > .help-tip-content strong {
+  display: block;
+  margin: 0 0 3px;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.help-tip:hover > span.help-tip-content { display: block; }
 
 /* ============ 响应式 ============ */
 
