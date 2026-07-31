@@ -26,6 +26,10 @@ class RecordingBinanceClient(BinanceFuturesClient):
         self.calls.append((method, path, params))
         return {"ok": True}
 
+    def public_request(self, method, path, params=None):
+        self.calls.append((method, path, params))
+        return {"symbol": "BTCUSDT", "price": "65000.10"}
+
 
 class CredentialAdapterTest(unittest.TestCase):
     def test_fingerprint_is_short_and_stable(self):
@@ -78,6 +82,20 @@ class CredentialAdapterTest(unittest.TestCase):
             client.change_leverage("BTCUSDT", 0)
 
         self.assertEqual(client.calls, [])
+
+    def test_ticker_price_uses_public_futures_endpoint(self):
+        client = RecordingBinanceClient()
+
+        payload = client.ticker_price("btcusdt")
+
+        self.assertEqual(payload["price"], "65000.10")
+        self.assertEqual(client.calls, [
+            (
+                "GET",
+                "/fapi/v1/ticker/price",
+                {"symbol": "BTCUSDT"},
+            ),
+        ])
 
 
 if __name__ == "__main__":

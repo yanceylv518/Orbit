@@ -121,6 +121,7 @@ const ENUM_LABELS = {
   FORWARD_READY: "前向已初始化",
   CONFIGURED: "账户已配置",
   PREFLIGHT_READY: "预检已通过",
+  ARMED: "已布防，等待首份清单",
   ACTIVE: "真实资金执行中",
   STOPPED: "自动执行已停止",
   VALID: "账本校验正常",

@@ -63,11 +63,18 @@ def validate_epoch(value: str) -> str:
 
 
 def project_preflight(checks: list[dict[str, Any]]) -> dict[str, Any]:
-    passed = all(bool(item.get("ok")) for item in checks)
+    passed = all(
+        bool(item.get("ok")) or not bool(item.get("required", True))
+        for item in checks
+    )
     return {
         "protocol": "LIVE_SMALL_PREFLIGHT_V1",
         "status": "PASS" if passed else "FAIL",
         "passed": passed,
+        "deferred_count": sum(
+            not bool(item.get("ok")) and not bool(item.get("required", True))
+            for item in checks
+        ),
         "checked_at": now_iso(),
         "checks": checks,
     }

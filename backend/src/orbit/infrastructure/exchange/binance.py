@@ -104,6 +104,16 @@ class BinanceFuturesClient:
         params = {"symbol": symbol} if symbol else {}
         return self.public_request("GET", "/fapi/v1/exchangeInfo", params)
 
+    def ticker_price(self, symbol: str) -> dict[str, Any]:
+        payload = self.public_request(
+            "GET",
+            "/fapi/v1/ticker/price",
+            {"symbol": str(symbol).upper()},
+        )
+        if not isinstance(payload, dict) or Decimal(str(payload.get("price") or 0)) <= 0:
+            raise BinanceError("Unexpected ticker price response.")
+        return payload
+
     def test_order(self, params: dict[str, Any]) -> dict[str, Any]:
         return self.signed_request("POST", "/fapi/v1/order/test", params)
 

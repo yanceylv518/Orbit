@@ -707,8 +707,34 @@ class AppState:
                 client.change_position_mode(dual_side=False)
             for symbol in TB4_SPEC.symbols:
                 response = client.change_leverage(symbol, 1)
-                exchange_result["leverage"][symbol] = int(
-                    response.get("leverage") or 1
+                applied_leverage = int(response.get("leverage") or 0)
+                if applied_leverage != 1:
+                    raise RuntimeError(
+                        f"{symbol} 杠杆设置返回异常：{applied_leverage}x。"
+                    )
+                exchange_result["leverage"][symbol] = applied_leverage
+            wrong_leverage: list[str] = []
+            for attempt in range(3):
+                verified_positions = {
+                    str(item.get("symbol") or ""): item
+                    for item in client.position_risk()
+                }
+                wrong_leverage = [
+                    symbol
+                    for symbol in TB4_SPEC.symbols
+                    if str(
+                        (verified_positions.get(symbol) or {}).get("leverage")
+                        or ""
+                    ) != "1"
+                ]
+                if not wrong_leverage:
+                    break
+                if attempt < 2:
+                    time.sleep(0.5)
+            if wrong_leverage:
+                raise RuntimeError(
+                    "以下市场的 1x 杠杆设置未通过回读验证："
+                    + ", ".join(wrong_leverage)
                 )
         except Exception as exc:
             with self.lock:
@@ -879,8 +905,20 @@ class AppState:
         account = self.account_by_id(account_id)
         checks: list[dict[str, Any]] = []
 
-        def check(code: str, ok: bool, message: str, detail: Any = None) -> None:
-            item = {"code": code, "ok": bool(ok), "message": message}
+        def check(
+            code: str,
+            ok: bool,
+            message: str,
+            detail: Any = None,
+            *,
+            required: bool = True,
+        ) -> None:
+            item = {
+                "code": code,
+                "ok": bool(ok),
+                "required": bool(required),
+                "message": message,
+            }
             if detail is not None:
                 item["detail"] = detail
             checks.append(item)
@@ -916,7 +954,18 @@ class AppState:
         forward = self.trend_forward_snapshot()
         checklist = forward.get("execution_checklist") or {}
         check("FORWARD_INITIALIZED", forward.get("status") != "NOT_STARTED", "TB4 前向账本已初始化")
-        check("CHECKLIST_READY", checklist.get("status") == "READY", "冻结执行清单已就绪")
+        checklist_ready = checklist.get("status") == "READY"
+        check(
+            "CHECKLIST_READY",
+            checklist_ready,
+            (
+                "冻结执行清单已就绪"
+                if checklist_ready
+                else "等待首根有效 4h 收盘后自动生成冻结执行清单"
+            ),
+            {"status": checklist.get("status") or "NOT_AVAILABLE"},
+            required=False,
+        )
         check("RULES_FRESH", not bool(checklist.get("rules_stale")), "Binance 交易规则未过期")
 
         try:
@@ -935,29 +984,66 @@ class AppState:
                 if str((position_map.get(symbol) or {}).get("leverage") or "") != "1"
             ]
             check("LEVERAGE_1X", not wrong_leverage, "12 个策略市场杠杆均为 1x", wrong_leverage)
-            executable = next(
-                (row for row in checklist.get("rows") or [] if row.get("status") == "EXECUTABLE"),
-                None,
+            test_params = self._live_permission_test_order(client, checklist)
+            client.test_order(test_params)
+            check(
+                "TRADE_PERMISSION",
+                True,
+                "Binance 合约交易权限测试通过",
+                {
+                    "symbol": test_params["symbol"],
+                    "quantity": test_params["quantity"],
+                    "order_sent": False,
+                },
             )
-            if executable:
-                client.test_order({
-                    "symbol": executable["symbol"],
-                    "side": "BUY",
-                    "positionSide": "BOTH",
-                    "type": "MARKET",
-                    "quantity": format(
-                        Decimal(str(executable["target_quantity"])).copy_abs(), "f",
-                    ),
-                })
-                check("TRADE_PERMISSION", True, "Binance 合约交易权限测试通过")
-            else:
-                check("TRADE_PERMISSION", False, "当前清单没有可用于权限测试的合规订单")
         except Exception as exc:
             check("EXCHANGE_PREFLIGHT", False, "Binance 实盘预检请求失败", str(exc))
 
         result = project_preflight(checks)
         self._record_live_preflight(actor, result)
         return result
+
+    def _live_permission_test_order(
+        self,
+        client: BinanceFuturesClient,
+        checklist: dict[str, Any],
+    ) -> dict[str, Any]:
+        executable = next(
+            (
+                row
+                for row in checklist.get("rows") or []
+                if row.get("status") == "EXECUTABLE"
+            ),
+            None,
+        )
+        if executable:
+            symbol = str(executable["symbol"])
+            quantity = Decimal(str(executable["target_quantity"])).copy_abs()
+        else:
+            symbol = TB4_SPEC.symbols[0]
+            rules = (
+                self.trend_checklist_projector.exchange_rules.get("symbols") or {}
+            ).get(symbol)
+            if not rules:
+                raise RuntimeError(f"{symbol} 交易规则尚未加载。")
+            price = Decimal(str(client.ticker_price(symbol)["price"]))
+            step_size = Decimal(str(rules["quantity_step"]))
+            min_quantity = Decimal(str(rules["min_quantity"]))
+            min_notional = Decimal(str(rules["min_notional_usdt"]))
+            raw_quantity = max(
+                min_quantity,
+                min_notional * Decimal("1.10") / price,
+            )
+            quantity = (
+                raw_quantity / step_size
+            ).to_integral_value(rounding=ROUND_UP) * step_size
+        return {
+            "symbol": symbol,
+            "side": "BUY",
+            "positionSide": "BOTH",
+            "type": "MARKET",
+            "quantity": format(quantity, "f"),
+        }
 
     def activate_live_pilot(
         self,
@@ -982,6 +1068,11 @@ class AppState:
         preflight = self.run_live_pilot_preflight(actor=actor)
         if not preflight["passed"]:
             return {"ok": False, "error": "实盘预检未全部通过。", "preflight": preflight}
+        checklist_ready = any(
+            item.get("code") == "CHECKLIST_READY" and item.get("ok")
+            for item in preflight.get("checks") or []
+        )
+        activation_status = "ACTIVE" if checklist_ready else "ARMED"
         with self.lock:
             if self.live_pilot_control.get("auto_execution_enabled"):
                 return {"ok": False, "error": "自动执行已经由另一个请求启用。"}
@@ -1003,7 +1094,7 @@ class AppState:
             try:
                 self.live_pilot_control.update({
                     "version": int(self.live_pilot_control.get("version") or 1) + 1,
-                    "status": "ACTIVE",
+                    "status": activation_status,
                     "forward_enabled": True,
                     "auto_execution_enabled": True,
                     "execution_epoch": epoch,
@@ -1013,7 +1104,7 @@ class AppState:
                 self.audit_service.record(
                     actor=actor,
                     action_type="ACTIVATE_LIVE_PILOT",
-                    reason="管理员通过双重确认启用 LIVE-SMALL 自动执行。",
+                    reason="管理员通过双重确认授权并布防 LIVE-SMALL 自动执行。",
                     before_value=before,
                     after_value=deepcopy(self.live_pilot_control),
                 )
@@ -1026,14 +1117,23 @@ class AppState:
                     live_account_id=str(before.get("live_account_id") or ""),
                 )
                 raise
-        return {"ok": True, "status": "ACTIVE", "execution_epoch": epoch}
+        return {
+            "ok": True,
+            "status": activation_status,
+            "execution_epoch": epoch,
+        }
 
     def _record_live_preflight(self, actor: str, result: dict[str, Any]) -> None:
         with self.lock:
             before = deepcopy(self.live_pilot_control)
+            control_status = (
+                str(self.live_pilot_control.get("status") or "ACTIVE")
+                if self.live_pilot_control.get("auto_execution_enabled")
+                else ("PREFLIGHT_READY" if result["passed"] else "CONFIGURED")
+            )
             self.live_pilot_control.update({
                 "version": int(self.live_pilot_control.get("version") or 1) + 1,
-                "status": "PREFLIGHT_READY" if result["passed"] else "CONFIGURED",
+                "status": control_status,
                 "last_preflight": deepcopy(result),
                 "updated_at": now_iso(),
                 "updated_by": actor,
@@ -1158,6 +1258,30 @@ class AppState:
         execution = self.live_execution_service.execute_due(
             lambda account_id: self.sync_binance_account(account_id, actor="system")
         )
+        checklist = self.trend_forward_snapshot().get("execution_checklist") or {}
+        if (
+            self.live_pilot_control.get("status") == "ARMED"
+            and checklist.get("status") == "READY"
+        ):
+            with self.lock:
+                if self.live_pilot_control.get("status") == "ARMED":
+                    before = deepcopy(self.live_pilot_control)
+                    self.live_pilot_control.update({
+                        "version": int(
+                            self.live_pilot_control.get("version") or 1
+                        ) + 1,
+                        "status": "ACTIVE",
+                        "updated_at": now_iso(),
+                        "updated_by": "system",
+                    })
+                    self.audit_service.record(
+                        actor="system",
+                        action_type="LIVE_PILOT_FIRST_CHECKLIST_READY",
+                        reason="首份冻结执行清单已就绪，实盘批次进入逐轮自动执行状态。",
+                        before_value=before,
+                        after_value=deepcopy(self.live_pilot_control),
+                    )
+                    self.persist()
         return result | {"live_execution": execution}
 
     def market_tick_once(self) -> dict[str, Any]:

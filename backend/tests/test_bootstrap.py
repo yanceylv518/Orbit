@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class PreparingBinanceClient:
     calls = []
+    leverage = {}
 
     @classmethod
     def from_account(cls, account, vault):
@@ -32,7 +33,11 @@ class PreparingBinanceClient:
 
     def position_risk(self):
         return [
-            {"symbol": symbol, "positionAmt": "0", "leverage": "20"}
+            {
+                "symbol": symbol,
+                "positionAmt": "0",
+                "leverage": str(self.leverage.get(symbol, 20)),
+            }
             for symbol in TB4_SPEC.symbols
         ]
 
@@ -45,6 +50,7 @@ class PreparingBinanceClient:
 
     def change_leverage(self, symbol, leverage):
         self.calls.append(("leverage", symbol, leverage))
+        self.leverage[symbol] = leverage
         return {"symbol": symbol, "leverage": leverage}
 
 
@@ -142,6 +148,7 @@ class BootstrapTests(unittest.TestCase):
         tmp, app = self.make_app()
         try:
             PreparingBinanceClient.calls = []
+            PreparingBinanceClient.leverage = {}
             app.configure_live_pilot(
                 actor="admin_001",
                 account_id="binance_dry_run_001",

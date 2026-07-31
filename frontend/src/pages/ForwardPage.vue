@@ -10,7 +10,7 @@
         <MetricCard
           label="自动执行"
           :value="executionStatusText"
-          :note="liveExecution.stop_reason || (liveExecution.enabled ? '执行闸门已开启' : '默认关闭，不会下单')"
+          :note="liveExecution.stop_reason || (liveControl.status === 'ARMED' ? '已授权，等待冻结清单；当前不会下单' : (liveExecution.enabled ? '执行闸门已开启' : '默认关闭，不会下单'))"
           :value-class="executionHealthClass"
         />
         <MetricCard
@@ -39,7 +39,7 @@
         <StatusBadge
           :text="enumLabel(liveControl.status || 'DRAFT')"
           :raw="liveControl.status || 'DRAFT'"
-          :color="liveControl.status === 'ACTIVE' ? 'red' : (preflight.passed ? 'green' : 'orange')"
+          :color="liveControl.status === 'ACTIVE' ? 'red' : (liveControl.status === 'ARMED' ? 'orange' : (preflight.passed ? 'green' : 'orange'))"
         />
       </div>
 
@@ -97,16 +97,16 @@
           <span class="wizard-index">4</span>
           <div>
             <h4>启用自动执行</h4>
-            <p class="muted">只有全部预检通过后可启用；启用后约一分钟内可能发送第一轮市价单。</p>
+            <p class="muted">完成账户安全预检即可布防；本操作不会立即下单，只有冻结清单就绪并再次通过逐轮执行闸门后才会下单。</p>
             <div class="wizard-form">
-              <input v-model.trim="wizard.epoch" :disabled="wizardBusy || liveControl.status === 'ACTIVE'" placeholder="执行批次，如 live-small-2026-07-31-v1" />
-              <input v-model.trim="wizard.confirmation" :disabled="wizardBusy || liveControl.status === 'ACTIVE'" placeholder="输入 ENABLE LIVE SMALL" />
+              <input v-model.trim="wizard.epoch" :disabled="wizardBusy || pilotLocked" placeholder="执行批次，如 live-small-2026-07-31-v1" />
+              <input v-model.trim="wizard.confirmation" :disabled="wizardBusy || pilotLocked" placeholder="输入 ENABLE LIVE SMALL" />
               <button
                 class="button danger small"
-                :disabled="wizardBusy || !preflight.passed || liveControl.status === 'ACTIVE'"
+                :disabled="wizardBusy || !preflight.passed || pilotLocked"
                 @click="activatePilot"
               >
-                {{ liveControl.status === "ACTIVE" ? "自动执行已启用" : "确认并启用自动执行" }}
+                {{ activationButtonText }}
               </button>
             </div>
           </div>
@@ -115,7 +115,10 @@
 
       <div v-if="preflight.checks?.length" class="preflight-results">
         <div v-for="item in preflight.checks" :key="item.code" class="preflight-row">
-          <StatusBadge :text="item.ok ? '通过' : '未通过'" :color="item.ok ? 'green' : 'red'" />
+          <StatusBadge
+            :text="item.ok ? '通过' : (item.required === false ? '等待' : '未通过')"
+            :color="item.ok ? 'green' : (item.required === false ? 'orange' : 'red')"
+          />
           <strong>{{ item.message }}</strong>
           <span v-if="item.detail" class="muted">{{ detailText(item.detail) }}</span>
         </div>
@@ -241,7 +244,7 @@
       <MetricCard
         label="自动执行"
         :value="executionStatusText"
-        :note="liveExecution.execution_epoch ? `执行批次 ${liveExecution.execution_epoch}` : '请通过上方向导预检并启用'"
+        :note="liveControl.status === 'ARMED' ? '等待首份冻结清单生成' : (liveExecution.execution_epoch ? `执行批次 ${liveExecution.execution_epoch}` : '请通过上方向导预检并启用')"
         :value-class="liveExecution.status === 'ENABLED' ? '' : 'negative'"
       />
       <MetricCard
@@ -437,13 +440,22 @@ const configuredAccountId = computed(() => liveControl.value.live_account_id || 
 const wizard = reactive({ accountId: "", epoch: "", confirmation: "" });
 const wizardBusy = ref(false);
 const wizardMessage = ref("");
+const pilotLocked = computed(() => ["ARMED", "ACTIVE"].includes(liveControl.value.status));
+const activationButtonText = computed(() => ({
+  ARMED: "已布防，等待首份清单",
+  ACTIVE: "自动执行已启用",
+})[liveControl.value.status] || "确认并启用自动执行");
 
 watchEffect(() => {
   if (!wizard.accountId && liveControl.value.live_account_id) {
     wizard.accountId = liveControl.value.live_account_id;
   }
 });
-const executionStatusText = computed(() => enumLabel(liveExecution.value.status));
+const executionStatusText = computed(() => (
+  liveControl.value.status === "ARMED"
+    ? enumLabel("ARMED")
+    : enumLabel(liveExecution.value.status)
+));
 const reconciliationStatusText = computed(() => ({
   ACCOUNT_NOT_CONFIGURED: "尚未选择用于小资金实盘的专用账户",
   AWAITING_ACCOUNT_SYNC: "等待专用实盘账户首次同步",
@@ -622,12 +634,12 @@ function prepareAccount() {
 function runPreflight() {
   return wizardAction(
     () => post("/api/admin/live-pilot/preflight"),
-    "生产预检已全部通过，可以填写新批次并启用自动执行。",
+    "账户安全预检已通过。若冻结清单尚未生成，现在仍可先授权并布防自动执行。",
   );
 }
 
 function activatePilot() {
-  if (!confirm("确认启用真实资金自动执行？启用后可能在一分钟内发送市价单。")) return;
+  if (!confirm("确认授权系统在下一份冻结清单就绪后自动执行？本操作本身不会立即下单。")) return;
   return wizardAction(
     async () => {
       const result = await post("/api/admin/live-pilot/activate", {
@@ -637,7 +649,7 @@ function activatePilot() {
       if (result) wizard.confirmation = "";
       return result;
     },
-    "LIVE-SMALL 自动执行已启用；请持续观察首轮订单与持仓对账。",
+    "LIVE-SMALL 已布防；系统只会在冻结清单就绪并通过逐轮执行闸门后自动下单。",
   );
 }
 

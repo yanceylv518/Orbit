@@ -58,6 +58,21 @@ class LivePilotControlTest(unittest.TestCase):
         self.assertTrue(passed["passed"])
         self.assertFalse(failed["passed"])
 
+    def test_preflight_allows_explicitly_deferred_signal_check(self):
+        result = project_preflight([
+            {"code": "ACCOUNT", "ok": True, "message": "account"},
+            {
+                "code": "CHECKLIST_READY",
+                "ok": False,
+                "required": False,
+                "message": "waiting",
+            },
+        ])
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["deferred_count"], 1)
+
     def test_epoch_is_strict_and_bounded(self):
         self.assertEqual(validate_epoch("live-small-2026-07-31-v1"), "live-small-2026-07-31-v1")
         with self.assertRaises(ValueError):
