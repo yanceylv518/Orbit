@@ -76,6 +76,16 @@ class BinanceFuturesClient:
     def position_mode(self) -> dict[str, Any]:
         return self.signed_request("GET", "/fapi/v1/positionSide/dual")
 
+    def symbol_configuration(
+        self,
+        symbol: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params = {"symbol": str(symbol).upper()} if symbol else {}
+        payload = self.signed_request("GET", "/fapi/v1/symbolConfig", params)
+        if not isinstance(payload, list):
+            raise BinanceError("Unexpected symbolConfig response.")
+        return payload
+
     def change_position_mode(self, *, dual_side: bool) -> dict[str, Any]:
         return self.signed_request(
             "POST",

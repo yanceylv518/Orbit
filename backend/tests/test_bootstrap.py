@@ -36,6 +36,14 @@ class PreparingBinanceClient:
             {
                 "symbol": symbol,
                 "positionAmt": "0",
+            }
+            for symbol in TB4_SPEC.symbols
+        ]
+
+    def symbol_configuration(self):
+        return [
+            {
+                "symbol": symbol,
                 "leverage": str(self.leverage.get(symbol, 20)),
             }
             for symbol in TB4_SPEC.symbols

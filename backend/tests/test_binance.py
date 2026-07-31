@@ -75,6 +75,24 @@ class CredentialAdapterTest(unittest.TestCase):
             ),
         ])
 
+    def test_symbol_configuration_uses_dedicated_account_endpoint(self):
+        client = RecordingBinanceClient()
+        client.signed_request = lambda method, path, params=None: (
+            client.calls.append((method, path, params))
+            or [{"symbol": "BTCUSDT", "leverage": 1}]
+        )
+
+        payload = client.symbol_configuration("btcusdt")
+
+        self.assertEqual(payload[0]["leverage"], 1)
+        self.assertEqual(client.calls, [
+            (
+                "GET",
+                "/fapi/v1/symbolConfig",
+                {"symbol": "BTCUSDT"},
+            ),
+        ])
+
     def test_invalid_leverage_is_rejected_before_exchange_request(self):
         client = RecordingBinanceClient()
 

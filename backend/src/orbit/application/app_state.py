@@ -715,15 +715,15 @@ class AppState:
                 exchange_result["leverage"][symbol] = applied_leverage
             wrong_leverage: list[str] = []
             for attempt in range(3):
-                verified_positions = {
+                verified_configuration = {
                     str(item.get("symbol") or ""): item
-                    for item in client.position_risk()
+                    for item in client.symbol_configuration()
                 }
                 wrong_leverage = [
                     symbol
                     for symbol in TB4_SPEC.symbols
                     if str(
-                        (verified_positions.get(symbol) or {}).get("leverage")
+                        (verified_configuration.get(symbol) or {}).get("leverage")
                         or ""
                     ) != "1"
                 ]
@@ -973,15 +973,24 @@ class AppState:
             open_orders = client.open_orders()
             check("NO_OPEN_ORDERS", not open_orders, "账户没有未完成挂单", {"count": len(open_orders)})
             positions = client.position_risk()
-            position_map = {str(item.get("symbol")): item for item in positions}
             nonzero = [
-                symbol for symbol, item in position_map.items()
-                if symbol in TB4_SPEC.symbols and Decimal(str(item.get("positionAmt") or 0)) != 0
+                str(item.get("symbol") or "")
+                for item in positions
+                if (
+                    str(item.get("symbol") or "") in TB4_SPEC.symbols
+                    and Decimal(str(item.get("positionAmt") or 0)) != 0
+                )
             ]
             check("NO_POSITIONS", not nonzero, "12 个策略市场没有既有持仓", nonzero)
+            symbol_configuration = {
+                str(item.get("symbol") or ""): item
+                for item in client.symbol_configuration()
+            }
             wrong_leverage = [
                 symbol for symbol in TB4_SPEC.symbols
-                if str((position_map.get(symbol) or {}).get("leverage") or "") != "1"
+                if str(
+                    (symbol_configuration.get(symbol) or {}).get("leverage") or ""
+                ) != "1"
             ]
             check("LEVERAGE_1X", not wrong_leverage, "12 个策略市场杠杆均为 1x", wrong_leverage)
             test_params = self._live_permission_test_order(client, checklist)
