@@ -9,7 +9,7 @@
         </div>
       </div>
       <label class="login-field">
-        <span>用户 ID 或邮箱</span>
+        <span>管理员 ID 或邮箱</span>
         <input v-model="loginId" autocomplete="off" placeholder="admin_001" />
       </label>
       <label class="login-field">
@@ -18,7 +18,7 @@
       </label>
       <p class="login-error">{{ store.loginError || store.stateError }}</p>
       <button class="button" type="submit" :disabled="store.loginBusy">{{ store.loginBusy ? "登录中..." : "登录" }}</button>
-      <small class="muted">本地开发默认：admin_001 / admin123456，实盘前请使用脚本修改密码。</small>
+      <small class="muted">请使用管理员分配的账号和密码登录。</small>
     </form>
   </section>
 

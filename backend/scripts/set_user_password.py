@@ -56,17 +56,7 @@ def main() -> None:
         config_path = ROOT / "config" / "config.sample.json"
     config = load_config(config_path)
     db = config.get("storage", {}).get("mysql", {})
-    password = args.password
-    if not password:
-        password = getpass.getpass(f"New password for {args.user_id}: ")
-        confirm = getpass.getpass("Confirm password: ")
-        if password != confirm:
-            raise SystemExit("Password confirmation does not match.")
-    if len(password) < 8:
-        raise SystemExit("Password must be at least 8 characters.")
-
     pymysql = importlib.import_module("pymysql")
-    salt, password_hash = hash_password(password)
     conn = pymysql.connect(
         host=db.get("host", "127.0.0.1"),
         port=int(db.get("port", 3306)),
@@ -82,6 +72,27 @@ def main() -> None:
             ensure_column(cur, "users", "password_hash", "VARCHAR(255) NULL")
             ensure_column(cur, "users", "last_login_at", "TIMESTAMP(6) NULL")
             cur.execute(
+                "SELECT role FROM users WHERE external_id = %s",
+                (args.user_id,),
+            )
+            user = cur.fetchone()
+            if not user:
+                raise SystemExit(f"User not found: {args.user_id}")
+            if user[0] not in ("admin", "super_admin"):
+                raise SystemExit(
+                    f"User is not an administrator and cannot receive a console password: "
+                    f"{args.user_id}"
+                )
+            password = args.password
+            if not password:
+                password = getpass.getpass(f"New password for {args.user_id}: ")
+                confirm = getpass.getpass("Confirm password: ")
+                if password != confirm:
+                    raise SystemExit("Password confirmation does not match.")
+            if len(password) < 8:
+                raise SystemExit("Password must be at least 8 characters.")
+            salt, password_hash = hash_password(password)
+            cur.execute(
                 """
                 UPDATE users
                 SET password_salt = %s, password_hash = %s
@@ -89,8 +100,6 @@ def main() -> None:
                 """,
                 (salt, password_hash, args.user_id),
             )
-            if cur.rowcount == 0:
-                raise SystemExit(f"User not found: {args.user_id}")
     finally:
         conn.close()
     print(f"Password updated for {args.user_id}.")

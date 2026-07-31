@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 from orbit.bootstrap import create_app_state
+from orbit.application.app_state import AppState
+from orbit.bootstrap import DefaultApplicationBootstrap
 from orbit.config import load_config
 
 
@@ -70,6 +72,62 @@ class BootstrapTests(unittest.TestCase):
                 "ACCOUNT_NOT_CONFIGURED",
             )
             self.assertEqual(admin_snapshot["live_execution"]["status"], "DISABLED")
+        finally:
+            tmp.cleanup()
+
+    def test_authoritative_directory_fails_fast_when_incomplete(self):
+        class IncompleteStore:
+            directory_authoritative = True
+
+            def load_directory(self):
+                return {
+                    "users": [{"id": "admin_001", "role": "admin", "status": "active"}],
+                    "exchange_accounts": [],
+                    "strategy_instances": [],
+                    "account_run_configs": [],
+                }
+
+        class Bootstrap(DefaultApplicationBootstrap):
+            def create_state_store(self, root, config):
+                return IncompleteStore()
+
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            path = Path(tmp.name) / "config.json"
+            config = load_config(str(ROOT / "config" / "config.sample.json"))
+            config["auth"]["login_required"] = True
+            path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "MySQL directory is incomplete"):
+                AppState(Bootstrap(), str(path))
+        finally:
+            tmp.cleanup()
+
+    def test_authoritative_directory_requires_active_admin(self):
+        class NoAdminStore:
+            directory_authoritative = True
+
+            def load_directory(self):
+                return {
+                    "users": [{"id": "owner_001", "role": "user", "status": "active"}],
+                    "exchange_accounts": [{"id": "account_001"}],
+                    "strategy_instances": [{"id": "strategy_001"}],
+                    "account_run_configs": [],
+                }
+
+        class Bootstrap(DefaultApplicationBootstrap):
+            def create_state_store(self, root, config):
+                return NoAdminStore()
+
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            path = Path(tmp.name) / "config.json"
+            config = load_config(str(ROOT / "config" / "config.sample.json"))
+            config["auth"]["login_required"] = True
+            path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "no active administrator"):
+                AppState(Bootstrap(), str(path))
         finally:
             tmp.cleanup()
 

@@ -91,6 +91,60 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tmp.cleanup()
 
+    async def test_business_user_cannot_login_to_console(self):
+        tmp, api = self.make_api()
+        try:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                response = await client.post(
+                    "/api/login",
+                    json={"login": "user_001", "password": "user123456"},
+                )
+
+            self.assertEqual(response.status_code, 401)
+            self.assertIn("不是平台管理员", response.json()["error"])
+        finally:
+            tmp.cleanup()
+
+    async def test_health_is_public_and_checks_storage(self):
+        tmp, api = self.make_api()
+        try:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                response = await client.get("/api/health")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {
+                "ok": True,
+                "service": "orbit",
+                "storage": {"ok": True, "driver": "json"},
+            })
+        finally:
+            tmp.cleanup()
+
+    async def test_health_returns_503_without_leaking_storage_exception(self):
+        tmp, api = self.make_api()
+        try:
+            def unavailable():
+                raise RuntimeError("database password and host details")
+
+            api.state.orbit.store.health_check = unavailable
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                response = await client.get("/api/health")
+
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(response.json()["storage"]["error"], "storage_unavailable")
+            self.assertNotIn("password", response.text)
+        finally:
+            tmp.cleanup()
+
     async def test_no_login_mode_uses_default_admin_for_control_route(self):
         tmp, api = self.make_api(login_required=False)
         try:
@@ -116,7 +170,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 anonymous = await client.get("/api/strategies")
                 login = await client.post(
                     "/api/login",
-                    json={"login": "user_001", "password": "user123456"},
+                    json={"login": "admin_001", "password": "admin123456"},
                 )
                 catalog = await client.get("/api/strategies")
                 detail = await client.get("/api/strategies/TB4_TREND_BASKET_V1")
@@ -296,7 +350,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 transport=httpx.ASGITransport(app=api),
                 base_url="http://testserver",
             ) as client:
-                await client.post(
+                business_login = await client.post(
                     "/api/login",
                     json={"login": "user_001", "password": "user123456"},
                 )
@@ -318,7 +372,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                     json={"reason": "operator stop"},
                 )
 
-            self.assertEqual(denied.status_code, 403)
+            self.assertEqual(business_login.status_code, 401)
+            self.assertEqual(denied.status_code, 401)
             self.assertFalse(missing.json()["ok"])
             self.assertEqual(
                 stopped.json()["live_execution_stop_result"]["status"],
@@ -355,7 +410,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 base_url="http://testserver",
             ) as client:
                 anonymous = await client.get("/api/live-execution/reports?limit=10")
-                await client.post(
+                business_login = await client.post(
                     "/api/login",
                     json={"login": "user_001", "password": "user123456"},
                 )
@@ -368,7 +423,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 allowed = await client.get("/api/live-execution/reports?limit=10")
 
             self.assertEqual(anonymous.status_code, 401)
-            self.assertEqual(denied.status_code, 403)
+            self.assertEqual(business_login.status_code, 401)
+            self.assertEqual(denied.status_code, 401)
             self.assertEqual(allowed.status_code, 200)
             self.assertEqual(allowed.json()["count"], 1)
             self.assertEqual(allowed.json()["items"][0]["rebalance_time_ms"], 456_000)

@@ -9,10 +9,10 @@ import json
 import sys
 import urllib.request
 
-url = sys.argv[1].rstrip("/") + "/api/state"
+url = sys.argv[1].rstrip("/") + "/api/health"
 with urllib.request.urlopen(url, timeout=5) as response:
     payload = json.load(response)
-if response.status != 200 or "auth" not in payload:
+if response.status != 200 or payload.get("ok") is not True:
     raise SystemExit("Orbit healthcheck failed")
 print(f"Orbit healthcheck OK: {url}")
 ' "$ORBIT_URL"

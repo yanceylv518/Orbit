@@ -448,7 +448,12 @@ export async function login(loginId, password) {
       store.loginError = data.error || "登录失败。";
       return false;
     }
-    return loadState();
+    const authenticated = await loadState();
+    if (!authenticated) {
+      store.loginError = "凭证已验证，但服务未能建立有效会话。请联系管理员检查用户目录。";
+      return false;
+    }
+    return true;
   } catch (error) {
     store.loginError = error instanceof Error ? error.message : "登录请求失败，请确认本地服务正在运行。";
     return false;

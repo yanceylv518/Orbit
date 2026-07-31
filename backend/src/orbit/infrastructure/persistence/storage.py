@@ -15,6 +15,8 @@ from orbit.infrastructure.persistence.mysql_symbol_state_writer import MySqlSymb
 
 
 class JsonStateStore:
+    directory_authoritative = False
+
     def __init__(self, path: Path):
         self.path = path
 
@@ -34,8 +36,13 @@ class JsonStateStore:
     def load_directory(self) -> dict[str, Any] | None:
         return None
 
+    def health_check(self) -> dict[str, Any]:
+        return {"ok": True, "driver": "json"}
+
 
 class MySqlStateStore:
+    directory_authoritative = True
+
     def __init__(self, config: dict[str, Any], app_config: dict[str, Any] | None = None):
         self.config = config
         self.app_config = app_config or {}
@@ -126,12 +133,11 @@ class MySqlStateStore:
                 users = self._load_users(cur)
                 accounts = self._load_accounts(cur)
                 strategies = self._load_strategies(cur)
-                if not users or not accounts or not strategies:
-                    return None
                 return {
                     "users": users,
                     "exchange_accounts": accounts,
                     "strategy_instances": strategies,
+                    "account_run_configs": self._load_run_configs(cur),
                 }
         finally:
             conn.close()
@@ -224,6 +230,54 @@ class MySqlStateStore:
                 strategy.setdefault("runtime", {})["live_confirm"] = row[9]
             strategies.append(strategy)
         return strategies
+
+    def _load_run_configs(self, cur) -> list[dict[str, Any]]:
+        cur.execute(
+            """
+            SELECT
+              rc.external_id, ea.external_id, si.external_id,
+              rc.enabled, rc.mode, rc.status, rc.kline_interval,
+              rc.symbols_json, rc.symbol_budget_json,
+              rc.base_position_usdt, rc.max_single_order_usdt,
+              rc.allow_reduce_only, rc.allow_add_position,
+              rc.allow_market_orders
+            FROM account_run_configs rc
+            JOIN exchange_accounts ea ON ea.id = rc.exchange_account_id
+            JOIN strategy_instances si ON si.id = rc.strategy_instance_id
+            ORDER BY rc.id
+            """
+        )
+        configs: list[dict[str, Any]] = []
+        for row in cur.fetchall():
+            symbols = json.loads(row[7]) if isinstance(row[7], str) else row[7]
+            budgets = json.loads(row[8]) if isinstance(row[8], str) else row[8]
+            configs.append({
+                "id": row[0],
+                "account_id": row[1],
+                "strategy_id": row[2],
+                "enabled": bool(row[3]),
+                "mode": row[4],
+                "status": row[5],
+                "interval": row[6],
+                "symbols": symbols or [],
+                "symbol_budget_usdt": budgets or {},
+                "base_position_usdt": float(row[9]),
+                "max_single_order_usdt": float(row[10]),
+                "allow_reduce_only": bool(row[11]),
+                "allow_add_position": bool(row[12]),
+                "allow_market_orders": bool(row[13]),
+            })
+        return configs
+
+    def health_check(self) -> dict[str, Any]:
+        conn = self._connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                row = cur.fetchone()
+            return {"ok": bool(row and row[0] == 1), "driver": "mysql"}
+        finally:
+            conn.close()
 
     def auth_user(self, login: str) -> dict[str, Any] | None:
         self.ensure_identity_schema()

@@ -94,21 +94,22 @@ export DDG_MYSQL_PASSWORD="你的 MySQL 密码"
 
 ## 登录
 
-本地开发默认账号：
+本地 JSON 开发模式可显式配置管理员 bootstrap 账号。MySQL/生产模式不接受
+bootstrap 默认密码，必须先运行目录迁移并为管理员设置密码：
 
-```text
-admin_001 / admin123456
-user_001 / user123456
+```bash
+python backend/scripts/migrate_config_directory_to_mysql.py \
+  --map-user user_001=你的业务用户ID \
+  --set-admin-password
 ```
 
-首次使用 MySQL 登录时，如果用户还没有密码哈希，系统会用上述本地开发密码完成一次初始化并写入 `users.password_hash`。实盘测试前必须修改密码：
+管理员密码后续可独立修改：
 
 ```powershell
 .\backend\scripts\set_user_password.cmd admin_001
-.\backend\scripts\set_user_password.cmd user_001
 ```
 
-本系统的使用者是管理员：管理员登录后运行整个平台，维护业务用户与交易账户，并把平台提供的策略挂到账户上运行。业务用户只是交易账户的归属方（提供 Binance API Key/Secret），不设计、不维护、也不运行策略。若开启登录，业务用户会话仅用于隔离数据可见范围，不承担任何策略操作职责。
+本系统控制台的使用者只有管理员：管理员登录后运行整个平台，维护业务用户与交易账户，并把平台提供的策略挂到账户上运行。业务用户只是交易账户的归属方（提供 Binance API Key/Secret），不登录控制台，不设计、不维护、也不运行策略。`set_user_password.py` 会拒绝为业务用户设置控制台密码。
 
 ## 项目文档
 
@@ -245,7 +246,11 @@ daily_reports
 app_runtime_state
 ```
 
-MySQL 模式下，应用启动会优先从数据库的 `users`、`exchange_accounts`、`strategy_instances` 读取用户、账户和策略归属。`config.local.json` 只作为启动连接和种子配置，不再作为唯一业务配置源。
+MySQL 模式下，数据库是 `users`、`exchange_accounts`、`strategy_instances` 和
+`account_run_configs` 的唯一运行时来源。首次部署或旧部署升级时必须先运行
+`migrate_config_directory_to_mysql.py`；该命令幂等迁移种子目录并保留现有密码哈希。
+目录不完整或没有有效管理员时，Orbit 会拒绝启动，不会回退到
+`config.local.json`。该文件在 MySQL 模式下只负责数据库连接、服务监听、账本路径和运行开关。
 
 ## Binance Futures 只读接入
 

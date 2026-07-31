@@ -3,11 +3,20 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse
 
 from orbit.api.dependencies import app_state, require_admin
 
 
 router = APIRouter(prefix="/api", tags=["system"])
+
+
+@router.get("/health")
+def health(request: Request):
+    result = app_state(request).health()
+    if not result["ok"]:
+        return JSONResponse(result, status_code=503)
+    return result
 
 
 @router.get("/live-execution/reports")

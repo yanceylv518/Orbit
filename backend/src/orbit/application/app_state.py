@@ -90,6 +90,35 @@ class AppState:
         directory = loader()
         if not directory:
             return
+        if getattr(self.store, "directory_authoritative", False):
+            users = list(directory.get("users") or [])
+            accounts = list(directory.get("exchange_accounts") or [])
+            strategies = list(directory.get("strategy_instances") or [])
+            admins = [
+                user for user in users
+                if user.get("role") in {"admin", "super_admin"}
+                and user.get("status", "active") == "active"
+            ]
+            missing = []
+            if not users:
+                missing.append("users")
+            if not accounts:
+                missing.append("exchange_accounts")
+            if not strategies:
+                missing.append("strategy_instances")
+            if missing:
+                raise RuntimeError(
+                    "MySQL directory is incomplete: "
+                    + ", ".join(missing)
+                    + ". Run backend/scripts/migrate_config_directory_to_mysql.py "
+                      "before starting Orbit."
+                )
+            if self.config.get("auth", {}).get("login_required", False) and not admins:
+                raise RuntimeError(
+                    "MySQL directory has no active administrator. "
+                    "Run backend/scripts/migrate_config_directory_to_mysql.py "
+                    "with a valid administrator before starting Orbit."
+                )
         self.config["users"] = directory.get("users", self.config.get("users", []))
         self.config["exchange_accounts"] = directory.get("exchange_accounts", self.config.get("exchange_accounts", []))
         self.config["strategy_instances"] = directory.get("strategy_instances", self.config.get("strategy_instances", []))
@@ -313,6 +342,8 @@ class AppState:
             return {"ok": False, "error": "用户不存在。"}
         if user.get("status", "active") != "active":
             return {"ok": False, "error": "用户已被禁用或暂停。"}
+        if user.get("role") not in {"admin", "super_admin"}:
+            return {"ok": False, "error": "该账号不是平台管理员，不能登录控制台。"}
 
         password_ok = verify_password(password, user.get("password_salt"), user.get("password_hash"))
         if not password_ok and not user.get("password_hash") and self.bootstrap_password(user["id"]) == password:
@@ -380,14 +411,26 @@ class AppState:
         return self.account_directory.user_by_id(user_id)
 
     def bootstrap_password(self, user_id: str) -> str | None:
+        if getattr(self.store, "directory_authoritative", False):
+            return None
         configured = self.config.get("auth", {}).get("bootstrap_passwords", {})
-        if user_id in configured:
-            return configured[user_id]
-        defaults = {
-            "admin_001": "admin123456",
-            "user_001": "user123456",
+        return configured.get(user_id)
+
+    def health(self) -> dict[str, Any]:
+        checker = getattr(self.store, "health_check", None)
+        try:
+            storage = checker() if callable(checker) else {"ok": True, "driver": "unknown"}
+        except Exception:
+            storage = {
+                "ok": False,
+                "driver": self.config.get("storage", {}).get("driver", "unknown"),
+                "error": "storage_unavailable",
+            }
+        return {
+            "ok": bool(storage.get("ok")),
+            "service": "orbit",
+            "storage": storage,
         }
-        return defaults.get(user_id)
 
     def update_event_config(self, incoming: dict[str, Any], actor: str = "admin_001") -> dict[str, Any]:
         with self.lock, self.app_uow as uow:

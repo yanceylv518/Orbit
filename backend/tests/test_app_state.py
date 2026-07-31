@@ -180,13 +180,14 @@ class AppStateAdminTest(unittest.TestCase):
         finally:
             tmp.cleanup()
 
-    def test_login_session_and_user_scope(self):
+    def test_business_user_cannot_login_but_scope_remains_enforced(self):
         tmp, app = self.make_app()
         try:
             login = app.authenticate("user_001", "user123456")
-            self.assertTrue(login["ok"])
+            self.assertFalse(login["ok"])
+            self.assertIn("不是平台管理员", login["error"])
 
-            user = app.current_user(login["session_token"])
+            user = app.user_by_id("user_001")
             self.assertEqual(user["id"], "user_001")
 
             snapshot = app.snapshot(user)
@@ -200,9 +201,18 @@ class AppStateAdminTest(unittest.TestCase):
             self.assertFalse(snapshot["auth"]["permissions"]["can_update_strategy"])
             self.assertFalse(snapshot["auth"]["permissions"]["can_generate_report"])
             self.assertNotIn("secret_ref", snapshot["exchange_accounts"][0])
+        finally:
+            tmp.cleanup()
 
-            app.logout(login["session_token"])
-            self.assertIsNone(app.current_user(login["session_token"]))
+    def test_admin_login_session(self):
+        tmp, app = self.make_app()
+        try:
+            login = app.authenticate("admin_001", "admin123456")
+            self.assertTrue(login["ok"])
+            self.assertEqual(
+                app.current_user(login["session_token"])["id"],
+                "admin_001",
+            )
         finally:
             tmp.cleanup()
 
