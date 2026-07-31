@@ -9,11 +9,22 @@ sys.path.insert(0, str(BACKEND_ROOT / "src"))
 from orbit.infrastructure.credentials.account_connection import VaultAccountConnectionInspector
 from orbit.infrastructure.credentials.local_vault import LocalCredentialVault
 from orbit.application.ports.credential_vault import CredentialVaultError
+from orbit.infrastructure.exchange.binance import BinanceFuturesClient
 
 
 class FailingResolveVault(LocalCredentialVault):
     def resolve(self, reference):
         raise CredentialVaultError("cannot decrypt")
+
+
+class RecordingBinanceClient(BinanceFuturesClient):
+    def __init__(self):
+        super().__init__("key", "secret", testnet=False)
+        self.calls = []
+
+    def signed_request(self, method, path, params=None):
+        self.calls.append((method, path, params))
+        return {"ok": True}
 
 
 class CredentialAdapterTest(unittest.TestCase):
@@ -40,6 +51,33 @@ class CredentialAdapterTest(unittest.TestCase):
         self.assertFalse(status["api_key_present"])
         self.assertFalse(status["secret_present"])
         self.assertEqual(status["credential_error"], "cannot decrypt")
+
+    def test_account_preparation_uses_signed_binance_controls(self):
+        client = RecordingBinanceClient()
+
+        client.change_position_mode(dual_side=False)
+        client.change_leverage("btcusdt", 1)
+
+        self.assertEqual(client.calls, [
+            (
+                "POST",
+                "/fapi/v1/positionSide/dual",
+                {"dualSidePosition": "false"},
+            ),
+            (
+                "POST",
+                "/fapi/v1/leverage",
+                {"symbol": "BTCUSDT", "leverage": 1},
+            ),
+        ])
+
+    def test_invalid_leverage_is_rejected_before_exchange_request(self):
+        client = RecordingBinanceClient()
+
+        with self.assertRaises(ValueError):
+            client.change_leverage("BTCUSDT", 0)
+
+        self.assertEqual(client.calls, [])
 
 
 if __name__ == "__main__":

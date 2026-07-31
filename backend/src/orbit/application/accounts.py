@@ -211,9 +211,9 @@ class AccountService:
             "hedge_mode_required": bool(incoming.get("hedge_mode_required", True)),
             "status": status,
         })
-        next_account["hedge_mode_enabled"] = bool(
-            next_account.get("hedge_mode_enabled", next_account["hedge_mode_required"])
-        )
+        # The persisted legacy column represents the configured requirement,
+        # not Binance's observed mode (which lives in account snapshots).
+        next_account["hedge_mode_enabled"] = next_account["hedge_mode_required"]
         next_account.setdefault("permissions", {})
 
         if existing:

@@ -262,7 +262,7 @@ function timeText(value) {
 }
 
 async function stopLiveExecution() {
-  const reason = prompt("请输入自动下单急停原因。急停后只能创建新的执行批次并重启才能恢复：");
+  const reason = prompt("请输入自动下单急停原因。当前执行批次将永久停止；恢复前必须重新预检并创建新的执行批次：");
   if (!reason?.trim()) return;
   if (!confirm("确认立即停止所有新的 TB4 自动订单？")) return;
   await post("/api/admin/live-execution/emergency-stop", { reason: reason.trim() });

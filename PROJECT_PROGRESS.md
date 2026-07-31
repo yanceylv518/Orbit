@@ -1046,3 +1046,18 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 1. 校准产品技术方案中关于配置格式和目录结构的旧描述：当前以 JSON 配置和 `backend/`、`frontend/`、`docs/`、`config/` 顶层结构为准。
 2. 跨平台凭证与 Linux/bash 运维入口已在 OPS-1 完成；部署时必须持久、安全地注入 `ORBIT_CREDENTIAL_MASTER_KEY`。
 3. 每轮开发完成后更新本文件，避免进度记录滞后于代码结构。
+
+### LIVE-UI 管理控制台（2026-07-31）
+
+- 已将 TB4 前向初始化、主网交易规则刷新、专用账户选择与准备、完整生产预检和 LIVE-SMALL
+  激活迁入“实盘”页面，不再要求管理员修改 `config.local.json` 或运行 Python 策略脚本。
+- “准备账户”会先检查 Binance 空仓/无挂单，再通过签名接口切换单向持仓并把 12 个市场设置为
+  1x；无需在终端或 Binance 页面逐项配置。
+- 新增持久化 `live_pilot_control` 状态机；MySQL 模式随 `app_runtime_state` 保存，服务重启恢复。
+- 激活要求不可复用 epoch、固定确认短语并实时重跑预检；运行中禁止换账户或覆盖批次。
+- 预检覆盖主网、实盘模式、账户同步、单向持仓、500 USDT 权益、冻结清单、规则新鲜度、无挂单、
+  无既有持仓、12 市场 1x 杠杆和 Binance 测试订单权限。
+- 急停状态已持久化；当前 epoch 永久停止，恢复必须通过页面重新预检并创建新 epoch。
+- 后端管理 API 使用严格请求模型并保留审计；前向和规则写入均保持原子、不可覆盖语义。
+- 架构与故障边界见 `docs/design/LIVE_PILOT_CONSOLE.md`。
+- 验证：后端全量 `330 tests OK`；前端 `npm run check`、`npm run build` 通过。

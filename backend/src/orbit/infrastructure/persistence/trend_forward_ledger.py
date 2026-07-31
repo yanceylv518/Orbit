@@ -48,7 +48,15 @@ class TrendForwardLedger:
         events: list[dict[str, Any]],
     ) -> dict[str, Any]:
         if self.directory.exists():
-            raise RuntimeError("TB4 forward directory already exists and cannot be overwritten")
+            # Deployment tooling commonly creates persistent mount points ahead
+            # of first use.  An empty directory contains no evidence and can be
+            # removed atomically; any content remains a hard stop.
+            try:
+                self.directory.rmdir()
+            except OSError as exc:
+                raise RuntimeError(
+                    "TB4 forward directory already contains data and cannot be overwritten"
+                ) from exc
         self.directory.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(
             prefix=f".{self.directory.name}-staging-",

@@ -31,6 +31,25 @@ def close_row(index):
 
 
 class TrendForwardServiceTest(unittest.TestCase):
+    def test_initialize_accepts_precreated_empty_mount_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "tb4"
+            directory.mkdir()
+            ledger = TrendForwardLedger(directory)
+            service = TrendForwardService(ledger)
+            warmup = self.warmup
+
+            snapshot = service.initialize(
+                start_time_ms=warmup[-1]["close_time_ms"] + TB4_SPEC.interval_ms,
+                warmup_closes=warmup,
+                input_fingerprints={symbol: symbol for symbol in TB4_SPEC.symbols},
+                code_commit="abc",
+                protocol_sha256="def",
+            )
+
+            self.assertEqual(snapshot["status"], "RUNNING")
+            self.assertTrue((directory / "manifest.json").exists())
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.path = Path(self.tmp.name) / "tb4"

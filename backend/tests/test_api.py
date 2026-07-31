@@ -160,6 +160,35 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tmp.cleanup()
 
+    async def test_admin_configures_live_pilot_through_controlled_api(self):
+        tmp, api = self.make_api(login_required=False)
+        try:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                configured = await client.post(
+                    "/api/admin/live-pilot/configure",
+                    json={"account_id": "binance_dry_run_001"},
+                )
+                rejected = await client.post(
+                    "/api/admin/live-pilot/prepare-account",
+                    json={
+                        "account_id": "binance_dry_run_001",
+                        "confirmation": "wrong",
+                    },
+                )
+
+            self.assertEqual(configured.status_code, 200)
+            control = configured.json()["live_pilot_control"]
+            self.assertEqual(control["status"], "CONFIGURED")
+            self.assertEqual(control["live_account_id"], "binance_dry_run_001")
+            self.assertFalse(control["auto_execution_enabled"])
+            self.assertEqual(rejected.status_code, 400)
+            self.assertIn("确认短语", rejected.json()["error"])
+        finally:
+            tmp.cleanup()
+
     async def test_strategy_catalog_requires_login_and_hides_deployment_details(self):
         tmp, api = self.make_api()
         try:

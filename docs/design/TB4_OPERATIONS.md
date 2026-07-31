@@ -1,6 +1,6 @@
 # TB4 前向测试操作手册（Runbook）
 
-版本：2026-07-30（V2：并入 LIVE-SMALL 自动执行部署；判定纪律不变）
+版本：2026-07-31（V3：前向初始化与 LIVE-SMALL 启用迁入管理控制台；判定纪律不变）
 适用对象：平台管理员（自用）
 
 ---
@@ -81,52 +81,40 @@
 
 ---
 
-## 5. 启动并运行前向
+## 5. 通过管理控制台启动前向与实盘
 
-在 Binance 可达主机、仓库根目录先做一次初始化：
+生产环境不再通过修改 `config.local.json` 或手工运行 Python 工具启用实盘。管理员登录 Orbit，
+进入 **实盘 → 小资金实盘启用向导**，按页面顺序完成：
 
-```bash
-python backend/tools/run_tb4_forward.py --initialize --once
-```
+1. **选择专用账户**：保存已经录入凭证的 Binance 合约账户。运行中的批次不能换账户。
+2. **初始化 TB4 前向**：后端直接调用冻结前向服务，拉取 12 市场共同连续的 1,009 根 4h
+   收盘进行暖机，并原子写入不可变 manifest。已有 manifest 时是幂等读取，不会覆盖。
+3. **刷新交易规则**：从 Binance 主网读取 `exchangeInfo`，原子更新 12 市场的精度、步长和
+   最小名义金额快照。
+4. **准备实盘账户**：输入页面要求的确认短语后，系统先确认 Binance 账户无挂单、无持仓，
+   再将交易所切换为单向持仓并把 12 个策略市场设置为 1x，最后将 Orbit 账户明确设置为主网、
+   `dry_run=false`。该动作不下单；交易所任一步失败均不会开放实盘。
+5. **运行生产预检**：系统自动同步账户，并逐项验证账户状态、真实单向持仓、至少 500 USDT
+   钱包权益、TB4 清单、规则新鲜度、无挂单、无既有持仓、12 市场 1x 杠杆和
+   Binance `/order/test` 合约交易权限。任一项失败均不能启用。
+6. **启用自动执行**：填写新的不可复用执行批次（epoch），再输入
+   `ENABLE LIVE SMALL`。系统会重新预检，全部通过后持久化控制状态并立即启用执行器；
+   下一次轮询可能产生真实市价单，不需要重启服务。
 
-该命令会拉取 12 市场共同连续的 1,009 根 4h 收盘进行暖机，锁定下一根收盘为前向起点并写入不可变清单。
+控制状态、最后一次预检及执行批次保存在生产运行时存储（MySQL `app_runtime_state`），所有管理
+动作同时写入管理员审计日志。`config.local.json` 只保留数据库连接、服务监听、固定账本路径等
+部署级配置，不再承担日常实盘启停。
 
-生产运行时由 Orbit 后端充当 **唯一 TB4 轮询与自动执行 writer**。在 `config.local.json` 的
-`runtime.trend_forward` 中设置：
-
-```json
-{
-  "enabled": true,
-  "live_account_id": "专用实盘账户 ID",
-  "exchange_rules_path": "var/forward/live-small/tb4_exchange_rules.json",
-  "auto_execution_enabled": false,
-  "auto_execution_epoch": "",
-  "execution_ledger_path": "var/forward/live-small/executions.jsonl",
-  "max_snapshot_age_seconds": 120,
-  "max_order_notional_usdt": 150,
-  "round_gross_multiplier": 1.1
-}
-```
-
-先以 `auto_execution_enabled=false` 启动后端，完成清单、账户同步、规则快照和页面状态核对。
-先刷新主网市价单规则，并把输出路径写入配置的 `exchange_rules_path`：
-
-```bash
-python backend/tools/fetch_tb4_exchange_rules.py
-```
-
-确认账户为 Binance 主网、`dry_run=false`、单向持仓模式、人工设置 1x 杠杆且 API Key
-只有合约交易权限（禁止提现、设置 IP 白名单）后，使用新的不可复用 epoch（例如
-`live-small-2026-08-01-v1`）并把 `auto_execution_enabled` 改为 `true`，再重启后端。
-
-启用后不要再并行运行持续版 `run_tb4_forward.py`；工具会在检测到
-`trend_forward.enabled=true` 时拒绝成为第二个 writer。TB4 paper 账本默认位于
-`var/forward/tb4/`，实盘执行账本默认位于 `var/forward/live-small/`。两者都必须持久化并备份。
-平台快照分别以只读字段 `trend_forward`、`live_execution` 暴露进度和逐单报告。
+Orbit 后端是 **唯一 TB4 轮询与自动执行 writer**。TB4 paper 账本默认位于
+`var/forward/tb4/`，实盘执行账本默认位于 `var/forward/live-small/`；两者必须持久化并备份。
+页面分别展示 `trend_forward`、`live_pilot_control` 与 `live_execution` 的进度、预检和逐单报告。
 
 自动执行规则以 `LIVE_SMALL.md` V2 为准：同一再平衡至多执行一次；失败不追单；急停后当前
-epoch 永久锁定，只能修改 epoch 并重启后再启用。账本损坏、存在未完成轮次或发现无法映射到
-冻结清单的订单记录时，系统 fail closed，不得通过删除账本恢复。
+epoch 永久锁定，恢复必须在页面重新预检并创建新 epoch。账本损坏、存在未完成轮次或发现无法
+映射到冻结清单的订单记录时，系统 fail closed，不得通过删除账本恢复。
+
+`backend/tools/run_tb4_forward.py` 与 `fetch_tb4_exchange_rules.py` 仅保留给离线诊断和灾难恢复，
+不是生产启用入口，也不得与 Orbit 服务并行充当 writer。
 
 启动器实现以下约束：
 
@@ -136,7 +124,7 @@ epoch 永久锁定，只能修改 epoch 并重启后再启用。账本损坏、�
 4. **监控暴露**：在控制台/快照只读展示前向进度（已跑多久）、权益曲线、当前指标 vs 冻结门、数据完整性、成交健康。
 5. **护栏**：期间不提供任何改参数/提前判定的入口。
 
-> 只有 `--initialize` 在 Binance 可达主机成功完成后才开始真正的前向计时；代码存在和历史回放都不算前向样本。
+> 只有页面“初始化 TB4 前向”在 Binance 可达主机成功完成后才开始真正的前向计时；代码存在和历史回放都不算前向样本。
 
 ---
 

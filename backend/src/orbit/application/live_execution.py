@@ -292,6 +292,51 @@ class LiveExecutionService:
                 break
         return reports
 
+    def configure(
+        self,
+        *,
+        enabled: bool,
+        execution_epoch: str,
+        live_account_id: str,
+        max_snapshot_age_seconds: int | None = None,
+        max_order_notional_usdt: float | None = None,
+        round_gross_multiplier: float | None = None,
+    ) -> None:
+        """Apply an administrator-approved runtime control version.
+
+        The order gate prevents activation changes while an individual order
+        is being submitted.  Active epochs are never silently replaced.
+        """
+        next_epoch = str(execution_epoch or "").strip()
+        next_account = str(live_account_id or "").strip()
+        next_snapshot_age_ms = self.max_snapshot_age_ms
+        next_order_notional = self.max_order_notional
+        next_round_multiplier = self.round_gross_multiplier
+        if max_snapshot_age_seconds is not None:
+            value = int(max_snapshot_age_seconds)
+            if value <= 0:
+                raise ValueError("max_snapshot_age_seconds must be positive")
+            next_snapshot_age_ms = value * 1000
+        if max_order_notional_usdt is not None:
+            value = Decimal(str(max_order_notional_usdt))
+            if value <= 0:
+                raise ValueError("max_order_notional_usdt must be positive")
+            next_order_notional = value
+        if round_gross_multiplier is not None:
+            value = Decimal(str(round_gross_multiplier))
+            if value <= 0:
+                raise ValueError("round_gross_multiplier must be positive")
+            next_round_multiplier = value
+        with self._order_gate:
+            if self.enabled and self.execution_epoch and next_epoch != self.execution_epoch:
+                raise RuntimeError("active execution epoch cannot be replaced")
+            self.enabled = bool(enabled)
+            self.execution_epoch = next_epoch
+            self.live_account_id = next_account
+            self.max_snapshot_age_ms = next_snapshot_age_ms
+            self.max_order_notional = next_order_notional
+            self.round_gross_multiplier = next_round_multiplier
+
     def _static_gate(self, checklist: Mapping[str, Any]) -> str | None:
         if not self.execution_epoch:
             return "EXECUTION_EPOCH_NOT_CONFIGURED"

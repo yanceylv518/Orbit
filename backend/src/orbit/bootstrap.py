@@ -96,6 +96,9 @@ class ApplicationContainer:
     trend_forward_poll: Any
     live_reconciliation_service: Any
     live_execution_service: Any
+    credential_vault: Any
+    trend_checklist_projector: Any
+    trend_forward_cache_invalidate: Any
     strategy_catalog_service: Any
     research_catalog: Any
     research_workflow: Any
@@ -144,6 +147,7 @@ def build_application_container(
     symbol_metric_history: dict[str, list[dict[str, Any]]],
     persist: Callable[[], None],
     mock_data_enabled: bool,
+    live_pilot_control: dict[str, Any],
 ) -> ApplicationContainer:
     permissions = PermissionPolicy()
     account_repository = ConfigAccountRepository(config)
@@ -284,6 +288,7 @@ def build_application_container(
         CachedToolEvaluator(root, calibration_dir),
     )
     trend_config = plan_runtime.get("trend_forward", {})
+    live_control = live_pilot_control
     trend_data_dir = Path(str(trend_config.get("data_dir", "var/forward/tb4")))
     if not trend_data_dir.is_absolute():
         trend_data_dir = root / trend_data_dir
@@ -291,8 +296,14 @@ def build_application_container(
     trend_rules_path = Path(trend_rules_path_value) if trend_rules_path_value else None
     if trend_rules_path is not None and not trend_rules_path.is_absolute():
         trend_rules_path = root / trend_rules_path
+    if trend_rules_path is None:
+        console_rules_path = root / "var" / "forward" / "live-small" / "tb4_exchange_rules.json"
+        if console_rules_path.exists():
+            trend_rules_path = console_rules_path
     trend_checklist_projector = TrendExecutionChecklistProjector(
-        live_capital_usdt=trend_config.get("live_capital_usdt", 500),
+        live_capital_usdt=live_control.get(
+            "live_capital_usdt", trend_config.get("live_capital_usdt", 500),
+        ),
         exchange_rules=load_tb4_exchange_rules(trend_rules_path),
     )
     trend_snapshot_cache: dict[str, Any] = {"signature": None, "snapshot": None}
@@ -332,6 +343,9 @@ def build_application_container(
         trend_snapshot_cache["signature"] = None
         return result
 
+    def trend_forward_cache_invalidate() -> None:
+        trend_snapshot_cache["signature"] = None
+
     live_equity_path = Path(str(
         trend_config.get(
             "equity_ledger_path",
@@ -342,7 +356,7 @@ def build_application_container(
         live_equity_path = root / live_equity_path
     live_equity_ledger = AppendOnlyLiveEquityLedger(live_equity_path)
     live_reconciliation_service = LiveReconciliationService(
-        live_account_id=str(trend_config.get("live_account_id") or ""),
+        live_account_id=str(live_control.get("live_account_id") or ""),
         account_snapshots=account_snapshot_repository,
         trend_forward_snapshot=trend_forward_snapshot,
         equity_ledger=live_equity_ledger,
@@ -359,9 +373,9 @@ def build_application_container(
     if not execution_ledger_path.is_absolute():
         execution_ledger_path = root / execution_ledger_path
     live_execution_service = LiveExecutionService(
-        enabled=bool(trend_config.get("auto_execution_enabled", False)),
-        execution_epoch=str(trend_config.get("auto_execution_epoch") or ""),
-        live_account_id=str(trend_config.get("live_account_id") or ""),
+        enabled=bool(live_control.get("auto_execution_enabled", False)),
+        execution_epoch=str(live_control.get("execution_epoch") or ""),
+        live_account_id=str(live_control.get("live_account_id") or ""),
         accounts=account_repository,
         account_snapshots=account_snapshot_repository,
         trend_forward_snapshot=trend_forward_snapshot,
@@ -372,20 +386,29 @@ def build_application_container(
         equity_ledger=live_equity_ledger,
         reconciliation_snapshot=live_reconciliation_service.snapshot,
         max_snapshot_age_seconds=int(
-            trend_config.get("max_snapshot_age_seconds", 120)
+            live_control.get(
+                "max_snapshot_age_seconds",
+                trend_config.get("max_snapshot_age_seconds", 120),
+            )
         ),
         max_order_notional_usdt=float(
-            trend_config.get("max_order_notional_usdt", 150)
+            live_control.get(
+                "max_order_notional_usdt",
+                trend_config.get("max_order_notional_usdt", 150),
+            )
         ),
         round_gross_multiplier=float(
-            trend_config.get("round_gross_multiplier", 1.1)
+            live_control.get(
+                "round_gross_multiplier",
+                trend_config.get("round_gross_multiplier", 1.1),
+            )
         ),
     )
     strategy_catalog_service = StrategyCatalogService(
         trend_forward_snapshot,
         live_execution_service.snapshot,
-        live_capital_usdt=float(trend_config.get("live_capital_usdt", 500)),
-        live_configured=bool(str(trend_config.get("live_account_id") or "").strip()),
+        live_capital_usdt=float(live_control.get("live_capital_usdt", 500)),
+        live_configured=bool(str(live_control.get("live_account_id") or "").strip()),
     )
 
     snapshot_queries = SnapshotQueryService(
@@ -459,6 +482,9 @@ def build_application_container(
         trend_forward_poll=trend_forward_poll,
         live_reconciliation_service=live_reconciliation_service,
         live_execution_service=live_execution_service,
+        credential_vault=credential_vault,
+        trend_checklist_projector=trend_checklist_projector,
+        trend_forward_cache_invalidate=trend_forward_cache_invalidate,
         strategy_catalog_service=strategy_catalog_service,
         research_catalog=research_catalog,
         research_workflow=research_workflow,

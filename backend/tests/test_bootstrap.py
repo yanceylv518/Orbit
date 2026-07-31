@@ -2,14 +2,50 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+import sys
+from unittest.mock import patch
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
 from orbit.bootstrap import create_app_state
 from orbit.application.app_state import AppState
 from orbit.bootstrap import DefaultApplicationBootstrap
 from orbit.config import load_config
+from orbit.domain.strategy.trend_basket_runner import TB4_SPEC
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class PreparingBinanceClient:
+    calls = []
+
+    @classmethod
+    def from_account(cls, account, vault):
+        cls.calls.append(("account", account["id"], account["testnet"]))
+        return cls()
+
+    def open_orders(self):
+        return []
+
+    def position_risk(self):
+        return [
+            {"symbol": symbol, "positionAmt": "0", "leverage": "20"}
+            for symbol in TB4_SPEC.symbols
+        ]
+
+    def position_mode(self):
+        return {"dualSidePosition": True}
+
+    def change_position_mode(self, *, dual_side):
+        self.calls.append(("position_mode", dual_side))
+        return {"code": 200}
+
+    def change_leverage(self, symbol, leverage):
+        self.calls.append(("leverage", symbol, leverage))
+        return {"symbol": symbol, "leverage": leverage}
 
 
 class BootstrapTests(unittest.TestCase):
@@ -72,6 +108,66 @@ class BootstrapTests(unittest.TestCase):
                 "ACCOUNT_NOT_CONFIGURED",
             )
             self.assertEqual(admin_snapshot["live_execution"]["status"], "DISABLED")
+        finally:
+            tmp.cleanup()
+
+    def test_live_pilot_control_is_restored_and_applied_after_restart(self):
+        tmp, app = self.make_app()
+        try:
+            configured = app.configure_live_pilot(
+                actor="admin_001",
+                account_id="binance_dry_run_001",
+            )
+            self.assertTrue(configured["ok"])
+
+            restored = create_app_state(str(Path(tmp.name) / "config.json"))
+
+            self.assertEqual(
+                restored.live_pilot_control["live_account_id"],
+                "binance_dry_run_001",
+            )
+            self.assertEqual(
+                restored.live_reconciliation_service.live_account_id,
+                "binance_dry_run_001",
+            )
+            self.assertEqual(
+                restored.live_execution_service.live_account_id,
+                "binance_dry_run_001",
+            )
+            self.assertFalse(restored.live_execution_service.enabled)
+        finally:
+            tmp.cleanup()
+
+    def test_prepare_live_account_changes_binance_before_opening_orbit_live_mode(self):
+        tmp, app = self.make_app()
+        try:
+            PreparingBinanceClient.calls = []
+            app.configure_live_pilot(
+                actor="admin_001",
+                account_id="binance_dry_run_001",
+            )
+
+            with patch(
+                "orbit.application.app_state.BinanceFuturesClient",
+                PreparingBinanceClient,
+            ):
+                result = app.prepare_live_pilot_account(
+                    actor="admin_001",
+                    account_id="binance_dry_run_001",
+                    confirmation="PREPARE LIVE ACCOUNT",
+                )
+
+            self.assertTrue(result["ok"])
+            account = app.account_by_id("binance_dry_run_001")
+            self.assertFalse(account["testnet"])
+            self.assertFalse(account["dry_run"])
+            self.assertIn(("position_mode", False), PreparingBinanceClient.calls)
+            leverage_calls = [
+                item for item in PreparingBinanceClient.calls
+                if item[0] == "leverage"
+            ]
+            self.assertEqual(len(leverage_calls), len(TB4_SPEC.symbols))
+            self.assertTrue(all(item[2] == 1 for item in leverage_calls))
         finally:
             tmp.cleanup()
 

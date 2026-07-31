@@ -4,11 +4,42 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from orbit.api.dependencies import app_state, require_admin
 
 
 router = APIRouter(prefix="/api", tags=["system"])
+
+
+class LivePilotConfigureRequest(BaseModel):
+    account_id: str = Field(min_length=1, max_length=128)
+
+    class Config:
+        extra = "forbid"
+
+
+class LivePilotPrepareAccountRequest(LivePilotConfigureRequest):
+    confirmation: str = Field(min_length=1, max_length=64)
+
+
+class LivePilotActivateRequest(BaseModel):
+    execution_epoch: str = Field(min_length=6, max_length=64)
+    confirmation: str = Field(min_length=1, max_length=64)
+
+    class Config:
+        extra = "forbid"
+
+
+def _live_action_response(app: Any, user: dict[str, Any], result: dict[str, Any], key: str):
+    if not result.get("ok", result.get("passed", False)):
+        return JSONResponse(
+            {"ok": False, "error": result.get("error") or "操作未通过。", key: result},
+            status_code=400,
+        )
+    snapshot = app.snapshot(user)
+    snapshot[key] = result
+    return snapshot
 
 
 @router.get("/health")
@@ -27,6 +58,92 @@ def live_execution_reports(
 ) -> dict[str, Any]:
     items = app_state(request).live_execution_service.reports(limit)
     return {"items": items, "count": len(items), "limit": limit}
+
+
+@router.post("/admin/live-pilot/configure")
+def configure_live_pilot(
+    request: Request,
+    payload: LivePilotConfigureRequest,
+    user: dict[str, Any] = Depends(require_admin),
+):
+    app = app_state(request)
+    result = app.configure_live_pilot(
+        actor=user["id"],
+        account_id=payload.account_id,
+    )
+    return _live_action_response(app, user, result, "live_pilot_configure_result")
+
+
+@router.post("/admin/live-pilot/prepare-account")
+def prepare_live_pilot_account(
+    request: Request,
+    payload: LivePilotPrepareAccountRequest,
+    user: dict[str, Any] = Depends(require_admin),
+):
+    app = app_state(request)
+    result = app.prepare_live_pilot_account(
+        actor=user["id"],
+        account_id=payload.account_id,
+        confirmation=payload.confirmation,
+    )
+    return _live_action_response(app, user, result, "live_pilot_account_result")
+
+
+@router.post("/admin/live-pilot/initialize-forward")
+def initialize_live_pilot_forward(
+    request: Request,
+    user: dict[str, Any] = Depends(require_admin),
+):
+    app = app_state(request)
+    try:
+        result = app.initialize_trend_forward(actor=user["id"])
+    except Exception as exc:
+        result = {"ok": False, "error": str(exc)}
+    return _live_action_response(app, user, result, "live_pilot_initialize_result")
+
+
+@router.post("/admin/live-pilot/refresh-rules")
+def refresh_live_pilot_rules(
+    request: Request,
+    user: dict[str, Any] = Depends(require_admin),
+):
+    app = app_state(request)
+    try:
+        result = app.refresh_live_exchange_rules(actor=user["id"])
+    except Exception as exc:
+        result = {"ok": False, "error": str(exc)}
+    return _live_action_response(app, user, result, "live_pilot_rules_result")
+
+
+@router.post("/admin/live-pilot/preflight")
+def run_live_pilot_preflight(
+    request: Request,
+    user: dict[str, Any] = Depends(require_admin),
+):
+    app = app_state(request)
+    try:
+        result = app.run_live_pilot_preflight(actor=user["id"])
+    except Exception as exc:
+        result = {"ok": False, "error": str(exc)}
+    return _live_action_response(app, user, result, "live_pilot_preflight_result")
+
+
+@router.post("/admin/live-pilot/activate")
+def activate_live_pilot(
+    request: Request,
+    payload: LivePilotActivateRequest,
+    user: dict[str, Any] = Depends(require_admin),
+):
+    app = app_state(request)
+    try:
+        result = app.activate_live_pilot(
+            actor=user["id"],
+            execution_epoch=payload.execution_epoch,
+            confirmation=payload.confirmation,
+        )
+    except Exception as exc:
+        result = {"ok": False, "error": str(exc)}
+    return _live_action_response(app, user, result, "live_pilot_activation_result")
 
 
 @router.post("/tick")

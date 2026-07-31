@@ -252,9 +252,10 @@ MySQL 模式下，数据库是 `users`、`exchange_accounts`、`strategy_instanc
 目录不完整或没有有效管理员时，Orbit 会拒绝启动，不会回退到
 `config.local.json`。该文件在 MySQL 模式下只负责数据库连接、服务监听、账本路径和运行开关。
 
-## Binance Futures 只读接入
+## Binance Futures 账户接入与受控实盘
 
-第一版 Binance 接入只做真实账户只读同步和环境校验，不会真实下单。
+账户默认只读同步。只有管理员在“实盘 → 小资金实盘启用向导”完成冻结前向初始化、规则刷新、
+账户准备、生产预检和双重确认后，LIVE-SMALL 才会打开真实自动下单。
 
 支持：
 
@@ -286,10 +287,13 @@ $env:BINANCE_API_SECRET = "你的 Binance Futures API Secret"
 --testnet true   使用 Binance Futures demo-fapi
 --testnet false  使用 Binance Futures 正式 fapi
 --dry-run true   策略不执行真实下单
---dry-run false  预留给后续实盘小额下单，当前版本仍默认不开放真实下单
+--dry-run false  允许该账户进入实盘预检，但本身不会启用自动下单
 ```
 
-配置完成后重启服务，登录页面后进入“用户账户”，点击“同步 Binance”即可读取真实余额、持仓和 Hedge Mode 状态。
+配置完成后登录页面，进入“账户”同步 Binance，即可读取真实余额、持仓和 Hedge Mode 状态。
+需要启动 LIVE-SMALL 时，进入“实盘”的启用向导；运行控制持久化在 MySQL
+`app_runtime_state`，不需要修改配置文件、运行策略脚本或重启服务。详细状态机和接口边界见
+`docs/design/LIVE_PILOT_CONSOLE.md`。
 
 ## 验证
 

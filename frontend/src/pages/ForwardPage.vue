@@ -28,6 +28,103 @@
       </div>
     </div>
 
+    <article v-if="isAdmin" class="panel live-wizard">
+      <div class="panel-head">
+        <div>
+          <h3>小资金实盘启用向导</h3>
+          <p class="muted checklist-meta">
+            初始化、规则刷新、账户预检和自动执行均由受控接口完成，不需要登录服务器运行脚本。
+          </p>
+        </div>
+        <StatusBadge
+          :text="enumLabel(liveControl.status || 'DRAFT')"
+          :raw="liveControl.status || 'DRAFT'"
+          :color="liveControl.status === 'ACTIVE' ? 'red' : (preflight.passed ? 'green' : 'orange')"
+        />
+      </div>
+
+      <div class="wizard-grid">
+        <section class="wizard-step">
+          <span class="wizard-index">1</span>
+          <div>
+            <h4>选择专用账户</h4>
+            <p class="muted">选择已保存 API 凭证的 Binance 合约账户。</p>
+            <div class="wizard-actions">
+              <select v-model="wizard.accountId" :disabled="wizardBusy">
+                <option value="">请选择账户</option>
+                <option v-for="account in binanceAccounts" :key="account.id" :value="account.id">
+                  {{ account.account_label }} / {{ account.id }}
+                </option>
+              </select>
+              <button class="button ghost small" :disabled="wizardBusy || !wizard.accountId" @click="configurePilot">
+                保存选择
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="wizard-step">
+          <span class="wizard-index">2</span>
+          <div>
+            <h4>建立冻结基准</h4>
+            <p class="muted">原子初始化不可变前向账本，并获取 12 个市场的最新交易规则。</p>
+            <div class="wizard-actions">
+              <button class="button ghost small" :disabled="wizardBusy || forward.status !== 'NOT_STARTED'" @click="initializeForward">
+                {{ forward.status === "NOT_STARTED" ? "初始化 TB4" : "TB4 已初始化" }}
+              </button>
+              <button class="button ghost small" :disabled="wizardBusy" @click="refreshRules">刷新交易规则</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="wizard-step">
+          <span class="wizard-index">3</span>
+          <div>
+            <h4>准备主网账户</h4>
+            <p class="muted">检查空仓与无挂单后，切换单向持仓并把 12 个市场设置为 1x；不会下单。</p>
+            <div class="wizard-actions">
+              <button class="button ghost small" :disabled="wizardBusy || !configuredAccountId" @click="prepareAccount">
+                切换为主网实盘账户
+              </button>
+              <button class="button ghost small" :disabled="wizardBusy || !configuredAccountId" @click="runPreflight">
+                运行生产预检
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="wizard-step danger-step">
+          <span class="wizard-index">4</span>
+          <div>
+            <h4>启用自动执行</h4>
+            <p class="muted">只有全部预检通过后可启用；启用后约一分钟内可能发送第一轮市价单。</p>
+            <div class="wizard-form">
+              <input v-model.trim="wizard.epoch" :disabled="wizardBusy || liveControl.status === 'ACTIVE'" placeholder="执行批次，如 live-small-2026-07-31-v1" />
+              <input v-model.trim="wizard.confirmation" :disabled="wizardBusy || liveControl.status === 'ACTIVE'" placeholder="输入 ENABLE LIVE SMALL" />
+              <button
+                class="button danger small"
+                :disabled="wizardBusy || !preflight.passed || liveControl.status === 'ACTIVE'"
+                @click="activatePilot"
+              >
+                {{ liveControl.status === "ACTIVE" ? "自动执行已启用" : "确认并启用自动执行" }}
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="preflight.checks?.length" class="preflight-results">
+        <div v-for="item in preflight.checks" :key="item.code" class="preflight-row">
+          <StatusBadge :text="item.ok ? '通过' : '未通过'" :color="item.ok ? 'green' : 'red'" />
+          <strong>{{ item.message }}</strong>
+          <span v-if="item.detail" class="muted">{{ detailText(item.detail) }}</span>
+        </div>
+      </div>
+      <div v-if="wizardMessage" class="wizard-message" role="status">
+        {{ wizardMessage }}
+      </div>
+    </article>
+
     <div class="metric-grid">
       <MetricCard label="前向状态" :value="forwardStatus" :note="forwardNote" />
       <MetricCard
@@ -144,7 +241,7 @@
       <MetricCard
         label="自动执行"
         :value="executionStatusText"
-        :note="liveExecution.execution_epoch ? `执行批次 ${liveExecution.execution_epoch}` : '须修改配置并重启才能启用'"
+        :note="liveExecution.execution_epoch ? `执行批次 ${liveExecution.execution_epoch}` : '请通过上方向导预检并启用'"
         :value-class="liveExecution.status === 'ENABLED' ? '' : 'negative'"
       />
       <MetricCard
@@ -295,13 +392,19 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, reactive, ref, watchEffect } from "vue";
 import MetricCard from "../components/MetricCard.vue";
 import HelpTip from "../components/HelpTip.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { cls, fmt, percent } from "../core/format.js";
 import { enumLabel } from "../domain/labels.js";
-import { post, setActivePage, store } from "../stores/appStore.js";
+import {
+  exchangeAccounts,
+  isAdmin,
+  post,
+  setActivePage,
+  store,
+} from "../stores/appStore.js";
 
 const forward = computed(() => store.state?.trend_forward || {});
 const checklist = computed(() => forward.value.execution_checklist || {
@@ -325,6 +428,21 @@ const liveExecution = computed(() => store.state?.live_execution || {
   latest_report: null,
 });
 const executionReport = computed(() => liveExecution.value.latest_report || {});
+const liveControl = computed(() => store.state?.live_pilot_control || {});
+const preflight = computed(() => liveControl.value.last_preflight || {});
+const binanceAccounts = computed(() => exchangeAccounts.value.filter(
+  (account) => account.exchange === "binance" && account.market_type === "futures",
+));
+const configuredAccountId = computed(() => liveControl.value.live_account_id || wizard.accountId);
+const wizard = reactive({ accountId: "", epoch: "", confirmation: "" });
+const wizardBusy = ref(false);
+const wizardMessage = ref("");
+
+watchEffect(() => {
+  if (!wizard.accountId && liveControl.value.live_account_id) {
+    wizard.accountId = liveControl.value.live_account_id;
+  }
+});
 const executionStatusText = computed(() => enumLabel(liveExecution.value.status));
 const reconciliationStatusText = computed(() => ({
   ACCOUNT_NOT_CONFIGURED: "尚未选择用于小资金实盘的专用账户",
@@ -340,7 +458,7 @@ const forwardStatus = computed(() => {
 });
 const forwardNote = computed(() => (
   forward.value.status === "NOT_STARTED"
-    ? "需先在 Binance 可达主机初始化"
+    ? "请使用上方启用向导初始化"
     : `已计分 ${forward.value.scored_periods || 0} 根 4h K线`
 ));
 const paperHealthNote = computed(() => {
@@ -446,10 +564,89 @@ function executionRowColor(value) {
 }
 
 async function stopLiveExecution() {
-  const reason = prompt("请输入自动执行急停原因。急停后只能修改配置 epoch 并重启才能恢复：");
+  const reason = prompt("请输入自动执行急停原因。当前执行批次将永久停止；恢复前必须重新预检并创建新的执行批次：");
   if (!reason?.trim()) return;
   if (!confirm("确认立即停止所有新的 TB4 自动订单？")) return;
   await post("/api/admin/live-execution/emergency-stop", { reason: reason.trim() });
+}
+
+async function wizardAction(callback, successMessage) {
+  if (wizardBusy.value) return;
+  wizardBusy.value = true;
+  wizardMessage.value = "";
+  try {
+    const result = await callback();
+    if (result) wizardMessage.value = successMessage;
+    return result;
+  } finally {
+    wizardBusy.value = false;
+  }
+}
+
+function configurePilot() {
+  return wizardAction(
+    () => post("/api/admin/live-pilot/configure", { account_id: wizard.accountId }),
+    "专用账户已保存，自动执行仍为关闭状态。",
+  );
+}
+
+function initializeForward() {
+  if (!confirm("确认从下一根完整 4h K 线开始冻结 TB4 前向证据？初始化后不能重置起点。")) return;
+  return wizardAction(
+    () => post("/api/admin/live-pilot/initialize-forward"),
+    "TB4 前向基准已初始化。",
+  );
+}
+
+function refreshRules() {
+  return wizardAction(
+    () => post("/api/admin/live-pilot/refresh-rules"),
+    "12 个市场的 Binance 主网交易规则已刷新；请重新运行预检。",
+  );
+}
+
+function prepareAccount() {
+  const confirmation = prompt(
+    "该操作会检查账户空仓/无挂单，切换 Binance 单向持仓并将 12 个市场设置为 1x；不会下单。请输入 PREPARE LIVE ACCOUNT：",
+  );
+  if (confirmation === null) return;
+  return wizardAction(
+    () => post("/api/admin/live-pilot/prepare-account", {
+      account_id: configuredAccountId.value,
+      confirmation,
+    }),
+    "Binance 已切换为单向持仓，12 个策略市场已设置为 1x；自动执行仍为关闭状态。",
+  );
+}
+
+function runPreflight() {
+  return wizardAction(
+    () => post("/api/admin/live-pilot/preflight"),
+    "生产预检已全部通过，可以填写新批次并启用自动执行。",
+  );
+}
+
+function activatePilot() {
+  if (!confirm("确认启用真实资金自动执行？启用后可能在一分钟内发送市价单。")) return;
+  return wizardAction(
+    async () => {
+      const result = await post("/api/admin/live-pilot/activate", {
+        execution_epoch: wizard.epoch,
+        confirmation: wizard.confirmation,
+      });
+      if (result) wizard.confirmation = "";
+      return result;
+    },
+    "LIVE-SMALL 自动执行已启用；请持续观察首轮订单与持仓对账。",
+  );
+}
+
+function detailText(value) {
+  if (Array.isArray(value)) return value.length ? value.join("、") : "无";
+  if (typeof value === "object") return Object.entries(value)
+    .map(([key, item]) => `${key}: ${item}`)
+    .join("；");
+  return String(value);
 }
 
 function csvCell(value) {
@@ -497,6 +694,65 @@ function downloadCsv() {
 .empty-state { padding: 30px 12px; text-align: center; color: var(--muted); }
 .guard-panel { margin-top: 14px; }
 .guard-panel p { margin-top: 7px; max-width: 980px; }
+.live-wizard { margin-bottom: 14px; }
+.wizard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.wizard-step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(9, 20, 38, 0.35);
+}
+.wizard-step h4 { margin: 0 0 5px; }
+.wizard-index {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--accent);
+  border: 1px solid rgba(77, 150, 255, 0.45);
+  background: rgba(57, 132, 240, 0.12);
+}
+.wizard-actions, .wizard-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.wizard-actions select, .wizard-form input {
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+.danger-step { border-color: rgba(255, 92, 120, 0.28); }
+.preflight-results {
+  margin-top: 12px;
+  display: grid;
+  gap: 7px;
+}
+.wizard-message {
+  margin-top: 12px;
+  padding: 10px 12px;
+  color: var(--positive);
+  border: 1px solid rgba(25, 168, 98, 0.35);
+  border-radius: 9px;
+  background: rgba(25, 168, 98, 0.08);
+}
+.preflight-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .wizard-grid { grid-template-columns: 1fr; }
+}
 .reconciliation-metrics { margin-top: 14px; }
 .review-handoff-panel { margin-top: 14px; }
 tfoot td { border-top: 1px solid var(--line-strong); }

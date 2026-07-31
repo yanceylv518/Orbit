@@ -29,6 +29,14 @@ class LiveReconciliationService:
             raise ValueError("quantity_tolerance_pct cannot be negative")
         self.last_record_error: str | None = None
 
+    def configure(self, *, live_account_id: str, quantity_tolerance_pct: float | None = None) -> None:
+        self.live_account_id = str(live_account_id or "").strip()
+        if quantity_tolerance_pct is not None:
+            tolerance = Decimal(str(quantity_tolerance_pct)) / Decimal("100")
+            if tolerance < 0:
+                raise ValueError("quantity_tolerance_pct cannot be negative")
+            self.quantity_tolerance_pct = tolerance
+
     def record_snapshot(self, account_id: str, snapshot: Mapping[str, Any]) -> dict[str, Any]:
         if not self.live_account_id:
             return {"recorded": False, "reason": "ACCOUNT_NOT_CONFIGURED"}

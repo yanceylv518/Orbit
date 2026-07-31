@@ -76,6 +76,30 @@ class BinanceFuturesClient:
     def position_mode(self) -> dict[str, Any]:
         return self.signed_request("GET", "/fapi/v1/positionSide/dual")
 
+    def change_position_mode(self, *, dual_side: bool) -> dict[str, Any]:
+        return self.signed_request(
+            "POST",
+            "/fapi/v1/positionSide/dual",
+            {"dualSidePosition": "true" if dual_side else "false"},
+        )
+
+    def change_leverage(self, symbol: str, leverage: int) -> dict[str, Any]:
+        value = int(leverage)
+        if value < 1 or value > 125:
+            raise ValueError("Binance futures leverage must be between 1 and 125")
+        return self.signed_request(
+            "POST",
+            "/fapi/v1/leverage",
+            {"symbol": str(symbol).upper(), "leverage": value},
+        )
+
+    def open_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        params = {"symbol": symbol} if symbol else {}
+        payload = self.signed_request("GET", "/fapi/v1/openOrders", params)
+        if not isinstance(payload, list):
+            raise BinanceError("Unexpected openOrders response.")
+        return payload
+
     def exchange_info(self, symbol: str | None = None) -> dict[str, Any]:
         params = {"symbol": symbol} if symbol else {}
         return self.public_request("GET", "/fapi/v1/exchangeInfo", params)
