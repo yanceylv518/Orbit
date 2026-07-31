@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class PreparingBinanceClient:
     calls = []
     leverage = {}
+    margin_type = {}
 
     @classmethod
     def from_account(cls, account, vault):
@@ -45,6 +46,8 @@ class PreparingBinanceClient:
             {
                 "symbol": symbol,
                 "leverage": str(self.leverage.get(symbol, 20)),
+                "marginType": self.margin_type.get(symbol, "CROSSED"),
+                "isAutoAddMargin": False,
             }
             for symbol in TB4_SPEC.symbols
         ]
@@ -60,6 +63,11 @@ class PreparingBinanceClient:
         self.calls.append(("leverage", symbol, leverage))
         self.leverage[symbol] = leverage
         return {"symbol": symbol, "leverage": leverage}
+
+    def change_margin_type(self, symbol, margin_type):
+        self.calls.append(("margin_type", symbol, margin_type))
+        self.margin_type[symbol] = margin_type
+        return {"code": 200}
 
 
 class BootstrapTests(unittest.TestCase):
@@ -157,6 +165,7 @@ class BootstrapTests(unittest.TestCase):
         try:
             PreparingBinanceClient.calls = []
             PreparingBinanceClient.leverage = {}
+            PreparingBinanceClient.margin_type = {}
             app.configure_live_pilot(
                 actor="admin_001",
                 account_id="binance_dry_run_001",
@@ -182,7 +191,13 @@ class BootstrapTests(unittest.TestCase):
                 if item[0] == "leverage"
             ]
             self.assertEqual(len(leverage_calls), len(TB4_SPEC.symbols))
-            self.assertTrue(all(item[2] == 1 for item in leverage_calls))
+            self.assertTrue(all(item[2] == 3 for item in leverage_calls))
+            margin_calls = [
+                item for item in PreparingBinanceClient.calls
+                if item[0] == "margin_type"
+            ]
+            self.assertEqual(len(margin_calls), len(TB4_SPEC.symbols))
+            self.assertTrue(all(item[2] == "ISOLATED" for item in margin_calls))
         finally:
             tmp.cleanup()
 

@@ -94,27 +94,40 @@ class TrendExecutionChecklistProjectorTest(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(runner.__dict__, before)
         self.assertEqual(first["status"], "READY")
+        self.assertEqual(first["protocol"], "LIVE_SMALL_EXECUTION_CHECKLIST_V3")
+        self.assertEqual(first["exposure_multiplier"], 3.0)
+        self.assertEqual(first["initial_leverage"], 3)
+        self.assertEqual(first["margin_type"], "ISOLATED")
         rows = {row["symbol"]: row for row in first["rows"]}
         self.assertEqual(rows["BTCUSDT"]["direction"], "LONG")
-        self.assertEqual(rows["BTCUSDT"]["target_quantity"], 0.001)
-        self.assertEqual(rows["BTCUSDT"]["notional_change_usdt"], 150.0)
+        self.assertEqual(rows["BTCUSDT"]["strategy_weight"], 0.2)
+        self.assertEqual(rows["BTCUSDT"]["weight"], 0.6)
+        self.assertEqual(rows["BTCUSDT"]["target_quantity"], 0.003)
+        self.assertEqual(rows["BTCUSDT"]["notional_change_usdt"], 450.0)
         self.assertEqual(rows["ETHUSDT"]["direction"], "SHORT")
-        self.assertEqual(rows["ETHUSDT"]["target_quantity"], 0.025)
-        self.assertEqual(rows["BNBUSDT"]["status"], "BELOW_MIN_NOTIONAL")
-        self.assertEqual(rows["BNBUSDT"]["target_quantity"], 0.0)
+        self.assertEqual(rows["ETHUSDT"]["target_quantity"], 0.075)
+        self.assertEqual(rows["BNBUSDT"]["status"], "EXECUTABLE")
+        self.assertEqual(rows["BNBUSDT"]["target_quantity"], 0.07)
         self.assertEqual(rows["SOLUSDT"]["status"], "FLAT")
-        self.assertEqual(first["summary"]["executable_symbols"], 2)
-        self.assertEqual(first["summary"]["below_minimum_symbols"], 1)
-        self.assertAlmostEqual(first["summary"]["target_gross_notional_usdt"], 152.5)
-        self.assertAlmostEqual(first["summary"]["executable_gross_notional_usdt"], 150.0)
+        self.assertEqual(first["summary"]["executable_symbols"], 3)
+        self.assertEqual(first["summary"]["below_minimum_symbols"], 0)
+        self.assertAlmostEqual(first["summary"]["strategy_gross_notional_usdt"], 152.5)
+        self.assertAlmostEqual(first["summary"]["target_gross_notional_usdt"], 457.5)
+        self.assertAlmostEqual(first["summary"]["executable_gross_notional_usdt"], 457.0)
         self.assertAlmostEqual(
-            first["summary"]["executable_notional_ratio"], 150.0 / 152.5,
+            first["summary"]["executable_notional_ratio"], 457.0 / 457.5,
         )
 
     def test_capital_changes_only_the_projection_and_can_cross_minimum(self):
         runner = FakeRunner()
-        small = TrendExecutionChecklistProjector(live_capital_usdt=500).project(runner)
-        large = TrendExecutionChecklistProjector(live_capital_usdt=1000).project(runner)
+        small = TrendExecutionChecklistProjector(
+            live_capital_usdt=500,
+            exposure_multiplier=1,
+        ).project(runner)
+        large = TrendExecutionChecklistProjector(
+            live_capital_usdt=1000,
+            exposure_multiplier=1,
+        ).project(runner)
 
         small_bnb = next(row for row in small["rows"] if row["symbol"] == "BNBUSDT")
         large_bnb = next(row for row in large["rows"] if row["symbol"] == "BNBUSDT")

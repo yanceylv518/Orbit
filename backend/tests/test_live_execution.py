@@ -46,9 +46,19 @@ class Equity:
 
 
 class Gateway:
-    def __init__(self, outcomes=None):
+    def __init__(
+        self,
+        outcomes=None,
+        *,
+        leverage=3,
+        margin_type="ISOLATED",
+        auto_add_margin=False,
+    ):
         self.outcomes = outcomes or {}
         self.orders = []
+        self.leverage = leverage
+        self.margin_type = margin_type
+        self.auto_add_margin = auto_add_margin
 
     def place_order(self, params):
         self.orders.append(deepcopy(params))
@@ -77,6 +87,17 @@ class Gateway:
             "commissionAsset": "USDT",
         }]
 
+    def symbol_configuration(self):
+        return [
+            {
+                "symbol": symbol,
+                "leverage": self.leverage,
+                "marginType": self.margin_type,
+                "isAutoAddMargin": self.auto_add_margin,
+            }
+            for symbol in TB4_SPEC.symbols
+        ]
+
 
 def checklist(*, stale=False, targets=None, rebalance=123_000):
     targets = targets or {"BTCUSDT": 1.0}
@@ -94,7 +115,7 @@ def checklist(*, stale=False, targets=None, rebalance=123_000):
         })
     gross = sum(abs(value) * 10 for value in targets.values())
     return {
-        "protocol": "LIVE_SMALL_EXECUTION_CHECKLIST_V1",
+        "protocol": "LIVE_SMALL_EXECUTION_CHECKLIST_V3",
         "status": "READY",
         "rules_stale": stale,
         "rebalance_time_ms": rebalance,
@@ -235,6 +256,38 @@ class LiveExecutionServiceTest(unittest.TestCase):
             "FROZEN_TB4_CHECKLIST",
         )
         self.assertTrue(order_event["checklist_row_sha256"])
+
+    def test_exchange_risk_configuration_is_rechecked_before_round_claim(self):
+        cases = [
+            (
+                Gateway(leverage=1),
+                "LEVERAGE_CONFIGURATION_MISMATCH",
+            ),
+            (
+                Gateway(margin_type="CROSSED"),
+                "MARGIN_TYPE_CONFIGURATION_MISMATCH",
+            ),
+            (
+                Gateway(auto_add_margin=True),
+                "AUTO_ADD_MARGIN_ENABLED",
+            ),
+        ]
+        for index, (gateway, expected) in enumerate(cases):
+            with self.subTest(expected):
+                ledger = AppendOnlyLiveExecutionLedger(
+                    Path(self.tmp.name) / f"risk-config-{index}.jsonl"
+                )
+                result = self.service(
+                    gateway_factory=lambda _account, current=gateway: current,
+                    execution_ledger=ledger,
+                ).execute_due(self.sync)
+
+                self.assertIn(expected, result["reason"])
+                self.assertEqual(gateway.orders, [])
+                self.assertFalse(any(
+                    item["payload"]["event_type"] == "ROUND_STARTED"
+                    for item in ledger.read_all()
+                ))
 
     def test_completed_reports_are_newest_first_and_read_only(self):
         service = self.service()

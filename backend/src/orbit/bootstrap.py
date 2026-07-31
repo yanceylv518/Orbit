@@ -304,6 +304,7 @@ def build_application_container(
         live_capital_usdt=live_control.get(
             "live_capital_usdt", trend_config.get("live_capital_usdt", 500),
         ),
+        exposure_multiplier=live_control.get("exposure_multiplier", 3),
         exchange_rules=load_tb4_exchange_rules(trend_rules_path),
     )
     trend_snapshot_cache: dict[str, Any] = {"signature": None, "snapshot": None}

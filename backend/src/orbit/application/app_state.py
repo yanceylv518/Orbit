@@ -20,6 +20,9 @@ from orbit.domain.strategy.regime import ensure_regime_gate_config
 from orbit.domain.strategy.trend_basket_runner import TB4_SPEC
 from orbit.application.live_pilot_control import (
     LIVE_ACTIVATION_PHRASE,
+    LIVE_CHECKLIST_PROTOCOL,
+    LIVE_INITIAL_LEVERAGE,
+    LIVE_MARGIN_TYPE,
     normalize_live_pilot_control,
     project_preflight,
     validate_epoch,
@@ -677,6 +680,7 @@ class AppState:
         candidate_account["testnet"] = False
         exchange_result: dict[str, Any] = {
             "position_mode": "ONE_WAY",
+            "margin_type": {},
             "leverage": {},
         }
         try:
@@ -705,15 +709,27 @@ class AppState:
                 }
             if bool(client.position_mode().get("dualSidePosition")):
                 client.change_position_mode(dual_side=False)
+            current_configuration = {
+                str(item.get("symbol") or ""): item
+                for item in client.symbol_configuration()
+            }
             for symbol in TB4_SPEC.symbols:
-                response = client.change_leverage(symbol, 1)
+                current_margin_type = str(
+                    (current_configuration.get(symbol) or {}).get("marginType") or ""
+                ).upper()
+                if current_margin_type != LIVE_MARGIN_TYPE:
+                    client.change_margin_type(symbol, LIVE_MARGIN_TYPE)
+                exchange_result["margin_type"][symbol] = LIVE_MARGIN_TYPE
+                response = client.change_leverage(symbol, LIVE_INITIAL_LEVERAGE)
                 applied_leverage = int(response.get("leverage") or 0)
-                if applied_leverage != 1:
+                if applied_leverage != LIVE_INITIAL_LEVERAGE:
                     raise RuntimeError(
                         f"{symbol} 杠杆设置返回异常：{applied_leverage}x。"
                     )
                 exchange_result["leverage"][symbol] = applied_leverage
             wrong_leverage: list[str] = []
+            wrong_margin_type: list[str] = []
+            auto_add_margin: list[str] = []
             for attempt in range(3):
                 verified_configuration = {
                     str(item.get("symbol") or ""): item
@@ -725,16 +741,41 @@ class AppState:
                     if str(
                         (verified_configuration.get(symbol) or {}).get("leverage")
                         or ""
-                    ) != "1"
+                    ) != str(LIVE_INITIAL_LEVERAGE)
                 ]
-                if not wrong_leverage:
+                wrong_margin_type = [
+                    symbol
+                    for symbol in TB4_SPEC.symbols
+                    if str(
+                        (verified_configuration.get(symbol) or {}).get("marginType")
+                        or ""
+                    ).upper() != LIVE_MARGIN_TYPE
+                ]
+                auto_add_margin = [
+                    symbol
+                    for symbol in TB4_SPEC.symbols
+                    if bool(
+                        (verified_configuration.get(symbol) or {}).get("isAutoAddMargin")
+                    )
+                ]
+                if not wrong_leverage and not wrong_margin_type and not auto_add_margin:
                     break
                 if attempt < 2:
                     time.sleep(0.5)
             if wrong_leverage:
                 raise RuntimeError(
-                    "以下市场的 1x 杠杆设置未通过回读验证："
+                    f"以下市场的 {LIVE_INITIAL_LEVERAGE}x 杠杆设置未通过回读验证："
                     + ", ".join(wrong_leverage)
+                )
+            if wrong_margin_type:
+                raise RuntimeError(
+                    "以下市场的逐仓设置未通过回读验证："
+                    + ", ".join(wrong_margin_type)
+                )
+            if auto_add_margin:
+                raise RuntimeError(
+                    "以下逐仓市场启用了自动追加保证金，请先在 Binance 关闭："
+                    + ", ".join(auto_add_margin)
                 )
         except Exception as exc:
             with self.lock:
@@ -966,6 +1007,17 @@ class AppState:
             {"status": checklist.get("status") or "NOT_AVAILABLE"},
             required=False,
         )
+        check(
+            "CHECKLIST_PROTOCOL_V3",
+            not checklist_ready or checklist.get("protocol") == LIVE_CHECKLIST_PROTOCOL,
+            (
+                "冻结执行清单使用 LIVE-SMALL V3 协议"
+                if checklist_ready
+                else "等待首份 V3 冻结执行清单"
+            ),
+            {"protocol": checklist.get("protocol")},
+            required=checklist_ready,
+        )
         check("RULES_FRESH", not bool(checklist.get("rules_stale")), "Binance 交易规则未过期")
 
         try:
@@ -990,9 +1042,38 @@ class AppState:
                 symbol for symbol in TB4_SPEC.symbols
                 if str(
                     (symbol_configuration.get(symbol) or {}).get("leverage") or ""
-                ) != "1"
+                ) != str(LIVE_INITIAL_LEVERAGE)
             ]
-            check("LEVERAGE_1X", not wrong_leverage, "12 个策略市场杠杆均为 1x", wrong_leverage)
+            check(
+                "LEVERAGE_3X",
+                not wrong_leverage,
+                f"12 个策略市场杠杆均为 {LIVE_INITIAL_LEVERAGE}x",
+                wrong_leverage,
+            )
+            wrong_margin_type = [
+                symbol for symbol in TB4_SPEC.symbols
+                if str(
+                    (symbol_configuration.get(symbol) or {}).get("marginType") or ""
+                ).upper() != LIVE_MARGIN_TYPE
+            ]
+            check(
+                "ISOLATED_MARGIN",
+                not wrong_margin_type,
+                "12 个策略市场均为逐仓",
+                wrong_margin_type,
+            )
+            auto_add_margin = [
+                symbol for symbol in TB4_SPEC.symbols
+                if bool(
+                    (symbol_configuration.get(symbol) or {}).get("isAutoAddMargin")
+                )
+            ]
+            check(
+                "AUTO_ADD_MARGIN_OFF",
+                not auto_add_margin,
+                "12 个逐仓市场均已关闭自动追加保证金",
+                auto_add_margin,
+            )
             test_params = self._live_permission_test_order(client, checklist)
             client.test_order(test_params)
             check(

@@ -8,6 +8,11 @@ from decimal import Decimal, ROUND_DOWN
 from typing import Any, Callable, Mapping
 
 from orbit.application.live_reconciliation import LiveReconciliationService
+from orbit.application.live_pilot_control import (
+    LIVE_CHECKLIST_PROTOCOL,
+    LIVE_INITIAL_LEVERAGE,
+    LIVE_MARGIN_TYPE,
+)
 from orbit.application.live_risk import live_small_drawdown_stop_reason
 from orbit.domain.strategy.trend_basket_runner import TB4_SPEC
 
@@ -20,7 +25,7 @@ def canonical_hash(value: Any) -> str:
 
 
 class LiveExecutionService:
-    """LIVE-SMALL V2 executor whose sole instruction source is the TB4 checklist."""
+    """LIVE-SMALL V3 executor whose sole instruction source is the frozen checklist."""
 
     def __init__(
         self,
@@ -134,6 +139,19 @@ class LiveExecutionService:
             ))
             return {"status": "PROTOCOL_STOP", "executed": False, "reason": protocol_stop}
 
+        try:
+            gateway = self.gateway_factory(
+                self.accounts.account_by_id(self.live_account_id)
+            )
+            configuration_reason = self._exchange_configuration_gate(gateway)
+        except Exception as exc:
+            return self._reject(
+                rebalance_time,
+                f"EXCHANGE_CONFIGURATION_CHECK_FAILED: {exc}",
+            )
+        if configuration_reason:
+            return self._reject(rebalance_time, configuration_reason)
+
         rows = list(checklist.get("rows") or [])
         checklist_sha = canonical_hash(checklist)
         intents, results = self._build_intents(rows, before.get("positions") or [])
@@ -150,45 +168,10 @@ class LiveExecutionService:
             },
             order_count=len(intents),
         ))
-        try:
-            gateway = self.gateway_factory(
-                self.accounts.account_by_id(self.live_account_id)
-            )
-        except Exception as exc:
-            gateway = None
-            gateway_error = str(exc)
-        else:
-            gateway_error = None
         for intent in intents:
-            if gateway is None:
-                row_result = dict(intent) | {
-                    "status": "ORDER_FAILED",
-                    "executed_quantity": 0.0,
-                    "average_price": 0.0,
-                    "slippage_bps": None,
-                    "fee": 0.0,
-                    "fee_assets": [],
-                    "error": gateway_error,
-                }
-                self.execution_ledger.append(self._event(
-                    "ORDER_RESULT",
-                    rebalance_time,
-                    symbol=intent["symbol"],
-                    checklist_row_sha256=intent["checklist_row_sha256"],
-                    order_intent={
-                        "source": "FROZEN_TB4_CHECKLIST",
-                        "checklist_sha256": checklist_sha,
-                        "params": None,
-                    },
-                    exchange_response=None,
-                    trades=[],
-                    result=row_result,
-                    error=gateway_error,
-                ))
-            else:
-                row_result = self._execute_one(
-                    gateway, rebalance_time, checklist_sha, intent,
-                )
+            row_result = self._execute_one(
+                gateway, rebalance_time, checklist_sha, intent,
+            )
             results.append(row_result)
 
         try:
@@ -356,13 +339,41 @@ class LiveExecutionService:
         rows = list(checklist.get("rows") or [])
         symbols = [str(row.get("symbol") or "") for row in rows]
         if (
-            checklist.get("protocol") != "LIVE_SMALL_EXECUTION_CHECKLIST_V1"
+            checklist.get("protocol") != LIVE_CHECKLIST_PROTOCOL
             or len(symbols) != len(set(symbols))
             or set(symbols) != set(TB4_SPEC.symbols)
         ):
             return "CHECKLIST_UNIVERSE_MISMATCH"
         if bool(checklist.get("rules_stale")):
             return "EXCHANGE_RULES_STALE"
+        return None
+
+    def _exchange_configuration_gate(self, gateway: Any) -> str | None:
+        configurations = {
+            str(item.get("symbol") or ""): item
+            for item in gateway.symbol_configuration()
+        }
+        wrong_leverage = [
+            symbol for symbol in TB4_SPEC.symbols
+            if str((configurations.get(symbol) or {}).get("leverage") or "")
+            != str(LIVE_INITIAL_LEVERAGE)
+        ]
+        if wrong_leverage:
+            return f"LEVERAGE_CONFIGURATION_MISMATCH: {','.join(wrong_leverage)}"
+        wrong_margin = [
+            symbol for symbol in TB4_SPEC.symbols
+            if str(
+                (configurations.get(symbol) or {}).get("marginType") or ""
+            ).upper() != LIVE_MARGIN_TYPE
+        ]
+        if wrong_margin:
+            return f"MARGIN_TYPE_CONFIGURATION_MISMATCH: {','.join(wrong_margin)}"
+        auto_add = [
+            symbol for symbol in TB4_SPEC.symbols
+            if bool((configurations.get(symbol) or {}).get("isAutoAddMargin"))
+        ]
+        if auto_add:
+            return f"AUTO_ADD_MARGIN_ENABLED: {','.join(auto_add)}"
         return None
 
     def _account_gate(self, snapshot: Mapping[str, Any]) -> str | None:
@@ -408,6 +419,11 @@ class LiveExecutionService:
             notional = quantity * close
             base = {
                 "symbol": symbol,
+                "strategy_weight": float(row.get("strategy_weight") or 0),
+                "live_weight": float(row.get("weight") or 0),
+                "strategy_target_quantity": float(
+                    row.get("signed_strategy_target_quantity") or 0
+                ),
                 "target_quantity": float(target),
                 "actual_before_quantity": float(current),
                 "requested_quantity": float(quantity),
@@ -597,7 +613,7 @@ class LiveExecutionService:
         failed = sum(row["status"] in {"ORDER_FAILED", "PARTIAL_FILL"} for row in attempted)
         evidence_errors = sum(bool(row.get("error")) for row in attempted)
         return {
-            "protocol": "LIVE_SMALL_EXECUTION_REPORT_V1",
+            "protocol": "LIVE_SMALL_EXECUTION_REPORT_V3",
             "status": (
                 "COMPLETED"
                 if not failed and not evidence_errors and not post_sync_error

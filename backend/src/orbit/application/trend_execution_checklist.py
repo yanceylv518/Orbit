@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from orbit.domain.strategy.trend_basket_runner import TB4_SPEC
+from orbit.application.live_pilot_control import (
+    LIVE_CHECKLIST_PROTOCOL,
+    LIVE_EXPOSURE_MULTIPLIER,
+    LIVE_INITIAL_LEVERAGE,
+    LIVE_MARGIN_TYPE,
+)
 
 
 DEFAULT_LIVE_CAPITAL_USDT = Decimal("500")
@@ -97,11 +103,15 @@ class TrendExecutionChecklistProjector:
         self,
         *,
         live_capital_usdt: Decimal | float | str = DEFAULT_LIVE_CAPITAL_USDT,
+        exposure_multiplier: Decimal | float | str = LIVE_EXPOSURE_MULTIPLIER,
         exchange_rules: Mapping[str, Any] | None = None,
     ) -> None:
         self.live_capital_usdt = Decimal(str(live_capital_usdt))
         if self.live_capital_usdt <= 0:
             raise ValueError("live_capital_usdt must be positive")
+        self.exposure_multiplier = Decimal(str(exposure_multiplier))
+        if self.exposure_multiplier <= 0:
+            raise ValueError("exposure_multiplier must be positive")
         self.exchange_rules = deepcopy(
             dict(exchange_rules) if exchange_rules is not None else load_tb4_exchange_rules()
         )
@@ -115,10 +125,13 @@ class TrendExecutionChecklistProjector:
 
     def project(self, runner: Any) -> dict[str, Any]:
         base = {
-            "protocol": "LIVE_SMALL_EXECUTION_CHECKLIST_V1",
+            "protocol": LIVE_CHECKLIST_PROTOCOL,
             "read_only": True,
             "live_trading": False,
             "capital_usdt": float(self.live_capital_usdt),
+            "exposure_multiplier": float(self.exposure_multiplier),
+            "initial_leverage": LIVE_INITIAL_LEVERAGE,
+            "margin_type": LIVE_MARGIN_TYPE,
             "rules": {
                 "protocol": self.exchange_rules["protocol"],
                 "source": self.exchange_rules.get("source"),
@@ -176,6 +189,14 @@ class TrendExecutionChecklistProjector:
             (abs(Decimal(str(row["weight"]))) for row in rows),
             Decimal("0"),
         )
+        strategy_gross_weight = sum(
+            (abs(Decimal(str(row["strategy_weight"]))) for row in rows),
+            Decimal("0"),
+        )
+        strategy_gross_notional = sum(
+            (Decimal(str(row["strategy_target_notional_usdt"])) for row in rows),
+            Decimal("0"),
+        )
         ratio = executable_gross / target_gross if target_gross > 0 else Decimal("1")
         return base | {
             "status": "READY",
@@ -186,6 +207,8 @@ class TrendExecutionChecklistProjector:
             "rules_stale": self._rules_stale(int(runner.times[-1])),
             "rows": rows,
             "summary": {
+                "strategy_gross_weight": float(strategy_gross_weight),
+                "strategy_gross_notional_usdt": float(strategy_gross_notional),
                 "target_gross_weight": float(target_gross_weight),
                 "target_gross_notional_usdt": float(target_gross),
                 "executable_gross_notional_usdt": float(executable_gross),
@@ -206,15 +229,23 @@ class TrendExecutionChecklistProjector:
         close: Decimal,
     ) -> dict[str, Any]:
         rule = self.exchange_rules["symbols"][symbol]
-        signed_target_notional = weight * self.live_capital_usdt
+        strategy_signed_target_notional = weight * self.live_capital_usdt
+        strategy_target_notional = abs(strategy_signed_target_notional)
+        live_weight = weight * self.exposure_multiplier
+        signed_target_notional = live_weight * self.live_capital_usdt
         target_notional = abs(signed_target_notional)
-        previous_signed_notional = previous_weight * self.live_capital_usdt
+        previous_signed_notional = (
+            previous_weight * self.exposure_multiplier * self.live_capital_usdt
+        )
         notional_change = signed_target_notional - previous_signed_notional
         direction = "LONG" if weight > 0 else ("SHORT" if weight < 0 else "FLAT")
         step = Decimal(str(rule["quantity_step"]))
         min_quantity = Decimal(str(rule["min_quantity"]))
         min_notional = Decimal(str(rule["min_notional_usdt"]))
         raw_quantity = target_notional / close if close > 0 else Decimal("0")
+        strategy_raw_quantity = (
+            strategy_target_notional / close if close > 0 else Decimal("0")
+        )
         rounded_quantity = (
             (raw_quantity / step).to_integral_value(rounding=ROUND_DOWN) * step
             if raw_quantity > 0 else Decimal("0")
@@ -250,8 +281,18 @@ class TrendExecutionChecklistProjector:
         return {
             "symbol": symbol,
             "direction": direction,
-            "weight": float(weight),
+            "strategy_weight": float(weight),
+            "weight": float(live_weight),
             "close_price": float(close),
+            "strategy_signed_target_notional_usdt": float(
+                strategy_signed_target_notional
+            ),
+            "strategy_target_notional_usdt": float(strategy_target_notional),
+            "strategy_raw_target_quantity": float(strategy_raw_quantity),
+            "signed_strategy_target_quantity": float(
+                strategy_raw_quantity if direction == "LONG"
+                else (-strategy_raw_quantity if direction == "SHORT" else Decimal("0"))
+            ),
             "signed_target_notional_usdt": float(signed_target_notional),
             "target_notional_usdt": float(target_notional),
             "notional_change_usdt": float(notional_change),
@@ -279,6 +320,8 @@ class TrendExecutionChecklistProjector:
     @staticmethod
     def _empty_summary() -> dict[str, Any]:
         return {
+            "strategy_gross_weight": 0.0,
+            "strategy_gross_notional_usdt": 0.0,
             "target_gross_weight": 0.0,
             "target_gross_notional_usdt": 0.0,
             "executable_gross_notional_usdt": 0.0,

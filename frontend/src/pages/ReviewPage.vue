@@ -5,7 +5,7 @@
         <h2>{{ activeTab === "execution" ? "实盘执行复盘" : "历史日报" }}</h2>
         <p>
           {{ activeTab === "execution"
-            ? "用同期模拟基准拆分策略表现、执行偏差与真实交易成本。"
+            ? "逐笔比较 TB4 原始目标、3x 实盘目标、真实成交与持仓，并核对真实交易成本。"
             : "查看旧网格与平台运行期间生成的日报和事件日志。" }}
         </p>
       </div>
@@ -27,13 +27,13 @@
           label="实盘与模拟累计差距"
           help="纸面前向"
           :value="metricPercent(equity.cumulative_deviation_pct)"
-          note="实盘账户涨跌幅减去同期模拟盘涨跌幅"
+          note="3x 逐仓实盘涨跌幅减去未放大的 TB4 模拟盘涨跌幅；风险倍数不同，不能直接归因为执行误差"
           :value-class="deviationClass(equity.cumulative_deviation_pct)"
         />
         <MetricCard
           label="最近逐周偏差"
           :value="metricPercent(equity.latest_weekly_deviation_pct)"
-          note="最近一周的实盘收益减去模拟盘收益"
+          note="3x 逐仓实盘收益减去未放大的模拟盘收益，仅用于监控"
           :value-class="deviationClass(equity.latest_weekly_deviation_pct)"
         />
         <MetricCard
@@ -51,8 +51,8 @@
       <article class="panel equity-review-panel">
         <div class="panel-head">
           <div>
-            <h3>实盘和模拟盘，谁涨得更多？</h3>
-            <p class="muted">纸面前向 <HelpTip term="纸面前向" /> · 起点统一记为 1.0；差距只展示，不擅自判断原因。</p>
+            <h3>3x 逐仓实盘与原始 TB4 模拟盘</h3>
+            <p class="muted">起点统一记为 1.0；两者风险倍数不同，曲线差距不能直接视为滑点或执行误差。</p>
           </div>
           <StatusBadge :text="enumLabel(equity.status || 'NO_OBSERVATIONS')" :raw="equity.status || 'NO_OBSERVATIONS'" :color="equity.status === 'READY' ? 'green' : 'orange'" />
         </div>
@@ -68,8 +68,8 @@
             :height="220"
           />
           <div class="chart-legend">
-            <span><i class="live-line"></i>实盘</span>
-            <span><i class="paper-line"></i>模拟盘</span>
+            <span><i class="live-line"></i>3x 逐仓实盘</span>
+            <span><i class="paper-line"></i>原始 TB4 模拟盘</span>
             <span>最后同步 {{ timeText(equity.points.at(-1)?.synced_at_ms) }}</span>
           </div>
         </div>
@@ -139,7 +139,7 @@
         <div class="panel-head">
           <div>
               <h3>每次调仓执行得对不对？</h3>
-            <p class="muted">按执行账本倒序读取，不改变账本、执行状态或策略参数。</p>
+            <p class="muted">逐笔展示原始策略目标、3x 执行目标与成交后实际持仓；只读，不改变账本或策略。</p>
           </div>
           <button v-if="isAdmin" class="button ghost small" :disabled="store.liveExecutionReportsBusy" @click="loadReports">
             {{ store.liveExecutionReportsBusy ? "刷新中" : "刷新报告" }}
@@ -170,18 +170,21 @@
           <div class="table-wrap report-detail">
             <table>
               <thead>
-                <tr><th>市场</th><th>结果</th><th>成交量</th><th>成交均价</th><th>成交价偏差 <HelpTip term="滑点" /></th><th>手续费</th></tr>
+                <tr><th>市场</th><th>结果</th><th>TB4 原始目标</th><th>3x 执行目标</th><th>成交后持仓</th><th>成交量</th><th>成交均价</th><th>成交价偏差 <HelpTip term="滑点" /></th><th>手续费</th></tr>
               </thead>
               <tbody>
                 <tr v-for="row in selectedReport?.rows || []" :key="row.symbol">
                   <td><strong>{{ row.symbol }}</strong></td>
                   <td><StatusBadge :text="rowStatusText(row.status)" :raw="row.status" :color="rowStatusColor(row.status)" /></td>
+                  <td class="mono">{{ fmt(row.strategy_target_quantity, 8) }}</td>
+                  <td class="mono">{{ fmt(row.target_quantity, 8) }}</td>
+                  <td class="mono">{{ quantityOrDash(reconciledQuantity(row.symbol)) }}</td>
                   <td class="mono">{{ fmt(row.executed_quantity, 8) }}</td>
                   <td class="mono">{{ fmt(row.average_price, 6) }}</td>
                   <td class="mono">{{ row.slippage_bps == null ? "-" : `${fmt(row.slippage_bps, 3)} bps` }}</td>
                   <td class="mono">{{ fmt(row.fee, 8) }} {{ row.fee_assets?.join("/") || "-" }}</td>
                 </tr>
-                <tr v-if="!selectedReport?.rows?.length"><td colspan="6" class="muted">该轮没有逐单记录。</td></tr>
+                <tr v-if="!selectedReport?.rows?.length"><td colspan="9" class="muted">该轮没有逐单记录。</td></tr>
               </tbody>
             </table>
           </div>
@@ -222,6 +225,15 @@ const selectedReport = computed(() => (
 
 function reportKey(report) {
   return report ? `${report.execution_epoch || ""}:${report.rebalance_time_ms || 0}` : "";
+}
+
+function reconciledQuantity(symbol) {
+  const rows = selectedReport.value?.position_reconciliation?.rows || [];
+  return rows.find((row) => row.symbol === symbol)?.actual_quantity ?? null;
+}
+
+function quantityOrDash(value) {
+  return value === null || value === undefined ? "-" : fmt(value, 8);
 }
 
 watch(reports, (items) => {

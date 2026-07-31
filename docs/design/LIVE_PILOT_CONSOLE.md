@@ -1,6 +1,6 @@
 # LIVE-SMALL 管理控制台设计
 
-版本：2026-07-31（V2：授权布防与订单触发解耦）
+版本：2026-07-31（V3：3 倍实盘目标、逐仓 3x、旧授权失效）
 
 ## 1. 目标与边界
 
@@ -57,9 +57,9 @@ STOPPED
 | `POST /api/admin/live-pilot/configure` | 选择专用账户 | ACTIVE 时拒绝换账户 |
 | `POST /api/admin/live-pilot/initialize-forward` | 初始化冻结前向 | 不覆盖既有账本 |
 | `POST /api/admin/live-pilot/refresh-rules` | 刷新主网规则 | 原子写文件 |
-| `POST /api/admin/live-pilot/prepare-account` | 检查空仓/无挂单，设置单向持仓与 12 市场 1x，再保存主网实盘属性 | 要求 `PREPARE LIVE ACCOUNT` |
+| `POST /api/admin/live-pilot/prepare-account` | 检查空仓/无挂单，设置单向持仓、12 市场逐仓 3x，再保存主网实盘属性 | 要求 `PREPARE LIVE ACCOUNT` |
 | `POST /api/admin/live-pilot/preflight` | 执行生产预检 | 账户安全检查任一失败则 fail closed；信号清单可等待 |
-| `POST /api/admin/live-pilot/activate` | 授权并布防自动执行 | 新 epoch、`ENABLE LIVE SMALL`、重新预检 |
+| `POST /api/admin/live-pilot/activate` | 授权并布防自动执行 | 新 epoch、`ENABLE LIVE SMALL V3`、重新预检 |
 | `POST /api/admin/live-execution/emergency-stop` | 停止新增订单 | 当前 epoch 永久锁定 |
 
 请求体使用严格模型，未知字段被拒绝。页面不接收、保存或回显 API Secret；凭证继续由账户中心
@@ -78,8 +78,9 @@ STOPPED
 7. 交易规则存在且未过期；
 8. 账户没有未完成挂单；
 9. 12 个策略市场没有既有持仓；
-10. 12 个策略市场杠杆均为 1x；
-11. 使用清单数量，或基于实时价格和交易规则计算的最小合规数量，通过 Binance
+10. 12 个策略市场杠杆均为 3x；
+11. 12 个策略市场保证金模式均为逐仓，且关闭自动追加保证金；
+12. 使用清单数量，或基于实时价格和交易规则计算的最小合规数量，通过 Binance
     `/order/test` 权限检查。该接口只校验参数与权限，不创建订单。
 
 冻结清单 `READY` 是订单触发条件，不是管理员授权条件。尚未生成首份清单时，该项显示为
@@ -94,8 +95,10 @@ STOPPED
 ## 6. 故障语义
 
 - 网络、Binance、凭证、规则或持久化失败均不允许布防。
-- 账户准备在无挂单、无持仓时才允许修改 Binance 持仓模式；12 市场设为 1x 的任一步失败均
+- 账户准备在无挂单、无持仓时才允许修改 Binance 持仓模式；12 市场设为逐仓 3x 的任一步失败均
   返回失败并要求重试，不会静默跳过。
+- 每轮订单认领前再次回读逐仓、3x 和自动追加保证金状态；配置漂移时整轮拒绝。
+- V1/V2 或风险字段不匹配的持久化授权升级后自动降级为 `CONFIGURED`，不会继承旧 epoch。
 - 并发激活请求不能覆盖已激活批次。
 - 执行器参数先完整校验再原子应用，避免半更新。
 - 激活持久化失败时立即撤销内存启用。

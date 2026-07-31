@@ -30,6 +30,17 @@ def dec(value: Any) -> Decimal:
     return Decimal(str(value or "0"))
 
 
+def binance_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized in {"true", "1"}:
+        return True
+    if normalized in {"false", "0", ""}:
+        return False
+    raise BinanceError(f"Unexpected Binance boolean value: {value!r}")
+
+
 @dataclass
 class BinanceCredentials:
     api_key: str
@@ -84,7 +95,15 @@ class BinanceFuturesClient:
         payload = self.signed_request("GET", "/fapi/v1/symbolConfig", params)
         if not isinstance(payload, list):
             raise BinanceError("Unexpected symbolConfig response.")
-        return payload
+        return [
+            dict(item) | {
+                "symbol": str(item.get("symbol") or "").upper(),
+                "leverage": int(item.get("leverage") or 0),
+                "marginType": str(item.get("marginType") or "").upper(),
+                "isAutoAddMargin": binance_bool(item.get("isAutoAddMargin")),
+            }
+            for item in payload
+        ]
 
     def change_position_mode(self, *, dual_side: bool) -> dict[str, Any]:
         return self.signed_request(
@@ -101,6 +120,20 @@ class BinanceFuturesClient:
             "POST",
             "/fapi/v1/leverage",
             {"symbol": str(symbol).upper(), "leverage": value},
+        )
+
+    def change_margin_type(
+        self,
+        symbol: str,
+        margin_type: str,
+    ) -> dict[str, Any]:
+        value = str(margin_type or "").upper()
+        if value not in {"ISOLATED", "CROSSED"}:
+            raise ValueError("Binance futures margin type must be ISOLATED or CROSSED")
+        return self.signed_request(
+            "POST",
+            "/fapi/v1/marginType",
+            {"symbol": str(symbol).upper(), "marginType": value},
         )
 
     def open_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:

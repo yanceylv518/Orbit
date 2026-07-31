@@ -6,8 +6,12 @@ import re
 from typing import Any, Mapping
 
 
-LIVE_PILOT_PROTOCOL = "LIVE_SMALL_CONTROL_V1"
-LIVE_ACTIVATION_PHRASE = "ENABLE LIVE SMALL"
+LIVE_PILOT_PROTOCOL = "LIVE_SMALL_CONTROL_V3"
+LIVE_ACTIVATION_PHRASE = "ENABLE LIVE SMALL V3"
+LIVE_CHECKLIST_PROTOCOL = "LIVE_SMALL_EXECUTION_CHECKLIST_V3"
+LIVE_EXPOSURE_MULTIPLIER = 3.0
+LIVE_INITIAL_LEVERAGE = 3
+LIVE_MARGIN_TYPE = "ISOLATED"
 EPOCH_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{5,63}$")
 
 
@@ -18,14 +22,20 @@ def now_iso() -> str:
 def default_live_pilot_control(runtime: Mapping[str, Any]) -> dict[str, Any]:
     trend = dict(runtime.get("trend_forward") or {})
     account_id = str(trend.get("live_account_id") or "").strip()
-    enabled = bool(trend.get("auto_execution_enabled", False))
+    # The persisted control record is the only authority allowed to enable live
+    # execution. A deployment config may contain a legacy V1/V2 switch, but it
+    # must never silently authorize the materially different V3 risk profile.
+    enabled = False
     return {
         "protocol": LIVE_PILOT_PROTOCOL,
-        "version": 1,
+        "version": 3,
         "status": "ACTIVE" if enabled else ("CONFIGURED" if account_id else "DRAFT"),
         "forward_enabled": bool(trend.get("enabled", False)),
         "live_account_id": account_id,
         "live_capital_usdt": float(trend.get("live_capital_usdt", 500)),
+        "exposure_multiplier": LIVE_EXPOSURE_MULTIPLIER,
+        "initial_leverage": LIVE_INITIAL_LEVERAGE,
+        "margin_type": LIVE_MARGIN_TYPE,
         "quantity_tolerance_pct": float(trend.get("quantity_tolerance_pct", 1.0)),
         "max_snapshot_age_seconds": int(trend.get("max_snapshot_age_seconds", 120)),
         "max_order_notional_usdt": float(trend.get("max_order_notional_usdt", 150)),
@@ -44,14 +54,31 @@ def normalize_live_pilot_control(
     runtime: Mapping[str, Any],
 ) -> dict[str, Any]:
     control = default_live_pilot_control(runtime)
+    legacy_or_mismatched = False
     if value:
+        legacy_or_mismatched = (
+            value.get("protocol") != LIVE_PILOT_PROTOCOL
+            or float(value.get("exposure_multiplier") or 0) != LIVE_EXPOSURE_MULTIPLIER
+            or int(value.get("initial_leverage") or 0) != LIVE_INITIAL_LEVERAGE
+            or str(value.get("margin_type") or "").upper() != LIVE_MARGIN_TYPE
+        )
         control.update(deepcopy(dict(value)))
     control["protocol"] = LIVE_PILOT_PROTOCOL
-    control["version"] = max(1, int(control.get("version") or 1))
+    control["version"] = max(3, int(control.get("version") or 3))
+    control["exposure_multiplier"] = LIVE_EXPOSURE_MULTIPLIER
+    control["initial_leverage"] = LIVE_INITIAL_LEVERAGE
+    control["margin_type"] = LIVE_MARGIN_TYPE
     control["live_account_id"] = str(control.get("live_account_id") or "").strip()
     control["execution_epoch"] = str(control.get("execution_epoch") or "").strip()
     control["auto_execution_enabled"] = bool(control.get("auto_execution_enabled", False))
     control["forward_enabled"] = bool(control.get("forward_enabled", False))
+    if legacy_or_mismatched:
+        control["auto_execution_enabled"] = False
+        control["execution_epoch"] = ""
+        control["last_preflight"] = None
+        control["status"] = "CONFIGURED" if control["live_account_id"] else "DRAFT"
+        control["updated_at"] = now_iso()
+        control["updated_by"] = "protocol-v3-migration"
     return control
 
 
@@ -68,7 +95,7 @@ def project_preflight(checks: list[dict[str, Any]]) -> dict[str, Any]:
         for item in checks
     )
     return {
-        "protocol": "LIVE_SMALL_PREFLIGHT_V1",
+        "protocol": "LIVE_SMALL_PREFLIGHT_V3",
         "status": "PASS" if passed else "FAIL",
         "passed": passed,
         "deferred_count": sum(

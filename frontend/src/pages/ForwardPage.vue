@@ -81,7 +81,7 @@
           <span class="wizard-index">3</span>
           <div>
             <h4>准备主网账户</h4>
-            <p class="muted">检查空仓与无挂单后，切换单向持仓并把 12 个市场设置为 1x；不会下单。</p>
+            <p class="muted">检查空仓与无挂单后，切换单向持仓、逐仓保证金并把 12 个市场设置为 3x；不会下单。</p>
             <div class="wizard-actions">
               <button class="button ghost small" :disabled="wizardBusy || !configuredAccountId" @click="prepareAccount">
                 切换为主网实盘账户
@@ -100,7 +100,7 @@
             <p class="muted">完成账户安全预检即可布防；本操作不会立即下单，只有冻结清单就绪并再次通过逐轮执行闸门后才会下单。</p>
             <div class="wizard-form">
               <input v-model.trim="wizard.epoch" :disabled="wizardBusy || pilotLocked" placeholder="执行批次，如 live-small-2026-07-31-v1" />
-              <input v-model.trim="wizard.confirmation" :disabled="wizardBusy || pilotLocked" placeholder="输入 ENABLE LIVE SMALL" />
+              <input v-model.trim="wizard.confirmation" :disabled="wizardBusy || pilotLocked" placeholder="输入 ENABLE LIVE SMALL V3" />
               <button
                 class="button danger small"
                 :disabled="wizardBusy || !preflight.passed || pilotLocked"
@@ -131,21 +131,32 @@
     <div class="metric-grid">
       <MetricCard label="前向状态" :value="forwardStatus" :note="forwardNote" />
       <MetricCard
-        label="实盘换算资金"
-        :value="`${fmt(checklist.capital_usdt)} USDT`"
-        note="仅用于只读清单，不进入策略状态"
+        label="实盘风险配置"
+        :value="`${fmt(checklist.exposure_multiplier)}x / ${checklist.margin_type || '-'}`"
+        :note="`${fmt(checklist.capital_usdt)} USDT，交易所初始杠杆 ${checklist.initial_leverage || '-'}x`"
       />
       <MetricCard
-        label="目标仓位总价值"
+        label="TB4 原始目标"
+        help="名义金额"
+        :value="`${fmt(summary.strategy_gross_notional_usdt)} USDT`"
+        :note="`未放大，占资金 ${percent(Number(summary.strategy_gross_weight || 0) * 100)}`"
+      />
+      <MetricCard
+        label="3x 实盘目标"
         help="名义金额"
         :value="`${fmt(summary.target_gross_notional_usdt)} USDT`"
-        :note="`占资金比例 ${percent(Number(summary.target_gross_weight || 0) * 100)}`"
+        :note="`放大后占资金 ${percent(Number(summary.target_gross_weight || 0) * 100)}`"
       />
       <MetricCard
         label="可执行覆盖"
         :value="percent(Number(summary.executable_notional_ratio || 0) * 100)"
         :note="`${summary.executable_symbols || 0} 个市场可执行`"
         :value-class="Number(summary.executable_notional_ratio || 0) < 0.8 ? 'negative' : ''"
+      />
+      <MetricCard
+        label="账户资金"
+        :value="`${fmt(checklist.capital_usdt)} USDT`"
+        note="风险换算本金；不修改冻结 TB4 的纸面账本"
       />
     </div>
 
@@ -177,8 +188,8 @@
             <tr>
               <th>市场</th>
               <th>方向</th>
-              <th>权重</th>
-              <th>目标仓位价值 <HelpTip term="名义金额" /></th>
+              <th>TB4 / 3x 权重</th>
+              <th>TB4 / 3x 目标价值 <HelpTip term="名义金额" /></th>
               <th>较上次变化</th>
               <th>目标数量</th>
               <th>最低额 / 步进</th>
@@ -191,8 +202,14 @@
               <td>
                 <StatusBadge :text="directionText(row.direction)" :color="directionColor(row.direction)" />
               </td>
-              <td class="mono">{{ percent(Number(row.weight || 0) * 100, 3) }}</td>
-              <td class="mono">{{ fmt(row.target_notional_usdt, 4) }} USDT</td>
+              <td class="mono">
+                {{ percent(Number(row.strategy_weight || 0) * 100, 3) }}
+                <div class="muted">{{ percent(Number(row.weight || 0) * 100, 3) }}</div>
+              </td>
+              <td class="mono">
+                {{ fmt(row.strategy_target_notional_usdt, 4) }} USDT
+                <div class="muted">{{ fmt(row.target_notional_usdt, 4) }} USDT</div>
+              </td>
               <td class="mono" :class="cls(row.notional_change_usdt)">
                 {{ signed(row.notional_change_usdt) }} USDT
               </td>
@@ -209,8 +226,11 @@
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="3"><strong>目标仓位总价值</strong></td>
-              <td class="mono">{{ fmt(summary.target_gross_notional_usdt, 4) }} USDT</td>
+              <td colspan="3"><strong>TB4 原始 / 3x 实盘目标</strong></td>
+              <td class="mono">
+                {{ fmt(summary.strategy_gross_notional_usdt, 4) }} /
+                {{ fmt(summary.target_gross_notional_usdt, 4) }} USDT
+              </td>
               <td></td>
               <td class="mono">{{ fmt(summary.executable_gross_notional_usdt, 4) }} USDT 可执行</td>
               <td></td>
@@ -226,8 +246,8 @@
         <div>
           <h3>自动下单保护规则</h3>
           <p class="muted">
-            小资金实盘第二版协议只允许执行上面的冻结清单。自动下单默认关闭；启用后仍受金额上限、
-            单向持仓、规则时效、30% 回撤停止和防重复下单账本约束。
+            LIVE-SMALL V3 只允许执行上面的 3 倍风险冻结清单。自动下单默认关闭；启用后仍受逐仓、
+            3x 初始杠杆、金额上限、单向持仓、规则时效、30% 回撤停止和防重复下单账本约束。
           </p>
         </div>
         <button
@@ -619,7 +639,7 @@ function refreshRules() {
 
 function prepareAccount() {
   const confirmation = prompt(
-    "该操作会检查账户空仓/无挂单，切换 Binance 单向持仓并将 12 个市场设置为 1x；不会下单。请输入 PREPARE LIVE ACCOUNT：",
+    "该操作会检查账户空仓/无挂单，切换 Binance 单向持仓、逐仓保证金并将 12 个市场设置为 3x；不会下单。请输入 PREPARE LIVE ACCOUNT：",
   );
   if (confirmation === null) return;
   return wizardAction(
@@ -627,7 +647,7 @@ function prepareAccount() {
       account_id: configuredAccountId.value,
       confirmation,
     }),
-    "Binance 已切换为单向持仓，12 个策略市场已设置为 1x；自动执行仍为关闭状态。",
+    "Binance 已切换为单向持仓，12 个策略市场已设置为逐仓 3x，且自动追加保证金为关闭状态；自动执行仍为关闭状态。",
   );
 }
 
@@ -639,7 +659,7 @@ function runPreflight() {
 }
 
 function activatePilot() {
-  if (!confirm("确认授权系统在下一份冻结清单就绪后自动执行？本操作本身不会立即下单。")) return;
+  if (!confirm("确认授权系统按 LIVE-SMALL V3 的 3 倍目标仓位、逐仓 3x 配置自动执行？本操作本身不会立即下单。")) return;
   return wizardAction(
     async () => {
       const result = await post("/api/admin/live-pilot/activate", {

@@ -58,7 +58,7 @@ class LivePilotArmingTest(unittest.TestCase):
         result = app.activate_live_pilot(
             actor="admin_001",
             execution_epoch="live-small-2026-07-31-v2",
-            confirmation="ENABLE LIVE SMALL",
+            confirmation="ENABLE LIVE SMALL V3",
         )
 
         self.assertTrue(result["ok"])

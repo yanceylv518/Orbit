@@ -60,7 +60,8 @@ class CredentialAdapterTest(unittest.TestCase):
         client = RecordingBinanceClient()
 
         client.change_position_mode(dual_side=False)
-        client.change_leverage("btcusdt", 1)
+        client.change_margin_type("btcusdt", "isolated")
+        client.change_leverage("btcusdt", 3)
 
         self.assertEqual(client.calls, [
             (
@@ -70,8 +71,13 @@ class CredentialAdapterTest(unittest.TestCase):
             ),
             (
                 "POST",
+                "/fapi/v1/marginType",
+                {"symbol": "BTCUSDT", "marginType": "ISOLATED"},
+            ),
+            (
+                "POST",
                 "/fapi/v1/leverage",
-                {"symbol": "BTCUSDT", "leverage": 1},
+                {"symbol": "BTCUSDT", "leverage": 3},
             ),
         ])
 
@@ -79,12 +85,22 @@ class CredentialAdapterTest(unittest.TestCase):
         client = RecordingBinanceClient()
         client.signed_request = lambda method, path, params=None: (
             client.calls.append((method, path, params))
-            or [{"symbol": "BTCUSDT", "leverage": 1}]
+            or [{
+                "symbol": "btcusdt",
+                "leverage": "3",
+                "marginType": "isolated",
+                "isAutoAddMargin": "false",
+            }]
         )
 
         payload = client.symbol_configuration("btcusdt")
 
-        self.assertEqual(payload[0]["leverage"], 1)
+        self.assertEqual(payload[0], {
+            "symbol": "BTCUSDT",
+            "leverage": 3,
+            "marginType": "ISOLATED",
+            "isAutoAddMargin": False,
+        })
         self.assertEqual(client.calls, [
             (
                 "GET",
@@ -98,6 +114,14 @@ class CredentialAdapterTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             client.change_leverage("BTCUSDT", 0)
+
+        self.assertEqual(client.calls, [])
+
+    def test_invalid_margin_type_is_rejected_before_exchange_request(self):
+        client = RecordingBinanceClient()
+
+        with self.assertRaises(ValueError):
+            client.change_margin_type("BTCUSDT", "portfolio")
 
         self.assertEqual(client.calls, [])
 

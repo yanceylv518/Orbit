@@ -6,6 +6,11 @@ from decimal import Decimal
 from typing import Any, Callable, Mapping
 
 from orbit.application.live_risk import live_small_drawdown_projection
+from orbit.application.live_pilot_control import (
+    LIVE_EXPOSURE_MULTIPLIER,
+    LIVE_INITIAL_LEVERAGE,
+    LIVE_MARGIN_TYPE,
+)
 
 
 class LiveReconciliationService:
@@ -69,6 +74,15 @@ class LiveReconciliationService:
                 "paper_equity": float(paper_equity),
                 "paper_close_time_ms": checklist.get("close_time_ms"),
                 "rebalance_time_ms": checklist.get("rebalance_time_ms"),
+                "exposure_multiplier": float(
+                    checklist.get("exposure_multiplier") or LIVE_EXPOSURE_MULTIPLIER
+                ),
+                "initial_leverage": int(
+                    checklist.get("initial_leverage") or LIVE_INITIAL_LEVERAGE
+                ),
+                "margin_type": str(
+                    checklist.get("margin_type") or LIVE_MARGIN_TYPE
+                ),
                 "executable_notional_ratio": float(
                     (checklist.get("summary") or {}).get("executable_notional_ratio", 0)
                 ),
@@ -257,6 +271,13 @@ class LiveReconciliationService:
                 "cumulative_deviation_pct": float(cumulative_deviation),
                 "period_deviation_pct": float((period_live - period_paper) * 100),
                 "executable_notional_ratio": item.get("executable_notional_ratio", 0),
+                "exposure_multiplier": item.get(
+                    "exposure_multiplier", LIVE_EXPOSURE_MULTIPLIER
+                ),
+                "initial_leverage": item.get(
+                    "initial_leverage", LIVE_INITIAL_LEVERAGE
+                ),
+                "margin_type": item.get("margin_type", LIVE_MARGIN_TYPE),
             })
             previous_live = live_normalized
             previous_paper = paper_normalized
