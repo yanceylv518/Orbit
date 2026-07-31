@@ -333,6 +333,49 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tmp.cleanup()
 
+    async def test_live_execution_report_history_is_admin_only_and_read_only(self):
+        tmp, api = self.make_api()
+        try:
+            class Reporter:
+                def __init__(self):
+                    self.calls = []
+
+                def reports(self, limit):
+                    self.calls.append(limit)
+                    return [{
+                        "protocol": "LIVE_SMALL_EXECUTION_REPORT_V1",
+                        "rebalance_time_ms": 456_000,
+                        "status": "COMPLETED",
+                    }]
+
+            reporter = Reporter()
+            api.state.orbit.live_execution_service = reporter
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                anonymous = await client.get("/api/live-execution/reports?limit=10")
+                await client.post(
+                    "/api/login",
+                    json={"login": "user_001", "password": "user123456"},
+                )
+                denied = await client.get("/api/live-execution/reports?limit=10")
+                await client.post("/api/logout")
+                await client.post(
+                    "/api/login",
+                    json={"login": "admin_001", "password": "admin123456"},
+                )
+                allowed = await client.get("/api/live-execution/reports?limit=10")
+
+            self.assertEqual(anonymous.status_code, 401)
+            self.assertEqual(denied.status_code, 403)
+            self.assertEqual(allowed.status_code, 200)
+            self.assertEqual(allowed.json()["count"], 1)
+            self.assertEqual(allowed.json()["items"][0]["rebalance_time_ms"], 456_000)
+            self.assertEqual(reporter.calls, [10])
+        finally:
+            tmp.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

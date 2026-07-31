@@ -883,6 +883,9 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
   4. 复盘页与风控页按上表重组现有数据,禁止新增任何写路径（急停按钮仍走既有 admin 急停 API）。
 - **验收**：① 菜单五项无分组,默认页实盘;② 全部旧锚点重定向逐条测试;③ 研究平台功能在策略页 Tab 下完整可用（筛选/候选切换/job 流程回归）;④ 复盘页权益对照与实盘页原区块数据一致（迁移无失真）,执行报告历史与账本逐轮一致;⑤ 风控页回撤水位与 LIVE-3 `_drawdown_stop` 同源同口径,急停功能回归;⑥ 新接口管理员 only、匿名 401、纯只读有测试;⑦ 后端测试全绿,Windows `npm run check/build` + 桌面/窄屏冒烟;⑧ `git diff --check` 通过。
 - **约束**：不改交易行为、`TB4_SPEC`、各账本与 LIVE-3 协议;研究平台四护栏与页面功能零改动（只换挂载位置）;除改动 3 外不新增后端接口;`STRATEGY_CENTER.md` 仍为策略页正式策略 Tab 的设计上限。
+- **完成结果（Codex，2026-07-31）**：导航已改为无分组的实盘/策略/复盘/风控/账户五项，默认实盘；旧组件保留但退出路由，八个旧锚点统一在路由入口和 `setActivePage` 内重定向。策略页以 `#strategy` / `#strategy/research` 承载正式策略和完整研究平台，补上登录后研究目录初始化，避免包装页预挂载造成 401 后不重载。复盘页承接原实盘权益对照，新增真实执行报告历史、名义加权滑点、按资产费用汇总和三个月协议检查点；无法解释偏差明确保留人工书面归因，不伪造自动结论。风控页按 LIVE-SMALL 重建，展示双权益回撤、30% 停机线、四项停止条件、执行护栏、急停和管理员审计；旧网格风控仅在启用的 `plan_only` 配置存在时折叠挂载。
+- **同源与接口证据（Codex，2026-07-31）**：新增 `live_risk.py` 作为 LIVE-3 停机判断和 `live_reconciliation` 回撤投影的唯一共享计算；精确 30% 边界和缺失基准均有单测。唯一新增接口 `GET /api/live-execution/reports?limit=N` 只读倒序遍历执行账本中的 `ROUND_COMPLETED`，管理员限定，匿名 401、业务用户 403、limit 与不改账本均有测试。没有修改 `TB4_SPEC`、下单路径、账本格式或 LIVE-SMALL 协议。
+- **验收证据（Codex，2026-07-31）**：后端全量 `312 tests OK`；`npm.cmd run check` 与生产 `npm.cmd run build` 通过；浏览器确认五项菜单、研究 Tab 加载 4 个真实候选、复盘/风控真实空状态、无归档 DOM，`dashboard/plans/symbol/reports/research/events/logs/live` 八个锚点逐条落到规定新路由，策略内部旧研究按钮也落到 `#strategy/research`。390×844 窄屏下复盘/风控无横向溢出，控制台无 error；`git diff --check` 通过。
 
 ### 任务 SC-1～SC-5：正式策略中心（SC-1 定义子集 + SC-2 精简版已实现）
 
@@ -896,7 +899,7 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 - `npm run check` 通过。
 - `npm run build` 通过。
-- Python 单元测试及 API 契约测试：`304 tests OK`。
+- Python 单元测试及 API 契约测试：`312 tests OK`。
 - `git diff --check` 通过。
 - 新增 POSIX shell 脚本已通过 Git Bash `bash -n` 语法检查。
 - Linux AES-GCM vault 已验证随机 nonce、密文篡改/错密钥拒绝、缺失主密钥提示、环境变量引用与平台工厂选择。

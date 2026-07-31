@@ -236,6 +236,22 @@ class LiveExecutionServiceTest(unittest.TestCase):
         )
         self.assertTrue(order_event["checklist_row_sha256"])
 
+    def test_completed_reports_are_newest_first_and_read_only(self):
+        service = self.service()
+        first = service.execute_due(self.sync)
+        self.current_checklist = checklist(rebalance=456_000)
+        second = service.execute_due(self.sync)
+        event_count = self.ledger.status()["event_count"]
+
+        reports = service.reports(limit=1)
+
+        self.assertEqual(first["status"], "COMPLETED")
+        self.assertEqual(second["status"], "COMPLETED")
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(reports[0]["rebalance_time_ms"], 456_000)
+        self.assertEqual(reports[0]["recorded_at_ms"], NOW)
+        self.assertEqual(self.ledger.status()["event_count"], event_count)
+
     def test_partial_failure_dust_and_below_min_are_reported_without_retry(self):
         self.current_checklist = checklist(targets={
             "BTCUSDT": 1,

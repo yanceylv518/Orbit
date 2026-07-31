@@ -325,6 +325,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import StatusBadge from "../components/StatusBadge.vue";
 import {
   createResearchCandidate,
+  isAuthenticated,
   loadResearchCatalog,
   refreshResearchRun,
   selectResearchCandidate,
@@ -663,10 +664,17 @@ function numberClass(value) {
 }
 
 watch(() => candidate.value?.id, () => { openLockbox.value = false; });
-onMounted(async () => {
+async function initializeResearch() {
   await loadResearchCatalog();
   if (!draft.datasetIds.length) applySuggestedDatasets();
   if (hasActiveRun.value) startRunPolling();
+}
+
+onMounted(async () => {
+  if (isAuthenticated.value) await initializeResearch();
+});
+watch(isAuthenticated, async (authenticated) => {
+  if (authenticated) await initializeResearch();
 });
 onBeforeUnmount(() => {
   if (runPollTimer) window.clearInterval(runPollTimer);

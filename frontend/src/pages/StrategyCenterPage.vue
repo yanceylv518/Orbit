@@ -96,20 +96,20 @@
             <h3>结构化回测证据尚未接入</h3>
             <p>{{ strategy.evidence.message }}</p>
           </div>
-          <button class="button ghost" @click="setActivePage('research')">查看原始研究档案</button>
+          <button class="button ghost" @click="setActivePage('research')">查看研究候选档案</button>
         </article>
       </div>
 
       <article class="panel strategy-links">
         <div>
           <h3>下一步看哪里</h3>
-          <p class="muted">策略中心解释“规则是什么”；其他中心分别负责研究过程、真实执行与账户连接。</p>
+          <p class="muted">正式策略解释“规则是什么”；研究候选、实盘、复盘与账户分别承接后续生命周期。</p>
         </div>
         <div class="action-row">
-          <button class="button" @click="setActivePage('forward')">进入实盘中心</button>
-          <button class="button ghost" @click="setActivePage('research')">进入研究平台</button>
-          <button class="button ghost" @click="setActivePage('accounts')">进入账户中心</button>
-          <button class="button ghost" @click="setActivePage('risk')">查看旧风控页</button>
+          <button class="button" @click="setActivePage('forward')">进入实盘</button>
+          <button class="button ghost" @click="setActivePage('research')">查看研究候选</button>
+          <button class="button ghost" @click="setActivePage('accounts')">进入账户</button>
+          <button class="button ghost" @click="setActivePage('risk')">查看风控</button>
         </div>
       </article>
     </template>

@@ -71,6 +71,10 @@ export function fetchStrategy(strategyId) {
   return getJson(`/api/strategies/${encodeURIComponent(strategyId)}`);
 }
 
+export function fetchLiveExecutionReports(limit = 50) {
+  return getJson(`/api/live-execution/reports?limit=${encodeURIComponent(limit)}`);
+}
+
 export async function postJson(path, payload = {}) {
   const response = await fetch(path, {
     method: "POST",

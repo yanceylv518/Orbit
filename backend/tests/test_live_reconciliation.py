@@ -155,6 +155,9 @@ class LiveReconciliationServiceTest(unittest.TestCase):
         self.assertEqual(len(result["weekly_points"]), 2)
         self.assertAlmostEqual(result["latest_weekly_deviation_pct"], -5.0)
         self.assertEqual(result["structural_tracking_ratio"], 0.75)
+        self.assertEqual(result["live_drawdown_pct"], 0.0)
+        self.assertEqual(result["paper_drawdown_pct"], 0.0)
+        self.assertEqual(result["stop_threshold_pct"], 30.0)
 
     def test_recording_is_blocked_for_non_live_or_unconfigured_account(self):
         unconfigured = LiveReconciliationService(

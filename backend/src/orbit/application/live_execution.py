@@ -8,6 +8,7 @@ from decimal import Decimal, ROUND_DOWN
 from typing import Any, Callable, Mapping
 
 from orbit.application.live_reconciliation import LiveReconciliationService
+from orbit.application.live_risk import live_small_drawdown_stop_reason
 from orbit.domain.strategy.trend_basket_runner import TB4_SPEC
 
 
@@ -276,6 +277,21 @@ class LiveExecutionService:
                 "ledger": {"status": "INVALID", "error": str(exc)},
             }
 
+    def reports(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return completed execution reports newest first without mutating the ledger."""
+        bounded_limit = max(1, min(int(limit), 200))
+        reports: list[dict[str, Any]] = []
+        for record in reversed(self.execution_ledger.read_all()):
+            payload = record["payload"]
+            if payload.get("event_type") != "ROUND_COMPLETED":
+                continue
+            report = dict(payload.get("report") or {})
+            report["recorded_at_ms"] = payload.get("recorded_at_ms")
+            reports.append(report)
+            if len(reports) >= bounded_limit:
+                break
+        return reports
+
     def _static_gate(self, checklist: Mapping[str, Any]) -> str | None:
         if not self.execution_epoch:
             return "EXECUTION_EPOCH_NOT_CONFIGURED"
@@ -323,20 +339,7 @@ class LiveExecutionService:
             observations = self.equity_ledger.observations(self.live_account_id)
         except Exception as exc:
             return f"EQUITY_LEDGER_INVALID: {exc}"
-        if not observations:
-            return "EQUITY_BASELINE_MISSING"
-        live = [Decimal(str(item["live_equity_usdt"])) for item in observations]
-        paper = [Decimal(str(item["paper_equity"])) for item in observations]
-        live_dd = (max(live) - live[-1]) / max(live) if max(live) > 0 else Decimal("1")
-        paper_dd = (
-            (max(paper) - paper[-1]) / max(paper)
-            if max(paper) > 0 else Decimal("1")
-        )
-        if live_dd >= Decimal("0.30"):
-            return f"LIVE_DRAWDOWN_{float(live_dd * 100):.4f}_PCT"
-        if paper_dd >= Decimal("0.30"):
-            return f"PAPER_DRAWDOWN_{float(paper_dd * 100):.4f}_PCT"
-        return None
+        return live_small_drawdown_stop_reason(observations)
 
     def _build_intents(
         self,

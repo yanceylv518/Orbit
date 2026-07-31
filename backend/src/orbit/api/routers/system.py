@@ -2,12 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from orbit.api.dependencies import app_state, require_admin
 
 
 router = APIRouter(prefix="/api", tags=["system"])
+
+
+@router.get("/live-execution/reports")
+def live_execution_reports(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    _user: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    items = app_state(request).live_execution_service.reports(limit)
+    return {"items": items, "count": len(items), "limit": limit}
 
 
 @router.post("/tick")

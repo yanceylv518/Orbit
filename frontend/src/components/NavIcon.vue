@@ -51,6 +51,10 @@
       <path d="M12 8v4.5" />
       <circle cx="12" cy="15.6" r="0.4" />
     </template>
+    <template v-else-if="name === 'review'">
+      <path d="M4 19V9M10 19V5M16 19v-7M3 21h18" />
+      <path d="m4 7 5-4 6 6 5-5" />
+    </template>
     <template v-else-if="name === 'reports'">
       <path d="M6.5 3h8L19 7.5V21h-12.5V3Z" />
       <path d="M14 3v5h5" />

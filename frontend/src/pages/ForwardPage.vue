@@ -276,30 +276,15 @@
       </div>
     </article>
 
-    <article class="panel equity-panel">
+    <article class="panel review-handoff-panel">
       <div class="panel-head">
         <div>
-          <h3>实盘与 paper 归一化权益</h3>
-          <p class="muted checklist-meta">首个有效同步点统一为 1.0；差异只做展示与人工归因。</p>
+          <h3>执行结果进入复盘</h3>
+          <p class="muted checklist-meta">
+            实盘与 paper 权益曲线、逐轮报告、滑点和手续费归因已集中到复盘页。
+          </p>
         </div>
-        <span class="muted">{{ equityResult.points?.length || 0 }} 个只追加观测点</span>
-      </div>
-      <div v-if="!equityResult.points?.length" class="empty-state">
-        配置真实账户并在 TB4 清单 READY 后同步，才会开始记录权益对照。
-      </div>
-      <div v-else class="equity-chart">
-        <MultiLineChart
-          :data="equityResult.points"
-          :keys="['live_normalized', 'paper_normalized']"
-          :colors="['#37d391', '#3987e5']"
-          :width="720"
-          :height="220"
-        />
-        <div class="chart-legend">
-          <span><i class="live-line"></i>实盘</span>
-          <span><i class="paper-line"></i>paper</span>
-          <span>最近逐周偏差 {{ percent(equityResult.latest_weekly_deviation_pct) }}</span>
-        </div>
+        <button class="button ghost small" @click="setActivePage('review')">查看完整复盘</button>
       </div>
     </article>
   </section>
@@ -308,10 +293,9 @@
 <script setup>
 import { computed } from "vue";
 import MetricCard from "../components/MetricCard.vue";
-import MultiLineChart from "../components/MultiLineChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { cls, fmt, percent } from "../core/format.js";
-import { post, store } from "../stores/appStore.js";
+import { post, setActivePage, store } from "../stores/appStore.js";
 
 const forward = computed(() => store.state?.trend_forward || {});
 const checklist = computed(() => forward.value.execution_checklist || {
@@ -533,12 +517,6 @@ function downloadCsv() {
 .guard-panel { margin-top: 14px; }
 .guard-panel p { margin-top: 7px; max-width: 980px; }
 .reconciliation-metrics { margin-top: 14px; }
-.equity-panel { margin-top: 14px; }
-.equity-chart { height: 260px; padding-top: 10px; }
-.chart-legend { display: flex; gap: 18px; align-items: center; color: var(--muted); }
-.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.chart-legend i { width: 18px; height: 2px; display: inline-block; }
-.live-line { background: #37d391; }
-.paper-line { background: #3987e5; }
+.review-handoff-panel { margin-top: 14px; }
 tfoot td { border-top: 1px solid var(--line-strong); }
 </style>

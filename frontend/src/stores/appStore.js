@@ -13,15 +13,18 @@ import {
   fetchResearchTemplates,
   fetchStrategies,
   fetchStrategy,
+  fetchLiveExecutionReports,
   loginRequest,
   logoutRequest,
   postJson,
   resumeStoppedSymbolRequest,
 } from "../api/client.js";
+import { LEGACY_PAGE_ALIASES } from "../domain/labels.js";
 
 export const store = reactive({
   state: null,
-  activePage: location.hash.replace("#", "") || "forward",
+  activePage: (location.hash.replace("#", "") || "forward").split("/")[0],
+  activeStrategyTab: location.hash.replace("#", "") === "strategy/research" ? "research" : "official",
   selectedSymbol: "",
   selectedPlanAccount: "",
   loginBusy: false,
@@ -43,6 +46,9 @@ export const store = reactive({
   selectedStrategy: null,
   strategyCatalogBusy: false,
   strategyCatalogError: "",
+  liveExecutionReports: [],
+  liveExecutionReportsBusy: false,
+  liveExecutionReportsError: "",
 });
 
 export const isAuthenticated = computed(() => Boolean(store.state?.auth?.authenticated));
@@ -148,10 +154,20 @@ export function aggregateSymbols(rows) {
 export const symbolOverviews = computed(() => aggregateSymbols(symbols.value));
 
 export function setActivePage(page) {
-  store.activePage = page;
-  if (location.hash !== `#${page}`) {
-    history.replaceState(null, "", `#${page}`);
+  const requested = String(page || "forward");
+  const route = LEGACY_PAGE_ALIASES[requested] || requested;
+  const [base, child] = route.split("/");
+  store.activePage = base;
+  if (base === "strategy") {
+    store.activeStrategyTab = child === "research" ? "research" : "official";
   }
+  if (location.hash !== `#${route}`) {
+    history.replaceState(null, "", `#${route}`);
+  }
+}
+
+export function setStrategyTab(tab) {
+  setActivePage(tab === "research" ? "strategy/research" : "strategy");
 }
 
 export function selectSymbol(symbol, openPage = false) {
@@ -267,6 +283,25 @@ export async function loadStrategyCatalog() {
     return false;
   } finally {
     store.strategyCatalogBusy = false;
+  }
+}
+
+export async function loadLiveExecutionReports(limit = 50) {
+  if (store.liveExecutionReportsBusy) return false;
+  store.liveExecutionReportsBusy = true;
+  store.liveExecutionReportsError = "";
+  try {
+    const { response, data } = await fetchLiveExecutionReports(limit);
+    if (!response.ok || data.error) {
+      throw new Error(data.error || `读取执行报告失败（HTTP ${response.status}）。`);
+    }
+    store.liveExecutionReports = data.items || [];
+    return true;
+  } catch (error) {
+    store.liveExecutionReportsError = error instanceof Error ? error.message : "读取执行报告失败。";
+    return false;
+  } finally {
+    store.liveExecutionReportsBusy = false;
   }
 }
 
@@ -425,6 +460,8 @@ export async function login(loginId, password) {
 export async function logout() {
   await logoutRequest();
   store.state = null;
+  store.liveExecutionReports = [];
+  store.liveExecutionReportsError = "";
 }
 
 export async function tick() {

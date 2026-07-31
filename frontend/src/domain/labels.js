@@ -1,20 +1,26 @@
 export const PAGE_META = {
-  strategy: ["策略中心", "冻结策略定义", "看懂策略做什么、当前运行在哪些阶段，以及全部冻结参数。"],
+  strategy: ["策略", "策略中心", "查看正式策略、冻结定义、回测证据与研究候选。"],
   dashboard: ["工作台", "运行工作台", "第一阶段主流程：同步账户 → 生成计划 → 审查风控 → 确认导出。"],
-  accounts: ["账户中心", "用户与交易账户", "业务用户、交易账户、API 凭证与 Binance 同步。"],
+  accounts: ["账户", "用户与交易账户", "业务用户、交易账户、API 凭证与 Binance 同步。"],
   research: ["研究平台", "策略研究档案", "缓存数据、冻结候选与固定门槛下的研究结果。"],
-  forward: ["实盘中心", "TB4 前向与自动实盘", "冻结目标权重、自动执行状态与逐单成交核对。"],
+  forward: ["实盘", "TB4 前向与自动实盘", "冻结目标权重、自动执行状态与逐单成交核对。"],
   plans: ["执行计划", "第一阶段执行计划", "真实仓位触发判断、计划动作和风控拦截。"],
   symbol: ["币种视图", "币种视图 / 事件时间线", "相位、净敞口、锚点偏离与事件时间线。"],
-  risk: ["风控中心", "管理员风控中心", "拦截分类、风险告警、审计日志和快捷操作。"],
+  review: ["复盘", "执行复盘与历史报告", "对照实盘与 paper，归因滑点、费用和执行偏差。"],
+  risk: ["风控", "LIVE-SMALL 风控中心", "查看回撤水位、停机条件、执行护栏和管理员审计。"],
   reports: ["报表", "复盘报告与事件日志", "Markdown 日报、SVG 曲线与策略事件明细。"],
 };
 
 // 已移除页面和旧路由锚点统一回到仍在维护的页面。
 export const LEGACY_PAGE_ALIASES = {
   live: "forward",
-  events: "dashboard",
-  logs: "reports",
+  dashboard: "forward",
+  plans: "forward",
+  symbol: "strategy",
+  reports: "review",
+  research: "strategy/research",
+  events: "forward",
+  logs: "review",
 };
 
 export function stateLabel(value) {

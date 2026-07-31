@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Mapping
 
+from orbit.application.live_risk import live_small_drawdown_projection
+
+
 class LiveReconciliationService:
     """Read-only position reconciliation plus append-only equity observations."""
 
@@ -215,6 +218,7 @@ class LiveReconciliationService:
                 "weekly_points": [],
                 "cumulative_deviation_pct": None,
                 "latest_weekly_deviation_pct": None,
+                **live_small_drawdown_projection(observations),
             }
         first = observations[0]
         live_base = Decimal(str(first["live_equity_usdt"]))
@@ -286,6 +290,7 @@ class LiveReconciliationService:
             "cumulative_deviation_pct": points[-1]["cumulative_deviation_pct"],
             "latest_weekly_deviation_pct": weekly_points[-1]["weekly_deviation_pct"],
             "structural_tracking_ratio": points[-1]["executable_notional_ratio"],
+            **live_small_drawdown_projection(observations),
         }
 
     @staticmethod
@@ -345,6 +350,7 @@ class LiveReconciliationService:
                 "weekly_points": [],
                 "cumulative_deviation_pct": None,
                 "latest_weekly_deviation_pct": None,
+                **live_small_drawdown_projection([]),
             },
             "last_record_error": self.last_record_error,
             "ledger": self.equity_ledger.status(),
