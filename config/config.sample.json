@@ -45,7 +45,10 @@
     "research": {
       "calibration_dir": "var/calibration",
       "registry_path": "var/research/registry.jsonl",
-      "run_ledger_path": "var/research/runs.jsonl"
+      "run_ledger_path": "var/research/runs.jsonl",
+      "shortline_jobs_enabled": true,
+      "shortline_min_free_gb": 15,
+      "shortline_verify_sample_symbols": 3
     },
     "plan_ttl_seconds": 900,
     "plan_max_confirm_price_drift_pct": 0.5,

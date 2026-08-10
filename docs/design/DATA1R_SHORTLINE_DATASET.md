@@ -69,7 +69,7 @@ shortline-data-v1/
 
 以下命令均不读取 API Key/Secret：
 
-管理员也可从前端“策略 → 研究候选 → 全市场短线研究数据”启动同一固定流程。页面要求先勾选 8–12 GB 下载确认，并只允许选择 1–8 个并行下载；服务端依次执行 `index → sync --confirm-full-download → build`，记录阶段、进度和当前对象。全系统同一时间只允许一个研究任务运行，避免数据下载与候选评估争用资源。运行中可从页面停止；已经通过 checksum 的正式文件不会删除，重新启动会重新读取索引/checksum 并继续校验。
+管理员也可从前端“策略 → 研究候选 → 全市场短线研究数据”启动同一固定流程。页面要求先勾选并再次确认 8–12 GB 下载，并只允许选择 1–8 个并行下载；服务端依次执行 `index → sync --confirm-full-download → build → verify-batch`。最后一阶段确定性抽取最多 3 个 symbol 的最新月份，对 1h/4h 分别复用 `verify-native` 逐字段核对。页面记录阶段、文件/字节进度、当前对象、错误数、最近日志和锁持有者。运行中可停止；已经通过 checksum 的正式文件不会删除，重新启动会重新读取索引/checksum 并继续校验。
 
 ```powershell
 # 1. 枚举全部历史 symbol、15m 与 Funding 对象；状态可在 state 文件审计
@@ -103,6 +103,10 @@ shortline-data-v1/
 
 页面入口的 worker 上限收紧为 8；命令行仍保留 1–16，供人工诊断和受控运维使用。页面任务与命令行使用相同的数据目录、校验规则与构建器，不存在第二套下载实现。
 
+所有会写 DATA-1R 的 CLI 命令和页面任务共用数据集根目录的跨进程锁。锁元数据位于 `metadata/dataset_job_lock.json`，公开 owner、run id、父/工作进程 PID 与开始时间但不通过 API 暴露令牌。页面任务先持有整条流水线的锁，再向受控 CLI 子阶段传一次性令牌；普通 CLI 无法绕过，因此不会与页面并发写分区。父服务意外退出但 CLI 子阶段仍存活时，工作进程 PID 会继续阻止第二个任务。
+
+页面任务启动前检查磁盘空间，默认要求至少 15 GB 可用；配置项位于 `runtime.research.shortline_min_free_gb`。生产环境可将 `runtime.research.shortline_jobs_enabled=false` 完全关闭页面任务；`shortline_verify_sample_symbols` 控制正式构建后的原生抽样 symbol 数。
+
 ## 5. 质量、故障与恢复
 
 `quality_report.json` 包含：
@@ -115,6 +119,8 @@ shortline-data-v1/
 - 报告自身确定性 SHA-256。
 
 长时间数据缺口不会展开成无限时间戳：报告保存准确总数、有界样本和区间。枚举状态显式持久化为 `RUNNING/COMPLETE/FAILED/CANCELLED`；失败可重跑，索引与下载按 key/checksum 幂等合并。
+
+页面 job 历史写入只追加研究运行账本。服务重启后，未结束任务会明确投影为 `failed/interrupted/resumable=true`，保留原阶段和进度；重新启动时依靠已落盘索引、正式 ZIP 与 `.part` 断点续校，不伪装为从未中断。下载中断测试覆盖 HTTP Range 从现有 `.part` 精确续传，并在原子替换前重新通过官方 SHA-256。
 
 研究目录将 `manifest.json` 作为 `dataset_manifest` 登记，并公开数据集指纹、状态和质量报告哈希。只有 `COMPLETE` 数据集可以进入正式全市场研究冻结。
 

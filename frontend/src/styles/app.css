@@ -1296,6 +1296,7 @@ td .muted { font-size: 11.5px; }
 .research-shortline-copy > strong { display: block; color: var(--text); font-size: 13px; }
 .research-shortline-copy > p { margin: 5px 0 10px; color: var(--muted); font-size: 11.5px; }
 .research-shortline-copy > small { display: block; margin-top: 7px; overflow-wrap: anywhere; }
+.research-shortline-logs { margin: 7px 0 0; padding: 8px 10px 8px 28px; border-radius: 8px; background: var(--surface-soft); color: var(--muted); font-size: 11px; }
 .research-progress.large { width: 100%; height: 7px; }
 .research-shortline-actions { display: grid; gap: 10px; }
 .research-shortline-actions > label:not(.research-confirm-check) { display: grid; gap: 5px; }

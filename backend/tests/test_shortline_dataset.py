@@ -216,6 +216,31 @@ class ShortlineArchiveTests(unittest.TestCase):
             self.assertEqual(destination.read_bytes(), payload)
             self.assertIn("bytes=3-", opener.ranges)
 
+    def test_cancelled_transfer_restarts_from_partial_and_keeps_checksum_integrity(self):
+        payload = b"complete-archive-payload"
+        checksum = hashlib.sha256(payload).hexdigest()
+        item = ArchiveObject(
+            key="data/futures/um/monthly/klines/LUNAUSDT/15m/LUNAUSDT-15m-2022-04.zip",
+            size=len(payload), last_modified="", etag=None, kind="KLINE_15M",
+            symbol="LUNAUSDT", month="2022-04",
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "file.zip"
+            interrupted = InterruptedDownloadOpener(payload, checksum, stop_after=7)
+            with self.assertRaises(OSError):
+                ArchiveDownloader(opener=interrupted, attempts=1).download(item, destination)
+            partial = destination.with_name("file.zip.part")
+            self.assertEqual(partial.read_bytes(), payload[:7])
+
+            resumed = DownloadOpener(payload, checksum)
+            result = ArchiveDownloader(opener=resumed, attempts=1).download(item, destination)
+
+            self.assertEqual(result["status"], "DOWNLOADED")
+            self.assertEqual(result["sha256"], checksum)
+            self.assertEqual(hashlib.sha256(destination.read_bytes()).hexdigest(), checksum)
+            self.assertFalse(partial.exists())
+            self.assertIn("bytes=7-", resumed.ranges)
+
     def test_zip_reader_rejects_path_traversal_members(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "unsafe.zip"
@@ -243,6 +268,10 @@ class ShortlineDatasetBuilderTests(unittest.TestCase):
                 kind="KLINE_15M", symbol="LUNAUSDT", month="2022-04",
             )], scope="ALL_USDT_PERPETUAL")
             builder = ShortlineDatasetBuilder(root)
+            (root / "metadata" / "dataset_job.lock").write_bytes(b"0")
+            (root / "metadata" / "dataset_job_lock.json").write_text(
+                json.dumps({"token": "must-not-enter-manifest"}), encoding="utf-8",
+            )
 
             first = builder.build(dataset_cutoff_ms=_ms("2026-01-01T00:00:00Z"))
             second = builder.build(dataset_cutoff_ms=_ms("2026-01-01T00:00:00Z"))
@@ -252,6 +281,9 @@ class ShortlineDatasetBuilderTests(unittest.TestCase):
                 first["manifest"]["dataset_fingerprint"],
                 second["manifest"]["dataset_fingerprint"],
             )
+            manifest_paths = {item["path"] for item in first["manifest"]["entries"]}
+            self.assertNotIn("metadata/dataset_job.lock", manifest_paths)
+            self.assertNotIn("metadata/dataset_job_lock.json", manifest_paths)
             self.assertEqual(first["quality_report"]["report_sha256"], second["quality_report"]["report_sha256"])
             self.assertEqual(first["contracts"][0]["symbol"], "LUNAUSDT")
             self.assertEqual(first["contracts"][0]["status"], "DELISTED")
@@ -405,6 +437,39 @@ class DownloadOpener:
             offset = int(header.split("=")[1].split("-")[0])
             return BytesResponse(self.payload[offset:], status=206)
         return BytesResponse(self.payload)
+
+
+class InterruptedResponse:
+    def __init__(self, payload, stop_after):
+        self.payload = payload
+        self.stop_after = stop_after
+        self.sent = False
+        self.status = 200
+
+    def getcode(self):
+        return self.status
+
+    def read(self, _size=-1):
+        if not self.sent:
+            self.sent = True
+            return self.payload[:self.stop_after]
+        raise OSError("simulated cancellation")
+
+    def close(self):
+        return None
+
+
+class InterruptedDownloadOpener:
+    def __init__(self, payload, checksum, stop_after):
+        self.payload = payload
+        self.checksum = checksum
+        self.stop_after = stop_after
+
+    def __call__(self, request, timeout=60):
+        url = request.full_url if hasattr(request, "full_url") else str(request)
+        if url.endswith(".CHECKSUM"):
+            return BytesResponse(f"{self.checksum}  file.zip\n".encode())
+        return InterruptedResponse(self.payload, self.stop_after)
 
 
 def _write_kline_zip(path, rows):

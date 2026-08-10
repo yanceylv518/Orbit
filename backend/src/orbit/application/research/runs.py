@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from threading import Lock, RLock, Thread
@@ -14,6 +15,7 @@ from uuid import uuid4
 
 from orbit.application.research.protocols import build_candidate, protocol_templates
 from orbit.application.research.candidates import canonical_json
+from orbit.infrastructure.persistence.dataset_job_lock import DatasetJobLock
 
 
 FETCH_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"}
@@ -31,15 +33,55 @@ def now_iso() -> str:
 class CachedToolEvaluator:
     """Runs only allow-listed research tools against catalogued cache files."""
 
-    def __init__(self, project_root: Path, calibration_dir: Path):
+    def __init__(
+        self,
+        project_root: Path,
+        calibration_dir: Path,
+        *,
+        shortline_enabled: bool = True,
+        shortline_min_free_gb: float = 15.0,
+        shortline_verify_sample_symbols: int = 3,
+        disk_usage: Callable[[Path], Any] = shutil.disk_usage,
+    ):
         self.project_root = project_root
         self.calibration_dir = calibration_dir
         self.tools_dir = project_root / "backend" / "tools"
         self.shortline_root = calibration_dir / "shortline-data-v1"
+        self.shortline_enabled = shortline_enabled
+        self.shortline_min_free_bytes = int(shortline_min_free_gb * 1024 ** 3)
+        self.shortline_verify_sample_symbols = shortline_verify_sample_symbols
+        self._disk_usage = disk_usage
         self._process_lock = RLock()
         self._active_process: subprocess.Popen[str] | None = None
         self._active_run_id: str | None = None
+        self._dataset_lock: DatasetJobLock | None = None
         self._cancelled_runs: set[str] = set()
+
+    def reserve_shortline_dataset(self, run_id: str) -> dict[str, Any]:
+        if not self.shortline_enabled:
+            raise RuntimeError("DATA-1R page tasks are disabled by runtime configuration")
+        self.shortline_root.mkdir(parents=True, exist_ok=True)
+        usage = self._disk_usage(self.shortline_root)
+        if int(usage.free) < self.shortline_min_free_bytes:
+            required_gb = self.shortline_min_free_bytes / 1024 ** 3
+            free_gb = int(usage.free) / 1024 ** 3
+            raise RuntimeError(
+                f"DATA-1R requires at least {required_gb:.1f} GB free; only {free_gb:.1f} GB available"
+            )
+        with self._process_lock:
+            if self._dataset_lock is not None:
+                raise RuntimeError("another DATA-1R task is already reserved")
+            lock = DatasetJobLock(self.shortline_root, owner="orbit-ui", run_id=run_id)
+            holder = lock.acquire()
+            self._dataset_lock = lock
+            self._active_run_id = run_id
+        return {
+            "lock_holder": {
+                key: holder.get(key) for key in ("owner", "run_id", "pid", "started_at")
+            },
+            "disk_free_bytes_at_start": int(usage.free),
+            "disk_required_bytes": self.shortline_min_free_bytes,
+        }
 
     def evaluate(self, candidate: dict[str, Any], datasets: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
         temp_dir = self.calibration_dir / ".research_tmp"
@@ -123,18 +165,35 @@ class CachedToolEvaluator:
     ) -> dict[str, Any]:
         workers = int(request["workers"])
         tool = str(self.tools_dir / "shortline_dataset.py")
+        with self._process_lock:
+            if self._dataset_lock is None or self._active_run_id != run_id:
+                raise RuntimeError("DATA-1R task does not hold the dataset lock")
+            lock_token = self._dataset_lock.token
+        base = [
+            sys.executable, tool, "--root", str(self.shortline_root),
+            "--lock-owner-token", lock_token,
+        ]
         phases = (
-            ("index", [sys.executable, tool, "index"], 2, 18),
+            ("index", [*base, "index"], 2, 15),
             (
                 "download",
                 [
-                    sys.executable, tool, "sync", "--confirm-full-download",
+                    *base, "sync", "--confirm-full-download",
                     "--workers", str(workers),
                 ],
-                18,
-                82,
+                15,
+                75,
             ),
-            ("build", [sys.executable, tool, "build"], 82, 99),
+            ("build", [*base, "build"], 75, 92),
+            (
+                "verify",
+                [
+                    *base, "verify-batch", "--sample-symbols",
+                    str(self.shortline_verify_sample_symbols),
+                ],
+                92,
+                99,
+            ),
         )
         try:
             for phase, command, start_progress, end_progress in phases:
@@ -166,12 +225,19 @@ class CachedToolEvaluator:
                 if self._active_run_id == run_id:
                     self._active_process = None
                     self._active_run_id = None
+                if self._dataset_lock is not None:
+                    self._dataset_lock.release()
+                    self._dataset_lock = None
 
     def cancel_shortline_dataset(self, run_id: str) -> None:
         with self._process_lock:
             self._cancelled_runs.add(run_id)
             if self._active_run_id == run_id and self._active_process is not None:
                 self._active_process.terminate()
+            elif self._active_run_id == run_id and self._dataset_lock is not None:
+                self._dataset_lock.release()
+                self._dataset_lock = None
+                self._active_run_id = None
 
     def _run_shortline_phase(
         self,
@@ -204,7 +270,11 @@ class CachedToolEvaluator:
                     cancelled = run_id in self._cancelled_runs
                 if cancelled:
                     process.terminate()
-                    process.wait(timeout=10)
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
                     raise ResearchRunCancelled("dataset task was cancelled")
                 detail = self._shortline_phase_detail(phase)
                 fraction = float(detail.pop("fraction", 0.0))
@@ -242,6 +312,7 @@ class CachedToolEvaluator:
             "index": "archive_index_state.json",
             "download": "sync_state.json",
             "build": "build_state.json",
+            "verify": "verification_state.json",
         }[phase]
         path = self.shortline_root / "metadata" / filename
         try:
@@ -257,13 +328,23 @@ class CachedToolEvaluator:
             total = int(state.get("selected_files") or 0)
             recent = state.get("recent_files") or []
             current = recent[-1] if recent else None
+        elif phase == "build":
+            completed = int(state.get("completed_symbols") or 0)
+            total = int(state.get("total_symbols") or 0)
+            current = state.get("current_symbol")
         else:
-            completed, total, current = 0, 0, None
+            completed = int(state.get("completed_samples") or 0)
+            total = int(state.get("total_samples") or 0)
+            current = state.get("current_item")
         return {
             "fraction": completed / total if total else 0.0,
             "completed_items": completed,
             "total_items": total,
             "current_item": current,
+            "completed_bytes": int(state.get("completed_bytes") or 0),
+            "total_bytes": int(state.get("total_bytes") or 0),
+            "error_count": int(state.get("error_count") or 0),
+            "recent_logs": list(state.get("recent_logs") or [])[-5:],
             "message": self._phase_running_message(phase),
         }
 
@@ -273,6 +354,7 @@ class CachedToolEvaluator:
             "index": "正在枚举历史合约与月份",
             "download": "正在校验并下载15分钟K线与资金费率",
             "build": "正在构建1小时、4小时和质量报告",
+            "verify": "正在与 Binance 原生1小时、4小时归档抽样核对",
         }[phase]
 
     @staticmethod
@@ -281,6 +363,7 @@ class CachedToolEvaluator:
             "index": "全市场历史索引完成",
             "download": "原始数据下载完成",
             "build": "派生数据与质量报告完成",
+            "verify": "原生聚合抽样核对完成",
         }[phase]
 
     def _command(
@@ -439,6 +522,7 @@ class ResearchWorkflowService:
             if active:
                 raise RuntimeError("another research run is already active")
             run_id = f"run_{uuid4().hex[:16]}"
+            reservation = self.evaluator.reserve_shortline_dataset(run_id)
             created_at = now_iso()
             event = {
                 "id": run_id,
@@ -453,9 +537,14 @@ class ResearchWorkflowService:
                 "created_at": created_at,
                 "updated_at": created_at,
                 "lockbox_opened_at": None,
+                **reservation,
             }
-            self.run_ledger.append(event)
-            self._submitter(lambda: self._execute(run_id))
+            try:
+                self.run_ledger.append(event)
+                self._submitter(lambda: self._execute(run_id))
+            except Exception:
+                self.evaluator.cancel_shortline_dataset(run_id)
+                raise
             return self.run_ledger.get(run_id) or event
 
     def cancel_run(self, run_id: str) -> dict[str, Any]:
@@ -591,7 +680,10 @@ class ResearchWorkflowService:
             self.run_ledger.append({
                 **self._identity(run),
                 "status": "failed",
-                "progress": 100,
+                "phase": "interrupted",
+                "progress": int(run.get("progress") or 0),
+                "resumable": run.get("job_type") == "shortline_dataset",
+                "message": "服务重启中断了任务；已完成文件保留，可重新启动续校",
                 "error": "research process restarted before the task completed",
                 "completed_at": recovered_at,
                 "updated_at": recovered_at,

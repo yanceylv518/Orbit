@@ -142,6 +142,16 @@
             {{ Number(shortlineRun.total_items).toLocaleString("zh-CN") }}
             <template v-if="shortlineRun.current_item"> · {{ shortlineRun.current_item }}</template>
           </small>
+          <small v-if="shortlineRun?.total_bytes" class="muted">
+            已校验 {{ formatBytes(shortlineRun.completed_bytes) }} / {{ formatBytes(shortlineRun.total_bytes) }}
+            <template v-if="shortlineRun.error_count"> · {{ shortlineRun.error_count }} 个错误</template>
+          </small>
+          <ul v-if="shortlineRun?.recent_logs?.length" class="research-shortline-logs">
+            <li v-for="line in shortlineRun.recent_logs" :key="line">{{ line }}</li>
+          </ul>
+          <small v-if="shortlineRun?.lock_holder" class="muted">
+            任务锁 {{ shortlineRun.lock_holder.owner }} · PID {{ shortlineRun.lock_holder.pid }} · {{ dateTime(shortlineRun.lock_holder.started_at) }}
+          </small>
           <small v-if="shortlineRun?.dataset_fingerprint" class="muted mono" :title="shortlineRun.dataset_fingerprint">
             数据指纹 {{ shortHash(shortlineRun.dataset_fingerprint) }} · {{ shortlineRun.contract_count || "-" }} 个合约 · {{ shortlineRun.partition_count || "-" }} 个分区
           </small>
@@ -546,6 +556,7 @@ async function fetchDataset() {
 }
 
 async function startShortline() {
+  if (!window.confirm("确认开始全市场 DATA-1R 下载与构建？预计占用约 8–12 GB 磁盘。")) return;
   const run = await startShortlineDatasetBuild({
     confirm_full_download: shortlineDraft.confirmed,
     workers: shortlineDraft.workers,
@@ -621,8 +632,18 @@ function shortlinePhaseLabel(value) {
     index: "第一步：枚举历史合约",
     download: "第二步：下载并校验原始数据",
     build: "第三步：聚合并生成质量报告",
+    verify: "第四步：核对官方原生聚合",
     complete: "数据集构建完成",
+    interrupted: "服务重启后等待续校",
   }[value] || "数据任务";
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
 function evidenceRow(scope, row, key, test = "") {

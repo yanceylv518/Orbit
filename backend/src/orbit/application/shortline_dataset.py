@@ -76,6 +76,7 @@ class ShortlineDatasetBuilder:
         active_symbols: set[str] | None = None,
         dataset_cutoff_ms: int | None = None,
         allow_partial: bool = False,
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         partitions = self._kline_partitions()
         if not partitions:
@@ -102,7 +103,8 @@ class ShortlineDatasetBuilder:
         contract_quality: list[dict[str, Any]] = []
         symbol_edges: list[tuple[str, ArchiveCandle, ArchiveCandle]] = []
         latest_close = 0
-        for symbol, paths in sorted(partitions.items()):
+        ordered_partitions = sorted(partitions.items())
+        for position, (symbol, paths) in enumerate(ordered_partitions, start=1):
             symbol_candles: list[ArchiveCandle] = []
             for path in paths:
                 candles = list(iter_kline_zip(path))
@@ -137,6 +139,12 @@ class ShortlineDatasetBuilder:
                 "first_open_time_ms": first.open_time_ms,
                 "last_close_time_ms": last.close_time_ms,
             })
+            if on_progress is not None:
+                on_progress({
+                    "completed_symbols": position,
+                    "total_symbols": len(ordered_partitions),
+                    "current_symbol": symbol,
+                })
         incomplete_partitions = [item for item in partition_quality if not item["complete"]]
         if incomplete_partitions and not allow_partial:
             raise ShortlineDatasetError(
@@ -228,6 +236,7 @@ class ShortlineDatasetBuilder:
                 not path.is_file()
                 or path.name.endswith(".part")
                 or path.name == "manifest.json"
+                or path.name in {"dataset_job.lock", "dataset_job_lock.json"}
                 or path.name.endswith("_state.json")
             ):
                 continue

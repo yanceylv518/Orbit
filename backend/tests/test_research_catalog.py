@@ -36,6 +36,13 @@ class FakeEvaluator:
     def fetch_dataset(self, request, run_id):
         return f"{request['symbol']}_{run_id}_{request['kind']}"
 
+    def reserve_shortline_dataset(self, run_id):
+        return {
+            "lock_holder": {"owner": "test", "run_id": run_id, "pid": 1, "started_at": "now"},
+            "disk_free_bytes_at_start": 100,
+            "disk_required_bytes": 10,
+        }
+
     def build_shortline_dataset(self, request, run_id, on_progress):
         on_progress({"phase": "index", "progress": 10, "completed_items": 10, "total_items": 100})
         on_progress({"phase": "download", "progress": 80, "completed_items": 50, "total_items": 50})
@@ -310,6 +317,7 @@ class ResearchCatalogTests(unittest.TestCase):
         created_at = "2026-07-14T00:00:00+00:00"
         self.run_ledger.append({
             "id": "run_interrupted",
+            "job_type": "shortline_dataset",
             "candidate_id": "DATASET",
             "candidate_hash": "a" * 64,
             "protocol": "FETCH_KLINES",
@@ -324,6 +332,9 @@ class ResearchCatalogTests(unittest.TestCase):
         recovered = self.run_ledger.get("run_interrupted")
         self.assertEqual(recovered["status"], "failed")
         self.assertIn("restarted", recovered["error"])
+        self.assertTrue(recovered["resumable"])
+        self.assertEqual(recovered["phase"], "interrupted")
+        self.assertEqual(recovered["progress"], 10)
 
 
 if __name__ == "__main__":

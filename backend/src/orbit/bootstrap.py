@@ -294,7 +294,15 @@ def build_application_container(
     research_workflow = ResearchWorkflowService(
         research_catalog,
         run_ledger,
-        CachedToolEvaluator(root, calibration_dir),
+        CachedToolEvaluator(
+            root,
+            calibration_dir,
+            shortline_enabled=bool(research_config.get("shortline_jobs_enabled", True)),
+            shortline_min_free_gb=float(research_config.get("shortline_min_free_gb", 15)),
+            shortline_verify_sample_symbols=int(
+                research_config.get("shortline_verify_sample_symbols", 3)
+            ),
+        ),
     )
     trend_config = plan_runtime.get("trend_forward", {})
     live_control = live_pilot_control

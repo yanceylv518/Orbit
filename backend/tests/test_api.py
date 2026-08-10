@@ -264,6 +264,29 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tmp.cleanup()
 
+    async def test_shortline_dataset_job_is_admin_only(self):
+        tmp, api = self.make_api()
+        try:
+            api.state.orbit.sessions["business-session"] = "user_001"
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                anonymous = await client.post("/api/research/datasets/shortline", json={
+                    "confirm_full_download": True,
+                    "workers": 4,
+                })
+                client.cookies.set("orbit_session", "business-session")
+                forbidden = await client.post("/api/research/datasets/shortline", json={
+                    "confirm_full_download": True,
+                    "workers": 4,
+                })
+
+            self.assertEqual(anonymous.status_code, 401)
+            self.assertEqual(forbidden.status_code, 403)
+        finally:
+            tmp.cleanup()
+
     async def test_admin_can_read_research_catalog_candidates_and_results(self):
         tmp, api = self.make_api(login_required=False)
         try:
@@ -313,6 +336,13 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
                 def fetch_dataset(self, request, run_id):
                     return f"{request['symbol']}_{run_id}_{request['kind']}"
+
+                def reserve_shortline_dataset(self, run_id):
+                    return {
+                        "lock_holder": {"owner": "test", "run_id": run_id},
+                        "disk_free_bytes_at_start": 100,
+                        "disk_required_bytes": 10,
+                    }
 
                 def build_shortline_dataset(self, request, run_id, on_progress):
                     on_progress({"phase": "download", "progress": 80})
