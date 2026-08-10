@@ -32,6 +32,7 @@ from orbit.application.trend_forward import TrendForwardService
 from orbit.application.trend_forward_market import TrendForwardMarketDriver
 from orbit.infrastructure.exchange.binance import BinanceFuturesClient
 from orbit.infrastructure.exchange.kline_feed import BinanceKlineFeed
+from orbit.infrastructure.persistence.atomic_file import replace_with_retry
 from orbit.infrastructure.persistence.trend_forward_ledger import TrendForwardLedger
 
 
@@ -922,7 +923,7 @@ class AppState:
             json.dumps(rules, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        temporary.replace(path)
+        replace_with_retry(temporary, path)
         with self.lock:
             before = deepcopy(self.live_pilot_control)
             self.trend_checklist_projector.exchange_rules = deepcopy(rules)

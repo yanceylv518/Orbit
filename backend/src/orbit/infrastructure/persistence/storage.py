@@ -13,6 +13,7 @@ from orbit.infrastructure.persistence.mysql_config_writer import MySqlConfigWrit
 from orbit.infrastructure.persistence.mysql_market_snapshot_writer import MySqlMarketSnapshotWriter
 from orbit.infrastructure.persistence.mysql_symbol_state_writer import MySqlSymbolStateWriter
 from orbit.infrastructure.persistence.strategy_control_plane import MySqlStrategyControlPlaneRepository
+from orbit.infrastructure.persistence.atomic_file import replace_with_retry
 
 
 class JsonStateStore:
@@ -32,7 +33,7 @@ class JsonStateStore:
         tmp = self.path.with_suffix(".tmp")
         with tmp.open("w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=2)
-        tmp.replace(self.path)
+        replace_with_retry(tmp, self.path)
 
     def load_directory(self) -> dict[str, Any] | None:
         return None

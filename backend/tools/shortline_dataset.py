@@ -44,6 +44,7 @@ from orbit.infrastructure.persistence.dataset_job_lock import (  # noqa: E402
     DatasetJobLock,
     DatasetJobLockBusy,
 )
+from orbit.infrastructure.persistence.atomic_file import replace_with_retry  # noqa: E402
 
 
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -313,7 +314,7 @@ def _write_state(path: Path, payload: dict) -> None:
         json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
-    temporary.replace(path)
+    replace_with_retry(temporary, path)
 
 
 def _record_sync_progress(

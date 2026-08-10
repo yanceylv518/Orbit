@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from orbit.infrastructure.persistence.atomic_file import replace_with_retry
+
 
 class DatasetJobLockBusy(RuntimeError):
     def __init__(self, holder: dict[str, Any] | None = None):
@@ -135,7 +137,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
         json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
-    os.replace(temporary, path)
+    replace_with_retry(temporary, path)
 
 
 def _pid_alive(pid: int) -> bool:

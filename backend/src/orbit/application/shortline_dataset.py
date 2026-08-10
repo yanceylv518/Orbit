@@ -6,7 +6,6 @@ import gzip
 import hashlib
 import io
 import json
-import os
 from pathlib import Path
 import re
 from typing import Any, Iterable, Sequence
@@ -33,6 +32,7 @@ from orbit.infrastructure.market_data.binance_public_archive import (
     iter_kline_zip,
     sha256_file,
 )
+from orbit.infrastructure.persistence.atomic_file import replace_with_retry
 
 
 DATASET_PROTOCOL = "ORBIT_SHORTLINE_DATASET_V1"
@@ -533,7 +533,7 @@ def _atomic_write_if_changed(path: Path, content: bytes) -> None:
         return
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_bytes(content)
-    os.replace(temporary, path)
+    replace_with_retry(temporary, path)
 
 
 def _payload_hash(payload: Any) -> str:
