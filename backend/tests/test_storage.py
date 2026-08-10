@@ -92,6 +92,35 @@ class MySqlStateStoreTransactionTest(unittest.TestCase):
         self.assertEqual(connection.rollbacks, 1)
         self.assertTrue(connection.closed)
 
+    def test_directory_load_migrates_runtime_schema_before_querying(self):
+        calls = []
+        connection = FakeConnection()
+        store = MySqlStateStore.__new__(MySqlStateStore)
+        store._ensure_runtime_schema = lambda: calls.append("migrate")
+        store._connect = lambda: calls.append("connect") or connection
+        store.ensure_identity_schema = lambda: calls.append("identity")
+        store._load_users = lambda cursor: []
+        store._load_accounts = lambda cursor: []
+        store._load_strategies = lambda cursor: []
+        store._load_run_configs = lambda cursor: calls.append("query") or []
+
+        directory = store.load_directory()
+
+        self.assertEqual(calls, ["migrate", "connect", "identity", "query"])
+        self.assertEqual(directory["account_run_configs"], [])
+        self.assertTrue(connection.closed)
+
+    def test_symbol_state_index_replacement_is_added_before_legacy_drop(self):
+        cursor = IndexMigrationCursor()
+        store = MySqlStateStore.__new__(MySqlStateStore)
+        store._ensure_column = lambda *args: None
+
+        store._ensure_symbol_state_account_key(cursor)
+
+        alterations = [query for query, _ in cursor.calls if query.startswith("ALTER TABLE")]
+        self.assertIn("ADD UNIQUE KEY", alterations[0])
+        self.assertIn("DROP INDEX", alterations[1])
+
     def test_control_plane_repository_is_live_mysql_adapter_when_seeded(self):
         connection = ControlPlaneProbeConnection(table_exists=True, definition_count=1)
         store = MySqlStateStore.__new__(MySqlStateStore)
@@ -147,6 +176,23 @@ class ControlPlaneProbeCursor:
             self.row = (self.definition_count,)
         else:
             raise AssertionError(f"unexpected query: {normalized}")
+
+    def fetchone(self):
+        return self.row
+
+
+class IndexMigrationCursor:
+    def __init__(self):
+        self.calls = []
+        self.row = None
+
+    def execute(self, query, params=None):
+        normalized = " ".join(query.split())
+        self.calls.append((normalized, params))
+        if normalized.startswith("SHOW INDEX"):
+            self.row = None if params[0].endswith("account_symbol") else ("legacy",)
+        else:
+            self.row = None
 
     def fetchone(self):
         return self.row

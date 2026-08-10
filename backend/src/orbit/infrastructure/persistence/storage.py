@@ -133,6 +133,10 @@ class MySqlStateStore:
         cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     def load_directory(self) -> dict[str, Any] | None:
+        # Existing deployments can predate columns required by the current
+        # directory projection. Migrate before issuing any SELECT that uses
+        # those columns, rather than waiting for the first state save.
+        self._ensure_runtime_schema()
         conn = self._connect()
         try:
             self.ensure_identity_schema()
@@ -459,12 +463,16 @@ class MySqlStateStore:
         if cur.fetchone():
             return
         cur.execute("SHOW INDEX FROM symbol_states WHERE Key_name = %s", ("uk_symbol_states_strategy_symbol",))
-        if cur.fetchone():
-            cur.execute("ALTER TABLE symbol_states DROP INDEX uk_symbol_states_strategy_symbol")
+        legacy_index_exists = bool(cur.fetchone())
+        # The legacy index may currently support the strategy_instance_id
+        # foreign key. Add its replacement first so MySQL can keep enforcing
+        # that constraint while the obsolete index is removed.
         cur.execute(
             "ALTER TABLE symbol_states ADD UNIQUE KEY uk_symbol_states_strategy_account_symbol"
             " (strategy_instance_id, exchange_account_ref, symbol)"
         )
+        if legacy_index_exists:
+            cur.execute("ALTER TABLE symbol_states DROP INDEX uk_symbol_states_strategy_symbol")
 
     def _ensure_runtime_schema(self) -> None:
         conn = self._connect()
