@@ -26,6 +26,10 @@ from orbit.application.runtime_events import RuntimeEventService
 from orbit.application.snapshot_queries import SnapshotQueryService
 from orbit.application.strategy_config import StrategyEventConfigService
 from orbit.application.strategy_catalog import StrategyCatalogService
+from orbit.application.strategy_control_plane import (
+    StrategyControlPlaneService,
+    legacy_tb4_control_plane_projection,
+)
 from orbit.application.strategy_control import StrategyControlService
 from orbit.application.symbol_states import SymbolStateService
 from orbit.application.symbol_recovery import SymbolRecoveryService
@@ -54,6 +58,7 @@ from orbit.infrastructure.persistence.research_runs import AppendOnlyResearchRun
 from orbit.infrastructure.persistence.run_configs import InMemoryRunConfigRepository
 from orbit.infrastructure.persistence.storage import make_state_store, mysql_status
 from orbit.infrastructure.persistence.strategy_runtime import InMemoryStrategyRuntimeRepository
+from orbit.infrastructure.persistence.strategy_control_plane import InMemoryStrategyControlPlaneRepository
 from orbit.infrastructure.persistence.symbol_states import InMemorySymbolStateRepository
 from orbit.infrastructure.persistence.trend_forward_ledger import TrendForwardLedger
 from orbit.infrastructure.persistence.unit_of_work import InMemoryApplicationUnitOfWork
@@ -100,6 +105,8 @@ class ApplicationContainer:
     trend_checklist_projector: Any
     trend_forward_cache_invalidate: Any
     strategy_catalog_service: Any
+    strategy_control_plane_repository: Any
+    strategy_control_plane_service: Any
     research_catalog: Any
     research_workflow: Any
     app_uow: Any
@@ -148,6 +155,8 @@ def build_application_container(
     persist: Callable[[], None],
     mock_data_enabled: bool,
     live_pilot_control: dict[str, Any],
+    strategy_control_plane_records: dict[str, Any] | None = None,
+    strategy_control_plane_repository: Any | None = None,
 ) -> ApplicationContainer:
     permissions = PermissionPolicy()
     account_repository = ConfigAccountRepository(config)
@@ -411,6 +420,20 @@ def build_application_container(
         live_capital_usdt=float(live_control.get("live_capital_usdt", 500)),
         live_configured=bool(str(live_control.get("live_account_id") or "").strip()),
     )
+    if strategy_control_plane_repository is None:
+        control_plane_records = (
+            strategy_control_plane_records
+            or legacy_tb4_control_plane_projection(
+                live_control,
+                live_execution_service.snapshot,
+            )
+        )
+        strategy_control_plane_repository = InMemoryStrategyControlPlaneRepository(
+            control_plane_records,
+        )
+    strategy_control_plane_service = StrategyControlPlaneService(
+        strategy_control_plane_repository,
+    )
 
     snapshot_queries = SnapshotQueryService(
         config,
@@ -487,6 +510,8 @@ def build_application_container(
         trend_checklist_projector=trend_checklist_projector,
         trend_forward_cache_invalidate=trend_forward_cache_invalidate,
         strategy_catalog_service=strategy_catalog_service,
+        strategy_control_plane_repository=strategy_control_plane_repository,
+        strategy_control_plane_service=strategy_control_plane_service,
         research_catalog=research_catalog,
         research_workflow=research_workflow,
         app_uow=app_uow,

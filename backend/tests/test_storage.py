@@ -92,6 +92,65 @@ class MySqlStateStoreTransactionTest(unittest.TestCase):
         self.assertEqual(connection.rollbacks, 1)
         self.assertTrue(connection.closed)
 
+    def test_control_plane_repository_is_live_mysql_adapter_when_seeded(self):
+        connection = ControlPlaneProbeConnection(table_exists=True, definition_count=1)
+        store = MySqlStateStore.__new__(MySqlStateStore)
+        store._connect = lambda: connection
+
+        repository = store.strategy_control_plane_repository()
+
+        self.assertIsNotNone(repository)
+        self.assertEqual(repository.__class__.__name__, "MySqlStrategyControlPlaneRepository")
+        self.assertTrue(connection.closed)
+
+    def test_control_plane_repository_is_absent_before_migration(self):
+        connection = ControlPlaneProbeConnection(table_exists=False, definition_count=0)
+        store = MySqlStateStore.__new__(MySqlStateStore)
+        store._connect = lambda: connection
+
+        self.assertIsNone(store.strategy_control_plane_repository())
+        self.assertTrue(connection.closed)
+
+
+class ControlPlaneProbeConnection:
+    def __init__(self, *, table_exists, definition_count):
+        self.cursor_instance = ControlPlaneProbeCursor(
+            table_exists=table_exists,
+            definition_count=definition_count,
+        )
+        self.closed = False
+
+    def cursor(self):
+        return self.cursor_instance
+
+    def close(self):
+        self.closed = True
+
+
+class ControlPlaneProbeCursor:
+    def __init__(self, *, table_exists, definition_count):
+        self.table_exists = table_exists
+        self.definition_count = definition_count
+        self.row = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def execute(self, query, params=None):
+        normalized = " ".join(query.split())
+        if normalized.startswith("SHOW TABLES LIKE"):
+            self.row = ("strategy_definitions",) if self.table_exists else None
+        elif normalized.startswith("SELECT COUNT(*)"):
+            self.row = (self.definition_count,)
+        else:
+            raise AssertionError(f"unexpected query: {normalized}")
+
+    def fetchone(self):
+        return self.row
+
 
 if __name__ == "__main__":
     unittest.main()

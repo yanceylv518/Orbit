@@ -65,6 +65,121 @@ CREATE TABLE IF NOT EXISTS strategy_instances (
   INDEX idx_strategy_instances_status (status)
 );
 
+-- ARCH-1 additive control plane. These tables deliberately do not replace the
+-- legacy strategy_instances table yet; the running TB4 path remains unchanged.
+CREATE TABLE IF NOT EXISTS strategy_definitions (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  external_id VARCHAR(96) NOT NULL,
+  family VARCHAR(64) NOT NULL,
+  version VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  implementation VARCHAR(255) NOT NULL,
+  definition_hash CHAR(64) NOT NULL,
+  spec_sha256 CHAR(64) NULL,
+  definition_json JSON NOT NULL,
+  read_only BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uk_strategy_definitions_identity (external_id, version),
+  UNIQUE KEY uk_strategy_definitions_hash (definition_hash)
+);
+
+CREATE TABLE IF NOT EXISTS strategy_evidence_bundles (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  external_id VARCHAR(96) NOT NULL UNIQUE,
+  strategy_definition_id BIGINT NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  admission_state VARCHAR(64) NOT NULL,
+  bundle_hash CHAR(64) NULL,
+  bundle_json JSON NULL,
+  created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  CONSTRAINT fk_strategy_evidence_definition
+    FOREIGN KEY (strategy_definition_id) REFERENCES strategy_definitions(id),
+  INDEX idx_strategy_evidence_definition (strategy_definition_id)
+);
+
+CREATE TABLE IF NOT EXISTS strategy_control_instances (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  external_id VARCHAR(128) NOT NULL UNIQUE,
+  strategy_definition_id BIGINT NOT NULL,
+  state VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  configuration_hash CHAR(64) NOT NULL,
+  configuration_json JSON NOT NULL,
+  state_version BIGINT NOT NULL DEFAULT 0,
+  last_market_cursor VARCHAR(255) NULL,
+  last_decision_at TIMESTAMP(6) NULL,
+  read_only BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  CONSTRAINT fk_strategy_control_instance_definition
+    FOREIGN KEY (strategy_definition_id) REFERENCES strategy_definitions(id),
+  INDEX idx_strategy_control_instances_definition (strategy_definition_id),
+  INDEX idx_strategy_control_instances_state (state)
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_risk_policies (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  external_id VARCHAR(96) NOT NULL,
+  version VARCHAR(32) NOT NULL,
+  policy_kind VARCHAR(64) NOT NULL,
+  max_open_symbols INT NULL,
+  read_only BOOLEAN NOT NULL DEFAULT FALSE,
+  policy_hash CHAR(64) NOT NULL,
+  policy_json JSON NOT NULL,
+  created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uk_portfolio_risk_policy_identity (external_id, version),
+  UNIQUE KEY uk_portfolio_risk_policy_hash (policy_hash),
+  CONSTRAINT chk_shortline_three_positions CHECK (
+    policy_kind <> 'SHORTLINE_V1' OR max_open_symbols = 3
+  ),
+  CONSTRAINT chk_legacy_policy_read_only CHECK (
+    policy_kind <> 'LEGACY_COMPATIBILITY' OR read_only = TRUE
+  )
+);
+
+CREATE TABLE IF NOT EXISTS account_strategy_bindings (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  external_id VARCHAR(160) NOT NULL UNIQUE,
+  exchange_account_id BIGINT NOT NULL,
+  strategy_instance_id BIGINT NOT NULL,
+  risk_policy_id BIGINT NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  stop_mode VARCHAR(32) NULL,
+  failure_reason TEXT NULL,
+  activated_at TIMESTAMP(6) NULL,
+  deactivated_at TIMESTAMP(6) NULL,
+  read_only BOOLEAN NOT NULL DEFAULT FALSE,
+  active_account_guard BIGINT GENERATED ALWAYS AS (
+    CASE WHEN status IN ('ACTIVE', 'STOPPING') THEN exchange_account_id ELSE NULL END
+  ) STORED,
+  created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  CONSTRAINT fk_account_strategy_binding_account
+    FOREIGN KEY (exchange_account_id) REFERENCES exchange_accounts(id),
+  CONSTRAINT fk_account_strategy_binding_instance
+    FOREIGN KEY (strategy_instance_id) REFERENCES strategy_control_instances(id),
+  CONSTRAINT fk_account_strategy_binding_risk_policy
+    FOREIGN KEY (risk_policy_id) REFERENCES portfolio_risk_policies(id),
+  CONSTRAINT chk_account_strategy_binding_status CHECK (
+    status IN ('PENDING', 'ACTIVE', 'STOPPING', 'INACTIVE', 'FAILED')
+  ),
+  UNIQUE KEY uk_account_strategy_bindings_active_account (active_account_guard),
+  INDEX idx_account_strategy_bindings_instance (strategy_instance_id),
+  INDEX idx_account_strategy_bindings_status (status)
+);
+
+CREATE TABLE IF NOT EXISTS runner_leases (
+  strategy_instance_id BIGINT PRIMARY KEY,
+  owner_id VARCHAR(128) NULL,
+  fencing_token BIGINT NOT NULL DEFAULT 0,
+  lease_until TIMESTAMP(6) NULL,
+  heartbeat_at TIMESTAMP(6) NULL,
+  updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  CONSTRAINT fk_runner_lease_instance
+    FOREIGN KEY (strategy_instance_id) REFERENCES strategy_control_instances(id)
+);
+
 CREATE TABLE IF NOT EXISTS account_run_configs (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   external_id VARCHAR(96) NOT NULL UNIQUE,

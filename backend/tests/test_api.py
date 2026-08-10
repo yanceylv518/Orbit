@@ -219,6 +219,51 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tmp.cleanup()
 
+    async def test_strategy_control_plane_is_admin_only_and_read_only(self):
+        tmp, api = self.make_api()
+        try:
+            api.state.orbit.sessions["business-session"] = "user_001"
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                anonymous = await client.get("/api/strategy-control")
+                client.cookies.set("orbit_session", "business-session")
+                forbidden = await client.get("/api/strategy-control/definitions")
+                client.cookies.clear()
+                login = await client.post(
+                    "/api/login",
+                    json={"login": "admin_001", "password": "admin123456"},
+                )
+                overview = await client.get("/api/strategy-control")
+                definitions = await client.get("/api/strategy-control/definitions")
+                bindings = await client.get("/api/strategy-control/bindings")
+                policies = await client.get("/api/strategy-control/risk-policies")
+                leases = await client.get("/api/strategy-control/runner-leases")
+
+            self.assertEqual(anonymous.status_code, 401)
+            self.assertEqual(forbidden.status_code, 403)
+            self.assertEqual(login.status_code, 200)
+            self.assertEqual(overview.status_code, 200)
+            self.assertEqual(overview.json()["migration_state"], "LEGACY_PROJECTION")
+            self.assertEqual(definitions.json()["count"], 1)
+            self.assertEqual(bindings.json()["count"], 0)
+            self.assertEqual(policies.json()["items"][0]["policy_kind"], "LEGACY_COMPATIBILITY")
+            self.assertEqual(leases.status_code, 200)
+            self.assertEqual(leases.json()["count"], 0)
+            serialized = json.dumps({
+                "overview": overview.json(),
+                "definitions": definitions.json(),
+                "bindings": bindings.json(),
+                "policies": policies.json(),
+                "leases": leases.json(),
+            })
+            self.assertNotIn("api_key", serialized.lower())
+            self.assertNotIn("secret", serialized.lower())
+            self.assertNotIn("execution_epoch", serialized.lower())
+        finally:
+            tmp.cleanup()
+
     async def test_admin_can_read_research_catalog_candidates_and_results(self):
         tmp, api = self.make_api(login_required=False)
         try:

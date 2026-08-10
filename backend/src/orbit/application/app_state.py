@@ -75,6 +75,9 @@ class AppState:
         self.symbol_metric_history: dict[str, list[dict[str, Any]]] = {}
         self.symbol_states: dict[str, dict[str, Any]] = {}
         self.store = bootstrap.create_state_store(self.root, self.config)
+        self.strategy_control_plane_repository = (
+            self._load_strategy_control_plane_repository_from_store()
+        )
         self.sessions: dict[str, str] = {}
         self._load_directory_from_store()
         self.strategy = self.config["strategy_instances"][0]
@@ -103,6 +106,7 @@ class AppState:
             persist=self.persist,
             mock_data_enabled=self.mock_data_enabled,
             live_pilot_control=self.live_pilot_control,
+            strategy_control_plane_repository=self.strategy_control_plane_repository,
         ).install(self)
         if self.mock_data_enabled and not self.metric_history:
             self.record_metric_snapshot()
@@ -147,6 +151,10 @@ class AppState:
         self.config["exchange_accounts"] = directory.get("exchange_accounts", self.config.get("exchange_accounts", []))
         self.config["strategy_instances"] = directory.get("strategy_instances", self.config.get("strategy_instances", []))
         self.config["account_run_configs"] = directory.get("account_run_configs", self.config.get("account_run_configs", []))
+
+    def _load_strategy_control_plane_repository_from_store(self) -> Any | None:
+        loader = getattr(self.store, "strategy_control_plane_repository", None)
+        return loader() if callable(loader) else None
 
     def _initialize_runtime(self) -> None:
         self.symbol_states.clear()

@@ -110,6 +110,10 @@ class BootstrapTests(unittest.TestCase):
                 "DISABLED",
             )
             self.assertEqual(app.research_catalog.datasets(), [])
+            control = app.strategy_control_plane_service.overview()
+            self.assertEqual(control["source"], "LEGACY_PROJECTION")
+            self.assertEqual(control["counts"]["definitions"], 1)
+            self.assertEqual(control["counts"]["bindings"], 0)
         finally:
             tmp.cleanup()
 

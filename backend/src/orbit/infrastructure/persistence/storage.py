@@ -12,6 +12,7 @@ from orbit.infrastructure.persistence.mysql_report_writer import MySqlReportWrit
 from orbit.infrastructure.persistence.mysql_config_writer import MySqlConfigWriter
 from orbit.infrastructure.persistence.mysql_market_snapshot_writer import MySqlMarketSnapshotWriter
 from orbit.infrastructure.persistence.mysql_symbol_state_writer import MySqlSymbolStateWriter
+from orbit.infrastructure.persistence.strategy_control_plane import MySqlStrategyControlPlaneRepository
 
 
 class JsonStateStore:
@@ -34,6 +35,12 @@ class JsonStateStore:
         tmp.replace(self.path)
 
     def load_directory(self) -> dict[str, Any] | None:
+        return None
+
+    def load_strategy_control_plane(self) -> dict[str, Any] | None:
+        return None
+
+    def strategy_control_plane_repository(self) -> Any | None:
         return None
 
     def health_check(self) -> dict[str, Any]:
@@ -141,6 +148,25 @@ class MySqlStateStore:
                 }
         finally:
             conn.close()
+
+    def load_strategy_control_plane(self) -> dict[str, Any] | None:
+        repository = self.strategy_control_plane_repository()
+        return repository.snapshot().as_dict() if repository is not None else None
+
+    def strategy_control_plane_repository(self) -> Any | None:
+        conn = self._connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SHOW TABLES LIKE %s", ("strategy_definitions",))
+                if not cur.fetchone():
+                    return None
+                cur.execute("SELECT COUNT(*) FROM strategy_definitions")
+                count = cur.fetchone()
+                if not count or int(count[0]) == 0:
+                    return None
+        finally:
+            conn.close()
+        return MySqlStrategyControlPlaneRepository(self._connect)
 
     def _load_users(self, cur) -> list[dict[str, Any]]:
         cur.execute(
