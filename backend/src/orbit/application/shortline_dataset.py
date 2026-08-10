@@ -93,13 +93,21 @@ class ShortlineDatasetBuilder:
                 f"{len(coverage['missing_partitions'])} indexed 15m partitions are not downloaded; "
                 "use --allow-partial only for sample validation"
             )
-        all_candles: dict[str, list[ArchiveCandle]] = defaultdict(list)
+        if coverage["unexpected_partitions"] and not allow_partial:
+            raise ShortlineDatasetError(
+                f"{len(coverage['unexpected_partitions'])} local 15m partitions are absent from "
+                "the archive index; use --allow-partial only for sample validation"
+            )
         partition_quality: list[dict[str, Any]] = []
+        contract_quality: list[dict[str, Any]] = []
+        symbol_edges: list[tuple[str, ArchiveCandle, ArchiveCandle]] = []
+        latest_close = 0
         for symbol, paths in sorted(partitions.items()):
+            symbol_candles: list[ArchiveCandle] = []
             for path in paths:
                 candles = list(iter_kline_zip(path))
                 sequence = validate_candle_sequence(candles)
-                all_candles[symbol].extend(candles)
+                symbol_candles.extend(candles)
                 month = PARTITION_RE.fullmatch(path.name).group("month")  # type: ignore[union-attr]
                 self._write_partition(symbol, month, candles)
                 partition_quality.append({
@@ -108,35 +116,44 @@ class ShortlineDatasetBuilder:
                     "duplicate_count": sequence["duplicate_count"],
                     "complete": sequence["complete"],
                 })
-        latest_close = max(
-            candle.close_time_ms for candles in all_candles.values() for candle in candles
-        )
-        cutoff = int(dataset_cutoff_ms if dataset_cutoff_ms is not None else latest_close)
-        contracts = []
-        contract_quality = []
-        for symbol, candles in sorted(all_candles.items()):
-            candles.sort(key=lambda item: item.open_time_ms)
-            sequence = validate_candle_sequence(candles)
-            metadata = infer_contract_metadata(
-                symbol, candles, dataset_cutoff_ms=cutoff, active_symbols=active_symbols,
-                history_complete=coverage["symbol_complete"].get(symbol, False),
-            )
-            contracts.append(metadata.as_dict())
+            symbol_candles.sort(key=lambda item: item.open_time_ms)
+            sequence = validate_candle_sequence(symbol_candles)
+            first = symbol_candles[0]
+            last = symbol_candles[-1]
+            symbol_edges.append((symbol, first, last))
+            latest_close = max(latest_close, last.close_time_ms)
             expected = (
-                (candles[-1].open_time_ms - candles[0].open_time_ms) // (15 * 60 * 1000) + 1
+                (last.open_time_ms - first.open_time_ms) // (15 * 60 * 1000) + 1
             )
             contract_quality.append({
                 "symbol": symbol,
-                "rows": len(candles),
+                "rows": len(symbol_candles),
                 "expected_rows_between_first_and_last": expected,
-                "coverage_ratio": len({item.open_time_ms for item in candles}) / expected,
+                "coverage_ratio": len({item.open_time_ms for item in symbol_candles}) / expected,
                 "missing_count": sequence["missing_count"],
                 "missing_ranges": sequence["missing_ranges"],
                 "missing_ranges_truncated": sequence["missing_ranges_truncated"],
                 "duplicate_count": sequence["duplicate_count"],
-                "first_open_time_ms": candles[0].open_time_ms,
-                "last_close_time_ms": candles[-1].close_time_ms,
+                "first_open_time_ms": first.open_time_ms,
+                "last_close_time_ms": last.close_time_ms,
             })
+        incomplete_partitions = [item for item in partition_quality if not item["complete"]]
+        if incomplete_partitions and not allow_partial:
+            raise ShortlineDatasetError(
+                f"{len(incomplete_partitions)} downloaded 15m partitions contain gaps or "
+                "duplicates; use --allow-partial only for sample validation"
+            )
+        cutoff = int(dataset_cutoff_ms if dataset_cutoff_ms is not None else latest_close)
+        contracts = [
+            infer_contract_metadata(
+                symbol,
+                (first, last),
+                dataset_cutoff_ms=cutoff,
+                active_symbols=active_symbols,
+                history_complete=coverage["symbol_complete"].get(symbol, False),
+            ).as_dict()
+            for symbol, first, last in symbol_edges
+        ]
         _write_json(self.root / "metadata" / "contracts.json", {
             "protocol": DATASET_PROTOCOL,
             "dataset_cutoff_ms": cutoff,
@@ -148,7 +165,9 @@ class ShortlineDatasetBuilder:
             "dataset_cutoff_ms": cutoff,
             "contract_count": len(contracts),
             "partition_count": sum(len(paths) for paths in partitions.values()),
-            "dataset_state": "COMPLETE" if coverage["complete"] else "PARTIAL",
+            "dataset_state": (
+                "COMPLETE" if coverage["complete"] and not incomplete_partitions else "PARTIAL"
+            ),
             "archive_coverage": coverage,
             "contracts": contract_quality,
             "partitions": partition_quality,
@@ -159,7 +178,7 @@ class ShortlineDatasetBuilder:
                 "incomplete_15m_partitions": sum(not item["complete"] for item in partition_quality),
                 "funding_symbols": len(funding_quality),
                 "missing_funding_symbols": sorted(
-                    set(all_candles) - {item["symbol"] for item in funding_quality}
+                    set(partitions) - {item["symbol"] for item in funding_quality}
                 ),
             },
         }

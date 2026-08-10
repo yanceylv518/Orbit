@@ -19,6 +19,9 @@ from orbit.infrastructure.persistence.research_runs import AppendOnlyResearchRun
 
 
 class FakeEvaluator:
+    def __init__(self):
+        self.cancelled = []
+
     def evaluate(self, candidate, datasets, run_id):
         return {
             "reports": [
@@ -32,6 +35,21 @@ class FakeEvaluator:
 
     def fetch_dataset(self, request, run_id):
         return f"{request['symbol']}_{run_id}_{request['kind']}"
+
+    def build_shortline_dataset(self, request, run_id, on_progress):
+        on_progress({"phase": "index", "progress": 10, "completed_items": 10, "total_items": 100})
+        on_progress({"phase": "download", "progress": 80, "completed_items": 50, "total_items": 50})
+        return {
+            "dataset_id": "shortline-data-v1",
+            "dataset_state": "COMPLETE",
+            "dataset_fingerprint": "a" * 64,
+            "quality_report_sha256": "b" * 64,
+            "contract_count": 100,
+            "partition_count": 500,
+        }
+
+    def cancel_shortline_dataset(self, run_id):
+        self.cancelled.append(run_id)
 
 
 class ResearchCatalogTests(unittest.TestCase):
@@ -248,6 +266,45 @@ class ResearchCatalogTests(unittest.TestCase):
                 "interval": "2h",
                 "days": 30,
             })
+
+    def test_full_shortline_dataset_job_is_confirmed_progressive_and_cancellable(self):
+        evaluator = FakeEvaluator()
+        workflow = ResearchWorkflowService(
+            self.catalog,
+            self.run_ledger,
+            evaluator,
+            submitter=lambda callback: callback(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "explicit confirmation"):
+            workflow.create_shortline_dataset_build({"confirm_full_download": False, "workers": 4})
+        run = workflow.create_shortline_dataset_build({
+            "confirm_full_download": True,
+            "workers": 3,
+        })
+
+        self.assertEqual(run["status"], "succeeded")
+        self.assertEqual(run["job_type"], "shortline_dataset")
+        self.assertEqual(run["dataset_state"], "COMPLETE")
+        self.assertEqual(run["dataset_fingerprint"], "a" * 64)
+        self.assertEqual(run["progress"], 100)
+        events = [item["event"] for item in self.run_ledger._records()]
+        self.assertTrue(any(item.get("phase") == "download" for item in events))
+
+        queued_workflow = ResearchWorkflowService(
+            self.catalog,
+            AppendOnlyResearchRunLedger(self.root / "research" / "queued-runs.jsonl"),
+            evaluator,
+            submitter=lambda callback: None,
+        )
+        queued = queued_workflow.create_shortline_dataset_build({
+            "confirm_full_download": True,
+            "workers": 2,
+        })
+        cancelling = queued_workflow.cancel_run(queued["id"])
+
+        self.assertEqual(cancelling["status"], "cancelling")
+        self.assertIn(queued["id"], evaluator.cancelled)
 
     def test_interrupted_run_is_failed_on_service_restart(self):
         created_at = "2026-07-14T00:00:00+00:00"

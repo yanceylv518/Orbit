@@ -1,8 +1,10 @@
 import { computed, reactive } from "vue";
 import {
+  cancelResearchRunRequest,
   createResearchCandidateRequest,
   createResearchDatasetFetchRequest,
   createResearchRunRequest,
+  createShortlineDatasetRequest,
   fetchAppState,
   fetchResearchCandidate,
   fetchResearchCandidates,
@@ -405,6 +407,44 @@ export async function startResearchDatasetFetch(payload) {
   }
 }
 
+export async function startShortlineDatasetBuild(payload) {
+  if (store.researchWorkflowBusy) return null;
+  store.researchWorkflowBusy = true;
+  store.researchError = "";
+  try {
+    const { response, data } = await createShortlineDatasetRequest(payload);
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "启动全市场数据任务失败"));
+    }
+    store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
+    return data;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "启动全市场数据任务失败。";
+    return null;
+  } finally {
+    store.researchWorkflowBusy = false;
+  }
+}
+
+export async function cancelResearchRun(runId) {
+  if (store.researchWorkflowBusy) return null;
+  store.researchWorkflowBusy = true;
+  store.researchError = "";
+  try {
+    const { response, data } = await cancelResearchRunRequest(runId);
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "停止数据任务失败"));
+    }
+    store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
+    return data;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "停止数据任务失败。";
+    return null;
+  } finally {
+    store.researchWorkflowBusy = false;
+  }
+}
+
 export async function refreshResearchRun(runId) {
   const { response, data } = await fetchResearchRun(runId);
   if (!response.ok || data.error) {
@@ -412,7 +452,7 @@ export async function refreshResearchRun(runId) {
     return null;
   }
   store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
-  if (["succeeded", "failed"].includes(data.status)) await loadResearchCatalog();
+  if (["succeeded", "failed", "cancelled"].includes(data.status)) await loadResearchCatalog();
   return data;
 }
 

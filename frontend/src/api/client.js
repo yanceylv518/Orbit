@@ -97,6 +97,14 @@ export function createResearchDatasetFetchRequest(payload) {
   return postJson("/api/research/datasets/fetch", payload);
 }
 
+export function createShortlineDatasetRequest(payload) {
+  return postJson("/api/research/datasets/shortline", payload);
+}
+
+export function cancelResearchRunRequest(runId) {
+  return postJson(`/api/research/runs/${encodeURIComponent(runId)}/cancel`);
+}
+
 export function resumeStoppedSymbolRequest(accountId, symbol, reason) {
   return postJson("/api/admin/stopped-symbols/resume", {
     account_id: accountId,

@@ -118,6 +118,55 @@
       </div>
     </article>
 
+    <article class="panel research-shortline-panel">
+      <div class="panel-head research-panel-head">
+        <div>
+          <h3>全市场短线研究数据</h3>
+          <p class="muted">一次完成历史合约索引、官方校验下载，以及15分钟到1小时/4小时的本地聚合。</p>
+        </div>
+        <StatusBadge
+          :text="shortlineRun ? runStatusLabel(shortlineRun) : '尚未启动'"
+          :raw="shortlineRun?.status || 'idle'"
+          :color="shortlineRun ? runStatusColor(shortlineRun) : 'blue'"
+        />
+      </div>
+      <div class="research-shortline-grid">
+        <section class="research-shortline-copy">
+          <strong>{{ shortlineRun ? shortlinePhaseLabel(shortlineRun.phase) : "等待建立 DATA-1R" }}</strong>
+          <p>{{ shortlineRun?.message || "预计占用约 8–12 GB；已完成文件会保留，失败或取消后再次启动会校验并继续。" }}</p>
+          <div v-if="shortlineRun" class="research-progress large">
+            <i :style="{ width: `${shortlineRun.progress || 0}%` }"></i>
+          </div>
+          <small v-if="shortlineRun?.total_items" class="muted">
+            已完成 {{ Number(shortlineRun.completed_items || 0).toLocaleString("zh-CN") }} /
+            {{ Number(shortlineRun.total_items).toLocaleString("zh-CN") }}
+            <template v-if="shortlineRun.current_item"> · {{ shortlineRun.current_item }}</template>
+          </small>
+          <small v-if="shortlineRun?.dataset_fingerprint" class="muted mono" :title="shortlineRun.dataset_fingerprint">
+            数据指纹 {{ shortHash(shortlineRun.dataset_fingerprint) }} · {{ shortlineRun.contract_count || "-" }} 个合约 · {{ shortlineRun.partition_count || "-" }} 个分区
+          </small>
+        </section>
+        <section class="research-shortline-actions">
+          <template v-if="!shortlineActive">
+            <label><span>并行下载数</span><select v-model.number="shortlineDraft.workers"><option v-for="value in [1, 2, 4, 6, 8]" :key="value" :value="value">{{ value }}</option></select></label>
+            <label class="research-confirm-check">
+              <input v-model="shortlineDraft.confirmed" type="checkbox" />
+              <span>我确认开始全市场公开数据下载，并允许占用约 8–12 GB 磁盘。</span>
+            </label>
+            <button class="button primary" :disabled="!shortlineDraft.confirmed || store.researchWorkflowBusy || hasActiveRun" @click="startShortline">
+              {{ shortlineRun?.status === "cancelled" || shortlineRun?.status === "failed" ? "校验并继续" : "开始建立数据集" }}
+            </button>
+          </template>
+          <template v-else>
+            <p class="muted">停止不会删除已经通过 checksum 的文件；再次启动时会继续校验。</p>
+            <button class="button danger" :disabled="store.researchWorkflowBusy || shortlineRun.status === 'cancelling'" @click="stopShortline">
+              {{ shortlineRun.status === "cancelling" ? "正在停止..." : "停止数据任务" }}
+            </button>
+          </template>
+        </section>
+      </div>
+    </article>
+
     <article class="panel research-dataset-panel">
       <div class="panel-head research-panel-head">
         <div>
@@ -326,6 +375,7 @@ import HelpTip from "../components/HelpTip.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { candidateCopy, enumLabel } from "../domain/labels.js";
 import {
+  cancelResearchRun,
   createResearchCandidate,
   isAuthenticated,
   loadResearchCatalog,
@@ -334,6 +384,7 @@ import {
   selectResearchResult,
   startResearchDatasetFetch,
   startResearchRun,
+  startShortlineDatasetBuild,
   store,
 } from "../stores/appStore.js";
 
@@ -344,6 +395,7 @@ const showFetch = ref(false);
 const openLockbox = ref(false);
 const draft = reactive({ protocol: "M0", id: "", name: "", datasetIds: [], confirmed: false });
 const fetchDraft = reactive({ symbol: "BTCUSDT", kind: "ohlc", interval: "15m", days: 180 });
+const shortlineDraft = reactive({ workers: 4, confirmed: false });
 const fetchIntervals = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"];
 let runPollTimer = null;
 const datasetKinds = [
@@ -356,7 +408,10 @@ const datasetKinds = [
 const candidate = computed(() => store.researchCandidate);
 const result = computed(() => store.researchResult);
 const selectedTemplate = computed(() => store.researchTemplates.find((item) => item.id === draft.protocol) || null);
-const hasActiveRun = computed(() => store.researchRuns.some((item) => ["queued", "running"].includes(item.status)));
+const activeRunStatuses = ["queued", "running", "cancelling"];
+const hasActiveRun = computed(() => store.researchRuns.some((item) => activeRunStatuses.includes(item.status)));
+const shortlineRun = computed(() => store.researchRuns.find((item) => item.job_type === "shortline_dataset") || null);
+const shortlineActive = computed(() => Boolean(shortlineRun.value && activeRunStatuses.includes(shortlineRun.value.status)));
 const compatibleDatasets = computed(() => {
   const mode = selectedTemplate.value?.dataset_rule?.mode;
   if (mode === "funding") return store.researchDatasets.filter((item) => item.kind === "funding");
@@ -490,14 +545,31 @@ async function fetchDataset() {
   if (run) startRunPolling();
 }
 
+async function startShortline() {
+  const run = await startShortlineDatasetBuild({
+    confirm_full_download: shortlineDraft.confirmed,
+    workers: shortlineDraft.workers,
+  });
+  if (!run) return;
+  shortlineDraft.confirmed = false;
+  startRunPolling();
+}
+
+async function stopShortline() {
+  const run = shortlineRun.value;
+  if (!run || !window.confirm("确认停止当前数据任务？已完成文件会保留。")) return;
+  const updated = await cancelResearchRun(run.id);
+  if (updated) startRunPolling();
+}
+
 function openRunTarget(run) {
-  if (run.job_type !== "dataset_fetch") selectResearchCandidate(run.candidate_id);
+  if (!run.job_type) selectResearchCandidate(run.candidate_id);
 }
 
 function startRunPolling() {
   if (runPollTimer) return;
   runPollTimer = window.setInterval(async () => {
-    const active = store.researchRuns.find((item) => ["queued", "running"].includes(item.status));
+    const active = store.researchRuns.find((item) => activeRunStatuses.includes(item.status));
     if (!active) {
       window.clearInterval(runPollTimer);
       runPollTimer = null;
@@ -509,6 +581,11 @@ function startRunPolling() {
 
 function runLabel(run) {
   if (run.status === "failed") return run.error || "评估失败";
+  if (run.job_type === "shortline_dataset") {
+    if (run.status === "succeeded") return "DATA-1R 全市场数据集完成";
+    if (run.status === "cancelled") return "DATA-1R 数据任务已停止";
+    return `${shortlinePhaseLabel(run.phase)} · ${run.message || "正在处理"}`;
+  }
   if (run.job_type === "dataset_fetch") {
     const request = run.request || {};
     return run.status === "succeeded"
@@ -523,6 +600,8 @@ function runStatusLabel(run) {
   return {
     queued: enumLabel("queued"),
     running: `正在运行 ${run.progress || 0}%`,
+    cancelling: "正在停止",
+    cancelled: "已停止",
     succeeded: run.verdict ? verdictLabel(run.verdict) : enumLabel("succeeded"),
     failed: enumLabel("failed"),
   }[run.status] || enumLabel(run.status);
@@ -531,7 +610,19 @@ function runStatusLabel(run) {
 function runStatusColor(run) {
   if (run.status === "failed" || run.verdict === "FAIL") return "red";
   if (run.status === "succeeded") return "green";
+  if (run.status === "cancelled" || run.status === "cancelling") return "orange";
   return "blue";
+}
+
+function shortlinePhaseLabel(value) {
+  return {
+    queued: "等待启动",
+    starting: "启动任务",
+    index: "第一步：枚举历史合约",
+    download: "第二步：下载并校验原始数据",
+    build: "第三步：聚合并生成质量报告",
+    complete: "数据集构建完成",
+  }[value] || "数据任务";
 }
 
 function evidenceRow(scope, row, key, test = "") {

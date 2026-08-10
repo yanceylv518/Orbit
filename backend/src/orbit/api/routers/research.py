@@ -30,6 +30,11 @@ class DatasetFetchRequest(BaseModel):
     days: int = Field(default=180, ge=1, le=2000)
 
 
+class ShortlineDatasetBuildRequest(BaseModel):
+    confirm_full_download: bool
+    workers: int = Field(default=4, ge=1, le=8)
+
+
 def workflow_error(exc: Exception) -> HTTPException:
     status = 409 if isinstance(exc, RuntimeError) else 400
     return HTTPException(status_code=status, detail=str(exc))
@@ -49,6 +54,20 @@ def fetch_dataset(
 ) -> dict[str, Any]:
     try:
         return app_state(request).research_workflow.create_dataset_fetch(payload.model_dump())
+    except (ValueError, RuntimeError) as exc:
+        raise workflow_error(exc) from exc
+
+
+@router.post("/datasets/shortline", status_code=202)
+def build_shortline_dataset(
+    payload: ShortlineDatasetBuildRequest,
+    request: Request,
+    _user: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    try:
+        return app_state(request).research_workflow.create_shortline_dataset_build(
+            payload.model_dump()
+        )
     except (ValueError, RuntimeError) as exc:
         raise workflow_error(exc) from exc
 
@@ -104,6 +123,18 @@ def run(run_id: str, request: Request, _user: dict[str, Any] = Depends(require_a
     if not item:
         raise HTTPException(status_code=404, detail="research run not found")
     return item
+
+
+@router.post("/runs/{run_id}/cancel")
+def cancel_run(
+    run_id: str,
+    request: Request,
+    _user: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    try:
+        return app_state(request).research_workflow.cancel_run(run_id)
+    except (ValueError, RuntimeError) as exc:
+        raise workflow_error(exc) from exc
 
 
 @router.get("/candidates/{candidate_id}")

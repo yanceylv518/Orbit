@@ -69,6 +69,8 @@ shortline-data-v1/
 
 以下命令均不读取 API Key/Secret：
 
+管理员也可从前端“策略 → 研究候选 → 全市场短线研究数据”启动同一固定流程。页面要求先勾选 8–12 GB 下载确认，并只允许选择 1–8 个并行下载；服务端依次执行 `index → sync --confirm-full-download → build`，记录阶段、进度和当前对象。全系统同一时间只允许一个研究任务运行，避免数据下载与候选评估争用资源。运行中可从页面停止；已经通过 checksum 的正式文件不会删除，重新启动会重新读取索引/checksum 并继续校验。
+
 ```powershell
 # 1. 枚举全部历史 symbol、15m 与 Funding 对象；状态可在 state 文件审计
 .\.venv\Scripts\python.exe backend/tools/shortline_dataset.py index
@@ -99,6 +101,8 @@ shortline-data-v1/
 
 无筛选条件的全量 sync 必须带 `--confirm-full-download`，避免误触 8–12 GB 下载。worker 限制为 1–16。中断下载保留 `.part` 并使用 HTTP Range 恢复；服务端忽略 Range 时安全重下。checksum 不匹配不会覆盖正式分区。
 
+页面入口的 worker 上限收紧为 8；命令行仍保留 1–16，供人工诊断和受控运维使用。页面任务与命令行使用相同的数据目录、校验规则与构建器，不存在第二套下载实现。
+
 ## 5. 质量、故障与恢复
 
 `quality_report.json` 包含：
@@ -123,5 +127,7 @@ shortline-data-v1/
 - 15m 本地聚合的 295 根完整 1h、73 根完整 4h 与官方原生月度归档逐字段零差异；官方 4h 另有 1 根退市前仅含 12/16 子根的部分根，本地明确标记 `INCOMPLETE` 并拒绝用于研究；
 - 15m 样本 1180 根、无缺口和重复；Funding 37 条，在 60 秒时间漂移容差下无缺口；
 - 该样本因缺少其余 16 个月且索引范围仅一个 symbol，正确标记为 `PARTIAL`，不可用于 `universe_at`。
+
+同日已完成页面任务链路验收：未勾选容量确认时不能启动；勾选后可提交后台任务；任务状态持久化并可轮询阶段/进度；停止后进入 `CANCELLED`，已完成文件保留。正式构建另补充两项阻断：本地存在索引外 15m 分区时拒绝 COMPLETE，任一已下载分区内部存在缺口或重复时拒绝 COMPLETE。构建器按 symbol 流式处理，不再把全市场 K 线对象同时保存在内存中。
 
 尚未完成全市场 8–12 GB 下载、全 symbol 原生聚合抽样、完整 exchangeInfo 状态快照、生产规模耗时/磁盘/恢复演练。Binance 归档未来可能修订历史文件；每次增量运行必须重新读取官方 checksum，manifest 指纹变化后旧预注册不得静默沿用。

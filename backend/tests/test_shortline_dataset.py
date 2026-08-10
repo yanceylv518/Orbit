@@ -308,6 +308,43 @@ class ShortlineDatasetBuilderTests(unittest.TestCase):
                 [],
             )
 
+    def test_complete_build_rejects_unexpected_local_partition(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "shortline-data-v1"
+            raw = root / "raw" / "klines" / "15m" / "LUNAUSDT"
+            raw.mkdir(parents=True)
+            path = raw / "LUNAUSDT-15m-2022-05.zip"
+            _write_kline_zip(path, [candle_row(i * INTERVAL_MS) for i in range(4)])
+            write_archive_index(
+                root / "metadata" / "archive_index.json", [], scope="ALL_USDT_PERPETUAL",
+            )
+
+            with self.assertRaisesRegex(Exception, "absent from the archive index"):
+                ShortlineDatasetBuilder(root).build()
+            partial = ShortlineDatasetBuilder(root).build(allow_partial=True)
+
+            self.assertEqual(partial["quality_report"]["dataset_state"], "PARTIAL")
+
+    def test_complete_build_rejects_gap_inside_downloaded_partition(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "shortline-data-v1"
+            raw = root / "raw" / "klines" / "15m" / "LUNAUSDT"
+            raw.mkdir(parents=True)
+            path = raw / "LUNAUSDT-15m-2022-05.zip"
+            _write_kline_zip(path, [candle_row(i * INTERVAL_MS) for i in (0, 1, 3)])
+            write_archive_index(root / "metadata" / "archive_index.json", [ArchiveObject(
+                key="data/futures/um/monthly/klines/LUNAUSDT/15m/LUNAUSDT-15m-2022-05.zip",
+                size=path.stat().st_size, last_modified="", etag=None,
+                kind="KLINE_15M", symbol="LUNAUSDT", month="2022-05",
+            )], scope="ALL_USDT_PERPETUAL")
+
+            with self.assertRaisesRegex(Exception, "contain gaps or duplicates"):
+                ShortlineDatasetBuilder(root).build()
+            partial = ShortlineDatasetBuilder(root).build(allow_partial=True)
+
+            self.assertEqual(partial["quality_report"]["dataset_state"], "PARTIAL")
+            self.assertEqual(partial["quality_report"]["summary"]["missing_15m_candles"], 1)
+
     def test_archive_index_is_deterministic(self):
         item = ArchiveObject(
             key="data/futures/um/monthly/klines/LUNAUSDT/15m/LUNAUSDT-15m-2022-04.zip",

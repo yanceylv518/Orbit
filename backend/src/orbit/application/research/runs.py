@@ -7,7 +7,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from threading import Lock, Thread
+from threading import Lock, RLock, Thread
+import time
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -16,6 +17,11 @@ from orbit.application.research.candidates import canonical_json
 
 
 FETCH_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"}
+ACTIVE_RUN_STATUSES = {"queued", "running", "cancelling"}
+
+
+class ResearchRunCancelled(RuntimeError):
+    pass
 
 
 def now_iso() -> str:
@@ -29,6 +35,11 @@ class CachedToolEvaluator:
         self.project_root = project_root
         self.calibration_dir = calibration_dir
         self.tools_dir = project_root / "backend" / "tools"
+        self.shortline_root = calibration_dir / "shortline-data-v1"
+        self._process_lock = RLock()
+        self._active_process: subprocess.Popen[str] | None = None
+        self._active_run_id: str | None = None
+        self._cancelled_runs: set[str] = set()
 
     def evaluate(self, candidate: dict[str, Any], datasets: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
         temp_dir = self.calibration_dir / ".research_tmp"
@@ -103,6 +114,174 @@ class CachedToolEvaluator:
             return dataset_id
         finally:
             temp_output.unlink(missing_ok=True)
+
+    def build_shortline_dataset(
+        self,
+        request: dict[str, Any],
+        run_id: str,
+        on_progress: Callable[[dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        workers = int(request["workers"])
+        tool = str(self.tools_dir / "shortline_dataset.py")
+        phases = (
+            ("index", [sys.executable, tool, "index"], 2, 18),
+            (
+                "download",
+                [
+                    sys.executable, tool, "sync", "--confirm-full-download",
+                    "--workers", str(workers),
+                ],
+                18,
+                82,
+            ),
+            ("build", [sys.executable, tool, "build"], 82, 99),
+        )
+        try:
+            for phase, command, start_progress, end_progress in phases:
+                self._run_shortline_phase(
+                    command,
+                    run_id=run_id,
+                    phase=phase,
+                    start_progress=start_progress,
+                    end_progress=end_progress,
+                    on_progress=on_progress,
+                )
+            manifest_path = self.shortline_root / "manifest.json"
+            quality_path = self.shortline_root / "quality_report.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            quality = json.loads(quality_path.read_text(encoding="utf-8"))
+            if manifest.get("dataset_state") != "COMPLETE":
+                raise RuntimeError("full shortline build did not produce a COMPLETE dataset")
+            return {
+                "dataset_id": self.shortline_root.name,
+                "dataset_state": manifest["dataset_state"],
+                "dataset_fingerprint": manifest["dataset_fingerprint"],
+                "quality_report_sha256": manifest["quality_report_sha256"],
+                "contract_count": quality.get("contract_count"),
+                "partition_count": quality.get("partition_count"),
+            }
+        finally:
+            with self._process_lock:
+                self._cancelled_runs.discard(run_id)
+                if self._active_run_id == run_id:
+                    self._active_process = None
+                    self._active_run_id = None
+
+    def cancel_shortline_dataset(self, run_id: str) -> None:
+        with self._process_lock:
+            self._cancelled_runs.add(run_id)
+            if self._active_run_id == run_id and self._active_process is not None:
+                self._active_process.terminate()
+
+    def _run_shortline_phase(
+        self,
+        command: list[str],
+        *,
+        run_id: str,
+        phase: str,
+        start_progress: int,
+        end_progress: int,
+        on_progress: Callable[[dict[str, Any]], None],
+    ) -> None:
+        with self._process_lock:
+            if run_id in self._cancelled_runs:
+                raise ResearchRunCancelled("dataset task was cancelled")
+            if self._active_process is not None:
+                raise RuntimeError("another DATA-1R process is already active")
+            process = subprocess.Popen(
+                command,
+                cwd=self.project_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self._active_process = process
+            self._active_run_id = run_id
+        last_snapshot: tuple[Any, ...] | None = None
+        try:
+            while process.poll() is None:
+                with self._process_lock:
+                    cancelled = run_id in self._cancelled_runs
+                if cancelled:
+                    process.terminate()
+                    process.wait(timeout=10)
+                    raise ResearchRunCancelled("dataset task was cancelled")
+                detail = self._shortline_phase_detail(phase)
+                fraction = float(detail.pop("fraction", 0.0))
+                progress = start_progress + int((end_progress - start_progress) * fraction)
+                snapshot = (
+                    progress,
+                    detail.get("completed_items"),
+                    detail.get("total_items"),
+                    detail.get("current_item"),
+                )
+                if snapshot != last_snapshot:
+                    on_progress({"phase": phase, "progress": progress, **detail})
+                    last_snapshot = snapshot
+                time.sleep(0.75)
+            stdout, stderr = process.communicate()
+            with self._process_lock:
+                if run_id in self._cancelled_runs:
+                    raise ResearchRunCancelled("dataset task was cancelled")
+            if process.returncode != 0:
+                message = (stderr or stdout or f"DATA-1R {phase} failed").strip()
+                raise RuntimeError(message[-2000:])
+            on_progress({
+                "phase": phase,
+                "progress": end_progress,
+                "message": self._phase_completed_message(phase),
+            })
+        finally:
+            with self._process_lock:
+                if self._active_process is process:
+                    self._active_process = None
+                    self._active_run_id = None
+
+    def _shortline_phase_detail(self, phase: str) -> dict[str, Any]:
+        filename = {
+            "index": "archive_index_state.json",
+            "download": "sync_state.json",
+            "build": "build_state.json",
+        }[phase]
+        path = self.shortline_root / "metadata" / filename
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"fraction": 0.0, "message": self._phase_running_message(phase)}
+        if phase == "index":
+            completed = len(state.get("completed_symbols") or [])
+            total = int(state.get("total_symbols") or 0)
+            current = state.get("current_symbol")
+        elif phase == "download":
+            completed = int(state.get("completed_count") or 0)
+            total = int(state.get("selected_files") or 0)
+            recent = state.get("recent_files") or []
+            current = recent[-1] if recent else None
+        else:
+            completed, total, current = 0, 0, None
+        return {
+            "fraction": completed / total if total else 0.0,
+            "completed_items": completed,
+            "total_items": total,
+            "current_item": current,
+            "message": self._phase_running_message(phase),
+        }
+
+    @staticmethod
+    def _phase_running_message(phase: str) -> str:
+        return {
+            "index": "正在枚举历史合约与月份",
+            "download": "正在校验并下载15分钟K线与资金费率",
+            "build": "正在构建1小时、4小时和质量报告",
+        }[phase]
+
+    @staticmethod
+    def _phase_completed_message(phase: str) -> str:
+        return {
+            "index": "全市场历史索引完成",
+            "download": "原始数据下载完成",
+            "build": "派生数据与质量报告完成",
+        }[phase]
 
     def _command(
         self,
@@ -197,7 +376,7 @@ class ResearchWorkflowService:
                 raise ValueError("research candidate not found")
             if candidate["status"] != "frozen":
                 raise ValueError("only newly frozen candidates can be run from the UI")
-            active = [item for item in self.run_ledger.runs() if item["status"] in {"queued", "running"}]
+            active = [item for item in self.run_ledger.runs() if item["status"] in ACTIVE_RUN_STATUSES]
             if active:
                 raise RuntimeError("another research run is already active")
             previous = self.run_ledger.for_candidate(candidate["id"])
@@ -223,7 +402,7 @@ class ResearchWorkflowService:
     def create_dataset_fetch(self, payload: dict[str, Any]) -> dict[str, Any]:
         request = self._validate_fetch(payload)
         with self._lock:
-            active = [item for item in self.run_ledger.runs() if item["status"] in {"queued", "running"}]
+            active = [item for item in self.run_ledger.runs() if item["status"] in ACTIVE_RUN_STATUSES]
             if active:
                 raise RuntimeError("another research run is already active")
             run_id = f"run_{uuid4().hex[:16]}"
@@ -245,6 +424,59 @@ class ResearchWorkflowService:
             self._submitter(lambda: self._execute(run_id))
             return self.run_ledger.get(run_id) or event
 
+    def create_shortline_dataset_build(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if payload.get("confirm_full_download") is not True:
+            raise ValueError("full DATA-1R download requires explicit confirmation")
+        try:
+            workers = int(payload.get("workers", 4))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("download workers must be an integer") from exc
+        if not 1 <= workers <= 8:
+            raise ValueError("download workers must be between 1 and 8")
+        request = {"confirm_full_download": True, "workers": workers}
+        with self._lock:
+            active = [item for item in self.run_ledger.runs() if item["status"] in ACTIVE_RUN_STATUSES]
+            if active:
+                raise RuntimeError("another research run is already active")
+            run_id = f"run_{uuid4().hex[:16]}"
+            created_at = now_iso()
+            event = {
+                "id": run_id,
+                "job_type": "shortline_dataset",
+                "candidate_id": "DATASET",
+                "candidate_hash": hashlib.sha256(canonical_json(request)).hexdigest(),
+                "protocol": "DATA1R_FULL",
+                "request": request,
+                "status": "queued",
+                "phase": "queued",
+                "progress": 0,
+                "created_at": created_at,
+                "updated_at": created_at,
+                "lockbox_opened_at": None,
+            }
+            self.run_ledger.append(event)
+            self._submitter(lambda: self._execute(run_id))
+            return self.run_ledger.get(run_id) or event
+
+    def cancel_run(self, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            run = self.run_ledger.get(run_id)
+            if not run:
+                raise ValueError("research run not found")
+            if run.get("job_type") != "shortline_dataset":
+                raise ValueError("only DATA-1R download tasks can be cancelled")
+            if run["status"] not in ACTIVE_RUN_STATUSES:
+                raise RuntimeError("DATA-1R download task is not active")
+            self.evaluator.cancel_shortline_dataset(run_id)
+            cancelled_at = now_iso()
+            self.run_ledger.append({
+                **self._identity(run),
+                "status": "cancelling",
+                "message": "正在安全停止；已完成文件会保留并在下次继续校验",
+                "updated_at": cancelled_at,
+            })
+            return self.run_ledger.get(run_id) or run
+
     def runs(self) -> list[dict[str, Any]]:
         return self.run_ledger.runs()
 
@@ -259,7 +491,9 @@ class ResearchWorkflowService:
         self.run_ledger.append({
             **self._identity(run),
             "status": "running",
-            "progress": 10,
+            "progress": 1 if run.get("job_type") == "shortline_dataset" else 10,
+            **({"phase": "starting", "message": "正在启动 DATA-1R 数据任务"}
+               if run.get("job_type") == "shortline_dataset" else {}),
             "started_at": started_at,
             "updated_at": started_at,
         })
@@ -272,6 +506,24 @@ class ResearchWorkflowService:
                     "status": "succeeded",
                     "progress": 100,
                     "dataset_id": dataset_id,
+                    "completed_at": completed_at,
+                    "updated_at": completed_at,
+                })
+                return
+            if run.get("job_type") == "shortline_dataset":
+                result = self.evaluator.build_shortline_dataset(
+                    run["request"],
+                    run_id,
+                    lambda detail: self._record_progress(run, detail),
+                )
+                completed_at = now_iso()
+                self.run_ledger.append({
+                    **self._identity(run),
+                    **result,
+                    "status": "succeeded",
+                    "phase": "complete",
+                    "progress": 100,
+                    "message": "DATA-1R 全市场研究数据集已完成",
                     "completed_at": completed_at,
                     "updated_at": completed_at,
                 })
@@ -311,6 +563,15 @@ class ResearchWorkflowService:
                 "completed_at": completed_at,
                 "updated_at": completed_at,
             })
+        except ResearchRunCancelled as exc:
+            cancelled_at = now_iso()
+            self.run_ledger.append({
+                **self._identity(run),
+                "status": "cancelled",
+                "message": str(exc),
+                "completed_at": cancelled_at,
+                "updated_at": cancelled_at,
+            })
         except Exception as exc:
             failed_at = now_iso()
             self.run_ledger.append({
@@ -324,7 +585,7 @@ class ResearchWorkflowService:
 
     def _recover_interrupted_runs(self) -> None:
         for run in self.run_ledger.runs():
-            if run["status"] not in {"queued", "running"}:
+            if run["status"] not in ACTIVE_RUN_STATUSES:
                 continue
             recovered_at = now_iso()
             self.run_ledger.append({
@@ -335,6 +596,15 @@ class ResearchWorkflowService:
                 "completed_at": recovered_at,
                 "updated_at": recovered_at,
             })
+
+    def _record_progress(self, run: dict[str, Any], detail: dict[str, Any]) -> None:
+        timestamp = now_iso()
+        self.run_ledger.append({
+            **self._identity(run),
+            "status": "running",
+            "updated_at": timestamp,
+            **detail,
+        })
 
     @staticmethod
     def _validate_fetch(payload: dict[str, Any]) -> dict[str, Any]:

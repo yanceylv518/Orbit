@@ -314,6 +314,18 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 def fetch_dataset(self, request, run_id):
                     return f"{request['symbol']}_{run_id}_{request['kind']}"
 
+                def build_shortline_dataset(self, request, run_id, on_progress):
+                    on_progress({"phase": "download", "progress": 80})
+                    return {
+                        "dataset_id": "shortline-data-v1",
+                        "dataset_state": "COMPLETE",
+                        "dataset_fingerprint": "a" * 64,
+                        "quality_report_sha256": "b" * 64,
+                    }
+
+                def cancel_shortline_dataset(self, run_id):
+                    return None
+
             workflow = api.state.orbit.research_workflow
             workflow.evaluator = Evaluator()
             workflow._submitter = lambda callback: callback()
@@ -340,6 +352,14 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                     "kind": "funding",
                     "days": 90,
                 })
+                unconfirmed = await client.post("/api/research/datasets/shortline", json={
+                    "confirm_full_download": False,
+                    "workers": 4,
+                })
+                shortline = await client.post("/api/research/datasets/shortline", json={
+                    "confirm_full_download": True,
+                    "workers": 4,
+                })
                 runs = await client.get("/api/research/runs")
                 result = await client.get(f"/api/research/results/{run.json()['result_id']}")
 
@@ -353,7 +373,10 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(run.json()["verdict"], "FAIL")
             self.assertEqual(fetch.status_code, 202)
             self.assertEqual(fetch.json()["status"], "succeeded")
-            self.assertEqual(runs.json()["count"], 2)
+            self.assertEqual(unconfirmed.status_code, 400)
+            self.assertEqual(shortline.status_code, 202)
+            self.assertEqual(shortline.json()["dataset_state"], "COMPLETE")
+            self.assertEqual(runs.json()["count"], 3)
             self.assertEqual(result.status_code, 200)
         finally:
             tmp.cleanup()

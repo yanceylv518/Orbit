@@ -1285,6 +1285,23 @@ td .muted { font-size: 11.5px; }
 .research-confirm-check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11.5px; }
 .research-confirm-check input { width: 15px; height: 15px; flex: none; }
 .research-runs-panel { padding-bottom: 8px; }
+.research-shortline-panel { border-color: rgba(62, 142, 247, 0.28); }
+.research-shortline-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.42fr);
+  gap: 18px;
+  align-items: center;
+}
+.research-shortline-copy { min-width: 0; }
+.research-shortline-copy > strong { display: block; color: var(--text); font-size: 13px; }
+.research-shortline-copy > p { margin: 5px 0 10px; color: var(--muted); font-size: 11.5px; }
+.research-shortline-copy > small { display: block; margin-top: 7px; overflow-wrap: anywhere; }
+.research-progress.large { width: 100%; height: 7px; }
+.research-shortline-actions { display: grid; gap: 10px; }
+.research-shortline-actions > label:not(.research-confirm-check) { display: grid; gap: 5px; }
+.research-shortline-actions > label > span { color: var(--faint); font-size: 10.5px; }
+.research-shortline-actions select { width: 100%; }
+.research-shortline-actions .button { justify-self: end; }
 .research-fetch-strip {
   display: grid;
   grid-template-columns: minmax(130px, 1fr) 130px 100px 100px auto;
@@ -1545,6 +1562,7 @@ span.help-tip-trigger {
   .risk-workspace,
   .resource-workspace,
   .research-workspace,
+  .research-shortline-grid,
   .strategy-center-grid,
   .detail-grid { grid-template-columns: 1fr; }
   .research-history-panel { position: static; }
@@ -1604,6 +1622,7 @@ span.help-tip-trigger {
   .research-run-control { align-items: stretch; flex-direction: column; }
   .research-freeze-footer .button,
   .research-run-control .button { align-self: flex-start; }
+  .research-shortline-actions .button { justify-self: start; }
   .research-run-row { grid-template-columns: 38px minmax(0, 1fr) auto; }
   .research-run-row .research-progress { grid-column: 2 / -1; }
   .research-fetch-strip { grid-template-columns: 1fr 1fr; }
