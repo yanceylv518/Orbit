@@ -1,0 +1,452 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+from typing import Any, Iterable, Sequence
+from typing import Callable
+
+from orbit.domain.calibration.shortline_dataset import (
+    ArchiveCandle,
+    aggregate_candles,
+    daily_liquidity,
+    infer_contract_metadata,
+    validate_candle_sequence,
+)
+from orbit.infrastructure.market_data.binance_public_archive import (
+    ArchiveDownloader,
+    ArchiveObject,
+    archive_destination,
+    iter_funding_zip,
+    iter_kline_zip,
+    sha256_file,
+)
+
+
+DATASET_PROTOCOL = "ORBIT_SHORTLINE_DATASET_V1"
+PARTITION_RE = re.compile(r"^(?P<symbol>[A-Z0-9]+USDT)-15m-(?P<month>\d{4}-\d{2})\.zip$")
+
+
+class ShortlineDatasetError(RuntimeError):
+    pass
+
+
+class ShortlineDatasetBuilder:
+    def __init__(self, root: Path):
+        self.root = root.resolve()
+
+    def sync(
+        self,
+        objects: Sequence[ArchiveObject],
+        *,
+        workers: int = 4,
+        downloader: ArchiveDownloader | None = None,
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        if workers < 1 or workers > 16:
+            raise ShortlineDatasetError("workers must be between 1 and 16")
+        client = downloader or ArchiveDownloader()
+        results = []
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="data1r") as pool:
+            futures = {
+                pool.submit(client.download, item, archive_destination(self.root, item)): item
+                for item in objects
+            }
+            for future in as_completed(futures):
+                item = futures[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    raise ShortlineDatasetError(f"failed to sync {item.key}") from exc
+                completed = {**result, "key": item.key, "symbol": item.symbol, "month": item.month}
+                results.append(completed)
+                if on_result is not None:
+                    on_result(completed)
+        return sorted(results, key=lambda item: item["key"])
+
+    def build(
+        self,
+        *,
+        active_symbols: set[str] | None = None,
+        dataset_cutoff_ms: int | None = None,
+        allow_partial: bool = False,
+    ) -> dict[str, Any]:
+        partitions = self._kline_partitions()
+        if not partitions:
+            raise ShortlineDatasetError("no raw 15m archive partitions found")
+        coverage = self._archive_coverage(partitions)
+        if not coverage["index_available"] and not allow_partial:
+            raise ShortlineDatasetError("archive index is required for a complete build")
+        if coverage["index_scope"] != "ALL_USDT_PERPETUAL" and not allow_partial:
+            raise ShortlineDatasetError(
+                "archive index does not cover all historical USD-M perpetual symbols; "
+                "use --allow-partial only for sample validation"
+            )
+        if coverage["missing_partitions"] and not allow_partial:
+            raise ShortlineDatasetError(
+                f"{len(coverage['missing_partitions'])} indexed 15m partitions are not downloaded; "
+                "use --allow-partial only for sample validation"
+            )
+        all_candles: dict[str, list[ArchiveCandle]] = defaultdict(list)
+        partition_quality: list[dict[str, Any]] = []
+        for symbol, paths in sorted(partitions.items()):
+            for path in paths:
+                candles = list(iter_kline_zip(path))
+                sequence = validate_candle_sequence(candles)
+                all_candles[symbol].extend(candles)
+                month = PARTITION_RE.fullmatch(path.name).group("month")  # type: ignore[union-attr]
+                self._write_partition(symbol, month, candles)
+                partition_quality.append({
+                    "symbol": symbol, "month": month, "rows": len(candles),
+                    "missing_count": sequence["missing_count"],
+                    "duplicate_count": sequence["duplicate_count"],
+                    "complete": sequence["complete"],
+                })
+        latest_close = max(
+            candle.close_time_ms for candles in all_candles.values() for candle in candles
+        )
+        cutoff = int(dataset_cutoff_ms if dataset_cutoff_ms is not None else latest_close)
+        contracts = []
+        contract_quality = []
+        for symbol, candles in sorted(all_candles.items()):
+            candles.sort(key=lambda item: item.open_time_ms)
+            sequence = validate_candle_sequence(candles)
+            metadata = infer_contract_metadata(
+                symbol, candles, dataset_cutoff_ms=cutoff, active_symbols=active_symbols,
+                history_complete=coverage["symbol_complete"].get(symbol, False),
+            )
+            contracts.append(metadata.as_dict())
+            expected = (
+                (candles[-1].open_time_ms - candles[0].open_time_ms) // (15 * 60 * 1000) + 1
+            )
+            contract_quality.append({
+                "symbol": symbol,
+                "rows": len(candles),
+                "expected_rows_between_first_and_last": expected,
+                "coverage_ratio": len({item.open_time_ms for item in candles}) / expected,
+                "missing_count": sequence["missing_count"],
+                "missing_ranges": sequence["missing_ranges"],
+                "missing_ranges_truncated": sequence["missing_ranges_truncated"],
+                "duplicate_count": sequence["duplicate_count"],
+                "first_open_time_ms": candles[0].open_time_ms,
+                "last_close_time_ms": candles[-1].close_time_ms,
+            })
+        _write_json(self.root / "metadata" / "contracts.json", {
+            "protocol": DATASET_PROTOCOL,
+            "dataset_cutoff_ms": cutoff,
+            "contracts": contracts,
+        })
+        funding_quality = self._funding_quality()
+        quality_core = {
+            "protocol": DATASET_PROTOCOL,
+            "dataset_cutoff_ms": cutoff,
+            "contract_count": len(contracts),
+            "partition_count": sum(len(paths) for paths in partitions.values()),
+            "dataset_state": "COMPLETE" if coverage["complete"] else "PARTIAL",
+            "archive_coverage": coverage,
+            "contracts": contract_quality,
+            "partitions": partition_quality,
+            "funding": funding_quality,
+            "summary": {
+                "missing_15m_candles": sum(item["missing_count"] for item in contract_quality),
+                "duplicate_15m_candles": sum(item["duplicate_count"] for item in contract_quality),
+                "incomplete_15m_partitions": sum(not item["complete"] for item in partition_quality),
+                "funding_symbols": len(funding_quality),
+                "missing_funding_symbols": sorted(
+                    set(all_candles) - {item["symbol"] for item in funding_quality}
+                ),
+            },
+        }
+        quality_hash = _payload_hash(quality_core)
+        quality_report = {**quality_core, "report_sha256": quality_hash}
+        _write_json(self.root / "quality_report.json", quality_report)
+        manifest = self.build_manifest(dataset_cutoff_ms=cutoff, quality_report_sha256=quality_hash)
+        return {"contracts": contracts, "quality_report": quality_report, "manifest": manifest}
+
+    def record_native_verification(self, result: dict[str, Any]) -> dict[str, Any]:
+        required = {"symbol", "month", "interval", "compared", "mismatches", "passed"}
+        if not required.issubset(result):
+            raise ShortlineDatasetError("native verification result is incomplete")
+        path = self.root / "verification_report.json"
+        existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {
+            "protocol": DATASET_PROTOCOL,
+            "samples": [],
+        }
+        key = (result["symbol"], result["month"], result["interval"])
+        samples = [
+            item for item in existing.get("samples") or []
+            if (item.get("symbol"), item.get("month"), item.get("interval")) != key
+        ]
+        samples.append(result)
+        samples.sort(key=lambda item: (item["symbol"], item["month"], item["interval"]))
+        core = {"protocol": DATASET_PROTOCOL, "samples": samples}
+        report = {**core, "report_sha256": _payload_hash(core)}
+        _write_json(path, report)
+        manifest_path = self.root / "manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.build_manifest(
+                dataset_cutoff_ms=int(manifest["dataset_cutoff_ms"]),
+                quality_report_sha256=str(manifest["quality_report_sha256"]),
+            )
+        return report
+
+    def build_manifest(
+        self,
+        *,
+        dataset_cutoff_ms: int,
+        quality_report_sha256: str,
+    ) -> dict[str, Any]:
+        entries = []
+        for path in sorted(self.root.rglob("*")):
+            if (
+                not path.is_file()
+                or path.name.endswith(".part")
+                or path.name == "manifest.json"
+                or path.name.endswith("_state.json")
+            ):
+                continue
+            relative = path.relative_to(self.root).as_posix()
+            entries.append({
+                "path": relative,
+                "size_bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+                "kind": _file_kind(relative),
+            })
+        fingerprint = _payload_hash(entries)
+        manifest = {
+            "protocol": DATASET_PROTOCOL,
+            "raw_interval": "15m",
+            "derived_intervals": ["1h", "4h"],
+            "dataset_cutoff_ms": dataset_cutoff_ms,
+            "quality_report_sha256": quality_report_sha256,
+            "dataset_state": (
+                json.loads((self.root / "quality_report.json").read_text(encoding="utf-8"))
+                .get("dataset_state", "UNKNOWN")
+            ),
+            "entries": entries,
+            "dataset_fingerprint": fingerprint,
+        }
+        _write_json(self.root / "manifest.json", manifest)
+        return manifest
+
+    def _write_partition(
+        self,
+        symbol: str,
+        month: str,
+        candles: Sequence[ArchiveCandle],
+    ) -> None:
+        for interval in ("1h", "4h"):
+            path = self.root / "derived" / interval / symbol / f"{symbol}-{interval}-{month}.jsonl.gz"
+            _write_jsonl_gzip(path, (item.as_dict() for item in aggregate_candles(candles, interval)))
+        liquidity_path = (
+            self.root / "derived" / "daily_liquidity" / symbol
+            / f"{symbol}-daily-liquidity-{month}.jsonl.gz"
+        )
+        _write_jsonl_gzip(liquidity_path, daily_liquidity(candles))
+
+    def _kline_partitions(self) -> dict[str, list[Path]]:
+        result: dict[str, list[Path]] = defaultdict(list)
+        base = self.root / "raw" / "klines" / "15m"
+        if not base.exists():
+            return result
+        for path in sorted(base.glob("*/*.zip")):
+            match = PARTITION_RE.fullmatch(path.name)
+            if match and path.parent.name == match.group("symbol"):
+                result[match.group("symbol")].append(path)
+        return result
+
+    def _archive_coverage(self, partitions: dict[str, list[Path]]) -> dict[str, Any]:
+        index_path = self.root / "metadata" / "archive_index.json"
+        if not index_path.exists():
+            return {
+                "index_available": False, "complete": False,
+                "index_scope": "MISSING",
+                "expected_partitions": 0,
+                "downloaded_partitions": sum(len(paths) for paths in partitions.values()),
+                "missing_partitions": [],
+                "unexpected_partitions": sorted(
+                    path.name for paths in partitions.values() for path in paths
+                ),
+                "symbol_complete": {symbol: False for symbol in partitions},
+            }
+        index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+        index_scope = str(index_payload.get("scope") or "UNKNOWN")
+        objects = load_archive_index(index_path)
+        expected = {
+            Path(item.key).name: item for item in objects if item.kind == "KLINE_15M"
+        }
+        downloaded = {
+            path.name: path for paths in partitions.values() for path in paths
+        }
+        missing = sorted(set(expected) - set(downloaded))
+        unexpected = sorted(set(downloaded) - set(expected))
+        expected_by_symbol: dict[str, set[str]] = defaultdict(set)
+        downloaded_by_symbol: dict[str, set[str]] = defaultdict(set)
+        for name, item in expected.items():
+            expected_by_symbol[item.symbol].add(name)
+        for symbol, paths in partitions.items():
+            downloaded_by_symbol[symbol].update(path.name for path in paths)
+        symbols = set(expected_by_symbol) | set(downloaded_by_symbol)
+        symbol_complete = {
+            symbol: bool(expected_by_symbol[symbol])
+            and expected_by_symbol[symbol] == downloaded_by_symbol[symbol]
+            for symbol in symbols
+        }
+        return {
+            "index_available": True,
+            "index_scope": index_scope,
+            "complete": (
+                index_scope == "ALL_USDT_PERPETUAL"
+                and not missing and not unexpected and all(symbol_complete.values())
+            ),
+            "expected_partitions": len(expected),
+            "downloaded_partitions": len(downloaded),
+            "missing_partitions": missing,
+            "unexpected_partitions": unexpected,
+            "symbol_complete": symbol_complete,
+        }
+
+    def _funding_quality(self) -> list[dict[str, Any]]:
+        result = []
+        base = self.root / "raw" / "funding"
+        if not base.exists():
+            return result
+        for symbol_dir in sorted(path for path in base.iterdir() if path.is_dir()):
+            points = []
+            partitions = 0
+            for path in sorted(symbol_dir.glob("*.zip")):
+                points.extend(iter_funding_zip(path))
+                partitions += 1
+            points.sort(key=lambda item: item["funding_time_ms"])
+            duplicates = len(points) - len({item["funding_time_ms"] for item in points})
+            gaps = []
+            for previous, current in zip(points, points[1:]):
+                expected_ms = int(previous["funding_interval_hours"]) * 60 * 60 * 1000
+                tolerance_ms = 60 * 1000
+                if (
+                    int(current["funding_time_ms"])
+                    > int(previous["funding_time_ms"]) + expected_ms + tolerance_ms
+                ):
+                    gaps.append({
+                        "after_ms": int(previous["funding_time_ms"]),
+                        "before_ms": int(current["funding_time_ms"]),
+                    })
+            result.append({
+                "symbol": symbol_dir.name, "partitions": partitions, "rows": len(points),
+                "duplicate_count": duplicates, "gap_count": len(gaps), "gaps": gaps[:100],
+            })
+        return result
+
+
+def load_archive_index(path: Path) -> list[ArchiveObject]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("protocol") != DATASET_PROTOCOL or not isinstance(payload.get("objects"), list):
+        raise ShortlineDatasetError("invalid DATA-1R archive index")
+    return [ArchiveObject(**item) for item in payload["objects"]]
+
+
+def write_archive_index(
+    path: Path,
+    objects: Sequence[ArchiveObject],
+    *,
+    scope: str = "UNKNOWN",
+) -> dict[str, Any]:
+    rows = [item.as_dict() for item in sorted(objects, key=lambda item: item.key)]
+    payload = {
+        "protocol": DATASET_PROTOCOL,
+        "source": "https://data.binance.vision/data/futures/um/monthly",
+        "scope": scope,
+        "indexed_symbols": sorted({item.symbol for item in objects}),
+        "objects_sha256": _payload_hash(rows),
+        "objects": rows,
+    }
+    _write_json(path, payload)
+    return payload
+
+
+def filter_archive_objects(
+    objects: Sequence[ArchiveObject],
+    *,
+    symbols: set[str] | None = None,
+    start_month: str | None = None,
+    end_month: str | None = None,
+    kinds: set[str] | None = None,
+) -> list[ArchiveObject]:
+    normalized_symbols = {item.upper() for item in symbols} if symbols else None
+    return [
+        item for item in objects
+        if (normalized_symbols is None or item.symbol in normalized_symbols)
+        and (start_month is None or item.month >= start_month)
+        and (end_month is None or item.month <= end_month)
+        and (kinds is None or item.kind in kinds)
+    ]
+
+
+def load_jsonl_gzip(path: Path) -> list[dict[str, Any]]:
+    with gzip.open(path, "rt", encoding="utf-8") as source:
+        return [json.loads(line) for line in source if line.strip()]
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8") + b"\n"
+    _atomic_write_if_changed(path, encoded)
+
+
+def _write_jsonl_gzip(path: Path, rows: Iterable[dict[str, Any]]) -> None:
+    buffer = bytearray()
+    for row in rows:
+        buffer.extend(
+            json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        buffer.extend(b"\n")
+    compressed = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=compressed, mtime=0) as target:
+        target.write(buffer)
+    _atomic_write_if_changed(path, compressed.getvalue())
+
+
+def _atomic_write_if_changed(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.read_bytes() == content:
+        return
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_bytes(content)
+    os.replace(temporary, path)
+
+
+def _payload_hash(payload: Any) -> str:
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _file_kind(relative: str) -> str:
+    if relative.startswith("raw/klines/15m/"):
+        return "RAW_KLINE_15M"
+    if relative.startswith("raw/funding/"):
+        return "RAW_FUNDING"
+    if relative.startswith("derived/1h/"):
+        return "DERIVED_KLINE_1H"
+    if relative.startswith("derived/4h/"):
+        return "DERIVED_KLINE_4H"
+    if relative.startswith("derived/daily_liquidity/"):
+        return "DAILY_LIQUIDITY"
+    if relative == "metadata/contracts.json":
+        return "CONTRACT_METADATA"
+    if relative == "metadata/archive_index.json":
+        return "ARCHIVE_INDEX"
+    if relative == "quality_report.json":
+        return "QUALITY_REPORT"
+    if relative == "verification_report.json":
+        return "NATIVE_AGGREGATE_VERIFICATION"
+    if relative.startswith("verification/native/"):
+        return "NATIVE_KLINE_VERIFICATION_SOURCE"
+    return "AUXILIARY"

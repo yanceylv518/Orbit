@@ -48,6 +48,35 @@ class ResearchCatalogService:
                 "size_bytes": path.stat().st_size,
                 "relative_path": f"var/calibration/{path.name}",
             })
+        items.extend(self._manifest_datasets())
+        return items
+
+    def _manifest_datasets(self) -> list[dict[str, Any]]:
+        items = []
+        for path in sorted(self.calibration_dir.glob("*/manifest.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if payload.get("protocol") != "ORBIT_SHORTLINE_DATASET_V1":
+                continue
+            relative = path.relative_to(self.calibration_dir).as_posix()
+            items.append({
+                "id": path.parent.name,
+                "market": None,
+                "interval": "15m",
+                "kind": "dataset_manifest",
+                "rows": len(payload.get("entries") or []),
+                "start_time_ms": None,
+                "end_time_ms": payload.get("dataset_cutoff_ms"),
+                "sha256": payload.get("dataset_fingerprint"),
+                "size_bytes": sum(
+                    int(item.get("size_bytes") or 0) for item in payload.get("entries") or []
+                ),
+                "relative_path": f"var/calibration/{relative}",
+                "quality_report_sha256": payload.get("quality_report_sha256"),
+                "dataset_state": payload.get("dataset_state"),
+            })
         return items
 
     def candidates(self) -> list[dict[str, Any]]:
