@@ -19,6 +19,12 @@ from orbit.domain.calibration.shortline_dataset import (
     infer_contract_metadata,
     validate_candle_sequence,
 )
+from orbit.domain.calibration.halt_registry import (
+    HaltRegistryError,
+    entries_by_partition,
+    load_halt_registry,
+    window_key,
+)
 from orbit.infrastructure.market_data.binance_public_archive import (
     ArchiveDownloader,
     ArchiveObject,
@@ -38,8 +44,14 @@ class ShortlineDatasetError(RuntimeError):
 
 
 class ShortlineDatasetBuilder:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, halt_registry_path: Path | None = None):
         self.root = root.resolve()
+        self.halt_registry_path = (
+            halt_registry_path.resolve()
+            if halt_registry_path is not None
+            else Path(__file__).resolve().parents[4]
+            / "config" / "research" / "data1r_halt_registry.v1.json"
+        )
 
     def sync(
         self,
@@ -78,6 +90,11 @@ class ShortlineDatasetBuilder:
         allow_partial: bool = False,
         on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
+        try:
+            halt_registry = load_halt_registry(self.halt_registry_path)
+        except HaltRegistryError as exc:
+            raise ShortlineDatasetError(str(exc)) from exc
+        halt_entries = entries_by_partition(halt_registry)
         partitions = self._kline_partitions()
         if not partitions:
             raise ShortlineDatasetError("no raw 15m archive partitions found")
@@ -101,6 +118,8 @@ class ShortlineDatasetBuilder:
             )
         partition_quality: list[dict[str, Any]] = []
         contract_quality: list[dict[str, Any]] = []
+        verified_halt_windows: list[dict[str, Any]] = []
+        invalid_halt_entries: list[dict[str, Any]] = []
         symbol_edges: list[tuple[str, ArchiveCandle, ArchiveCandle]] = []
         latest_close = 0
         ordered_partitions = sorted(partitions.items())
@@ -111,12 +130,48 @@ class ShortlineDatasetBuilder:
                 sequence = validate_candle_sequence(candles)
                 symbol_candles.extend(candles)
                 month = PARTITION_RE.fullmatch(path.name).group("month")  # type: ignore[union-attr]
+                partition_halts = halt_entries.get((symbol, month), [])
+                archive_sha256 = sha256_file(path) if sequence["missing_count"] or partition_halts else None
+                missing_by_window = {
+                    window_key(item): item for item in sequence["missing_ranges"]
+                }
+                verified_keys: set[tuple[int, int, int]] = set()
+                partition_verified_halts: list[dict[str, Any]] = []
+                for entry in partition_halts:
+                    key = window_key(entry)
+                    if key not in missing_by_window or entry["archive_sha256"] != archive_sha256:
+                        invalid_halt_entries.append({
+                            "id": entry["id"],
+                            "symbol": symbol,
+                            "month": month,
+                            "reason": (
+                                "ARCHIVE_SHA256_MISMATCH"
+                                if entry["archive_sha256"] != archive_sha256
+                                else "WINDOW_NOT_EXACT"
+                            ),
+                        })
+                        continue
+                    verified_keys.add(key)
+                    fact = {**entry, "observed_archive_sha256": archive_sha256}
+                    partition_verified_halts.append(fact)
+                    verified_halt_windows.append(fact)
+                unverified_ranges = [
+                    item for item in sequence["missing_ranges"]
+                    if window_key(item) not in verified_keys
+                ]
                 self._write_partition(symbol, month, candles)
                 partition_quality.append({
                     "symbol": symbol, "month": month, "rows": len(candles),
                     "missing_count": sequence["missing_count"],
+                    "missing_ranges": sequence["missing_ranges"],
+                    "missing_ranges_truncated": sequence["missing_ranges_truncated"],
                     "duplicate_count": sequence["duplicate_count"],
                     "complete": sequence["complete"],
+                    "verified_halt_windows": partition_verified_halts,
+                    "unverified_missing_ranges": unverified_ranges,
+                    "halt_verified": bool(sequence["missing_count"])
+                    and not unverified_ranges
+                    and not sequence["missing_ranges_truncated"],
                 })
             symbol_candles.sort(key=lambda item: item.open_time_ms)
             sequence = validate_candle_sequence(symbol_candles)
@@ -145,11 +200,20 @@ class ShortlineDatasetBuilder:
                     "total_symbols": len(ordered_partitions),
                     "current_symbol": symbol,
                 })
-        incomplete_partitions = [item for item in partition_quality if not item["complete"]]
-        if incomplete_partitions and not allow_partial:
+        if invalid_halt_entries:
             raise ShortlineDatasetError(
-                f"{len(incomplete_partitions)} downloaded 15m partitions contain gaps or "
-                "duplicates; use --allow-partial only for sample validation"
+                f"{len(invalid_halt_entries)} halt registry entries do not exactly match the "
+                "downloaded archive window and SHA-256"
+            )
+        blocking_partitions = [
+            item for item in partition_quality
+            if item["duplicate_count"] or item["unverified_missing_ranges"]
+            or item["missing_ranges_truncated"]
+        ]
+        if blocking_partitions and not allow_partial:
+            raise ShortlineDatasetError(
+                f"{len(blocking_partitions)} downloaded 15m partitions contain unregistered "
+                "gaps or duplicates; use --allow-partial only for sample validation"
             )
         cutoff = int(dataset_cutoff_ms if dataset_cutoff_ms is not None else latest_close)
         contracts = [
@@ -168,14 +232,26 @@ class ShortlineDatasetBuilder:
             "contracts": contracts,
         })
         funding_quality = self._funding_quality()
+        verified_halt_windows.sort(
+            key=lambda item: (item["symbol"], item["month"], item["start_open_time_ms"])
+        )
+        _write_json(self.root / "metadata" / "verified_halt_registry.json", {
+            "protocol": DATASET_PROTOCOL,
+            "halt_registry_protocol": halt_registry["protocol"],
+            "halt_registry_version": halt_registry["version"],
+            "source_registry_sha256": halt_registry["registry_sha256"],
+            "verified_halt_windows": verified_halt_windows,
+        })
         quality_core = {
             "protocol": DATASET_PROTOCOL,
             "dataset_cutoff_ms": cutoff,
             "contract_count": len(contracts),
             "partition_count": sum(len(paths) for paths in partitions.values()),
             "dataset_state": (
-                "COMPLETE" if coverage["complete"] and not incomplete_partitions else "PARTIAL"
+                "COMPLETE" if coverage["complete"] and not blocking_partitions else "PARTIAL"
             ),
+            "halt_registry_sha256": halt_registry["registry_sha256"],
+            "verified_halt_windows": verified_halt_windows,
             "archive_coverage": coverage,
             "contracts": contract_quality,
             "partitions": partition_quality,
@@ -184,6 +260,15 @@ class ShortlineDatasetBuilder:
                 "missing_15m_candles": sum(item["missing_count"] for item in contract_quality),
                 "duplicate_15m_candles": sum(item["duplicate_count"] for item in contract_quality),
                 "incomplete_15m_partitions": sum(not item["complete"] for item in partition_quality),
+                "verified_halt_window_count": len(verified_halt_windows),
+                "verified_halt_missing_candles": sum(
+                    item["count"] for item in verified_halt_windows
+                ),
+                "unverified_missing_15m_candles": sum(
+                    item["count"]
+                    for partition in partition_quality
+                    for item in partition["unverified_missing_ranges"]
+                ),
                 "funding_symbols": len(funding_quality),
                 "missing_funding_symbols": sorted(
                     set(partitions) - {item["symbol"] for item in funding_quality}
@@ -248,16 +333,18 @@ class ShortlineDatasetBuilder:
                 "kind": _file_kind(relative),
             })
         fingerprint = _payload_hash(entries)
+        quality_report = json.loads(
+            (self.root / "quality_report.json").read_text(encoding="utf-8")
+        )
         manifest = {
             "protocol": DATASET_PROTOCOL,
             "raw_interval": "15m",
             "derived_intervals": ["1h", "4h"],
             "dataset_cutoff_ms": dataset_cutoff_ms,
             "quality_report_sha256": quality_report_sha256,
-            "dataset_state": (
-                json.loads((self.root / "quality_report.json").read_text(encoding="utf-8"))
-                .get("dataset_state", "UNKNOWN")
-            ),
+            "dataset_state": quality_report.get("dataset_state", "UNKNOWN"),
+            "halt_registry_sha256": quality_report.get("halt_registry_sha256"),
+            "verified_halt_windows": quality_report.get("verified_halt_windows", []),
             "entries": entries,
             "dataset_fingerprint": fingerprint,
         }
@@ -471,6 +558,8 @@ def _file_kind(relative: str) -> str:
         return "CONTRACT_METADATA"
     if relative == "metadata/archive_index.json":
         return "ARCHIVE_INDEX"
+    if relative == "metadata/verified_halt_registry.json":
+        return "VERIFIED_HALT_REGISTRY"
     if relative == "quality_report.json":
         return "QUALITY_REPORT"
     if relative == "verification_report.json":

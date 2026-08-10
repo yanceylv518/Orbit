@@ -163,9 +163,14 @@ def aggregate_candles(
     for candle in sorted(candles, key=lambda item: item.open_time_ms):
         bucket = candle.open_time_ms // target_ms * target_ms
         groups.setdefault(bucket, []).append(candle)
+    if not groups:
+        return []
 
     result: list[AggregatedCandle] = []
-    for bucket, children in sorted(groups.items()):
+    first_bucket = min(groups)
+    last_bucket = max(groups)
+    for bucket in range(first_bucket, last_bucket + target_ms, target_ms):
+        children = groups.get(bucket, [])
         by_open = {item.open_time_ms: item for item in children}
         expected = tuple(bucket + index * RAW_INTERVAL_MS for index in range(expected_count))
         missing = tuple(timestamp for timestamp in expected if timestamp not in by_open)

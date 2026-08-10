@@ -28,12 +28,17 @@ from orbit.domain.calibration.shortline_dataset import (
     parse_archive_candle,
     universe_at,
 )
+from orbit.domain.calibration.halt_registry import (
+    HALT_REGISTRY_PROTOCOL,
+    load_halt_registry,
+)
 from orbit.infrastructure.market_data.binance_public_archive import (
     ArchiveDownloader,
     ArchiveError,
     ArchiveObject,
     BinancePublicArchiveIndex,
     iter_kline_zip,
+    sha256_file,
 )
 
 
@@ -79,6 +84,20 @@ class ShortlineDatasetDomainTests(unittest.TestCase):
         self.assertEqual(result.missing_open_times_ms, (2 * INTERVAL_MS,))
         self.assertIsNone(result.close)
         self.assertIsNone(result.quote_volume)
+
+    def test_fully_missing_aggregate_bucket_is_emitted_as_incomplete(self):
+        candles = [
+            parse_archive_candle(candle_row(i * INTERVAL_MS))
+            for i in (0, 1, 2, 3, 8)
+        ]
+
+        result = aggregate_candles(candles, "1h")
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[1].open_time_ms, 4 * INTERVAL_MS)
+        self.assertEqual(result[1].status, "INCOMPLETE")
+        self.assertEqual(result[1].observed_children, 0)
+        self.assertEqual(len(result[1].missing_open_times_ms), 4)
 
     def test_large_gap_is_counted_without_unbounded_timestamp_expansion(self):
         candles = [
@@ -370,12 +389,78 @@ class ShortlineDatasetBuilderTests(unittest.TestCase):
                 kind="KLINE_15M", symbol="LUNAUSDT", month="2022-05",
             )], scope="ALL_USDT_PERPETUAL")
 
-            with self.assertRaisesRegex(Exception, "contain gaps or duplicates"):
+            with self.assertRaisesRegex(Exception, "unregistered gaps or duplicates"):
                 ShortlineDatasetBuilder(root).build()
             partial = ShortlineDatasetBuilder(root).build(allow_partial=True)
 
             self.assertEqual(partial["quality_report"]["dataset_state"], "PARTIAL")
             self.assertEqual(partial["quality_report"]["summary"]["missing_15m_candles"], 1)
+            self.assertEqual(
+                partial["quality_report"]["summary"]["unverified_missing_15m_candles"], 1,
+            )
+
+    def test_exact_registered_halt_is_complete_but_missing_facts_remain(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "shortline-data-v1"
+            raw = root / "raw" / "klines" / "15m" / "TESTUSDT"
+            raw.mkdir(parents=True)
+            path = raw / "TESTUSDT-15m-2022-05.zip"
+            _write_kline_zip(path, [candle_row(i * INTERVAL_MS) for i in (0, 1, 3)])
+            write_archive_index(root / "metadata" / "archive_index.json", [ArchiveObject(
+                key="data/futures/um/monthly/klines/TESTUSDT/15m/TESTUSDT-15m-2022-05.zip",
+                size=path.stat().st_size, last_modified="", etag=None,
+                kind="KLINE_15M", symbol="TESTUSDT", month="2022-05",
+            )], scope="ALL_USDT_PERPETUAL")
+            registry_path = Path(temp) / "halt-registry.json"
+            _write_halt_registry(registry_path, [_halt_entry(path, start=2 * INTERVAL_MS)])
+
+            result = ShortlineDatasetBuilder(root, halt_registry_path=registry_path).build()
+
+            quality = result["quality_report"]
+            partition = quality["partitions"][0]
+            hourly = load_jsonl_gzip(
+                root / "derived" / "1h" / "TESTUSDT" / "TESTUSDT-1h-2022-05.jsonl.gz"
+            )
+            self.assertEqual(quality["dataset_state"], "COMPLETE")
+            self.assertFalse(partition["complete"])
+            self.assertTrue(partition["halt_verified"])
+            self.assertEqual(partition["missing_count"], 1)
+            self.assertEqual(partition["unverified_missing_ranges"], [])
+            self.assertEqual(hourly[0]["status"], "INCOMPLETE")
+            self.assertEqual(quality["summary"]["missing_15m_candles"], 1)
+            self.assertEqual(quality["summary"]["verified_halt_window_count"], 1)
+            self.assertEqual(result["manifest"]["verified_halt_windows"], quality["verified_halt_windows"])
+            self.assertIn(
+                "VERIFIED_HALT_REGISTRY",
+                {item["kind"] for item in result["manifest"]["entries"]},
+            )
+
+    def test_wider_registered_halt_is_rejected_even_for_partial_build(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "shortline-data-v1"
+            raw = root / "raw" / "klines" / "15m" / "TESTUSDT"
+            raw.mkdir(parents=True)
+            path = raw / "TESTUSDT-15m-2022-05.zip"
+            _write_kline_zip(path, [candle_row(i * INTERVAL_MS) for i in (0, 1, 3)])
+            registry_path = Path(temp) / "halt-registry.json"
+            _write_halt_registry(
+                registry_path,
+                [_halt_entry(path, start=2 * INTERVAL_MS, count=2)],
+            )
+
+            with self.assertRaisesRegex(Exception, "do not exactly match"):
+                ShortlineDatasetBuilder(root, halt_registry_path=registry_path).build(
+                    allow_partial=True,
+                )
+
+    def test_versioned_initial_halt_registry_contains_twelve_exact_windows(self):
+        registry = load_halt_registry(
+            BACKEND_ROOT.parent / "config" / "research" / "data1r_halt_registry.v1.json"
+        )
+
+        self.assertEqual(registry["protocol"], HALT_REGISTRY_PROTOCOL)
+        self.assertEqual(len(registry["entries"]), 12)
+        self.assertEqual(sum(item["count"] for item in registry["entries"]), 905)
 
     def test_archive_index_is_deterministic(self):
         item = ArchiveObject(
@@ -399,6 +484,33 @@ class NullRegistry:
 
     def all(self):
         return []
+
+
+def _halt_entry(path, *, start, count=1):
+    symbol = path.name.split("-15m-")[0]
+    month = path.stem.rsplit("-", 2)[-2] + "-" + path.stem.rsplit("-", 1)[-1]
+    archive_key = f"data/futures/um/monthly/klines/{symbol}/15m/{path.name}"
+    return {
+        "id": f"{symbol}-{month}-{start}-{count}",
+        "symbol": symbol,
+        "month": month,
+        "start_open_time_ms": start,
+        "end_open_time_ms": start + (count - 1) * INTERVAL_MS,
+        "count": count,
+        "classification": "EXCHANGE_HALT",
+        "archive_key": archive_key,
+        "archive_sha256": sha256_file(path),
+        "checksum_url": f"https://data.binance.vision/{archive_key}.CHECKSUM",
+        "evidence_note": "Test fixture with checksum-verified exact archive gap.",
+    }
+
+
+def _write_halt_registry(path, entries):
+    path.write_text(json.dumps({
+        "protocol": HALT_REGISTRY_PROTOCOL,
+        "version": 1,
+        "entries": entries,
+    }), encoding="utf-8")
 
 
 class BytesResponse(io.BytesIO):
