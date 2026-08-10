@@ -950,6 +950,7 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **TB4 兼容边界**：三仓硬上限属于新短线策略风险政策，不能反向套到冻结的 12 市场 TB4；TB4 只读导入时登记 legacy 兼容政策，不改变 LIVE-SMALL 行为。任何新建的非 legacy 实例必须绑定 `max_open_symbols=3` 的短线政策，禁止借 legacy 标记绕过。
 - **验收**：① 唯一绑定约束有测试（含并发插入冲突）;② TB4 导入后 `definition_hash` 与现有 `spec_sha256` 一致性校验;③ **生产行为零变化**——现有全量测试不改一行仍全绿,LIVE-SMALL 执行路径 zero-diff;④ 迁移幂等有测试;⑤ 新 API 管理员限定、匿名 401;⑥ `git diff --check` 通过。
 - **约束**：不实现 worker/租约认领逻辑、不建行情基建（属阶段 2+,待 R-0）;不改 LIVE-3 执行器与账本;bounded context 分离。
+- **验收结论（Claude，2026-08-10）：通过（`c2174df`）。** 六项验收逐条核实：① 唯一激活绑定为**数据库级守卫**——`account_strategy_bindings.active_account_guard` 生成列（ACTIVE/STOPPING 时取账户 ID 否则 NULL）+ 唯一索引,并发冲突在 DB 层被拒,叠加领域层拒绝测试与 schema 测试;② TB4 只读投影保留双冻结哈希（`test_tb4_projection_preserves_both_frozen_hashes`）,seed writer 写入前校验冻结哈希;③ **生产零变化实证**——`live_execution.py`/`trend_forward.py` 对控制面零引用,既有测试未改一行,全量 `352 passed / 1 skipped`（+13）;④ 迁移为 expand-and-verify:`setup_mysql.py` 幂等建表,迁移脚本默认只校验、显式 `--apply` 才在事务中写投影,重复执行有测试;⑤ 全部控制面 API `require_admin`,匿名 401/业务用户 403 有契约测试;⑥ `git diff --check` 通过。**超规格的好设计（认可）**：三仓政策建模为强制绑定项且**明确不反向套用 TB4**（`test_nonlegacy_binding_cannot_bypass_shortline_policy` + legacy 只读兼容政策）;架构文档同步降级为 `PARTIALLY_IMPLEMENTED` 并如实列出未实现部分,15m 聚合决策同步入文。**部署提醒**：生产 MySQL 尚未执行迁移——下次生产更新窗口跑 `setup_mysql.py` + 迁移脚本 `--apply`;在此之前新表在生产不存在,零影响。
 
 ### 任务 DATA-1R：含退市合约的全市场历史数据集 + 时点币池（**已复活并扩展**,轨道 A 首任务,交付 Codex;原 DATA-1 规格 2026-07-31 立项、曾暂缓）
 
