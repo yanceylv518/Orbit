@@ -953,7 +953,9 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **验收结论（Claude，2026-08-10,对 `6f3c8ad` 任务安全加固部分）：通过。** ① 跨进程数据集锁为真实进程级验证——UI 持锁时**真实启动 CLI 子进程**被拒（`test_real_cli_is_rejected_while_ui_holds_dataset_lock`）,锁元数据公开持有者/PID/起始时间,父进程退出而工作进程存活不误开;② 磁盘阈值+运行时禁用开关在 job 创建前拦截（DATA-UI-1 遗留项就此闭合）;③ 断点续传做了真实故障注入——第 7 字节切断下载,`.part` 保留、重启发 `Range: bytes=7-`、终态官方 SHA-256 一致、原子替换后无残留;④ 中断任务重启后投影为 `interrupted/resumable` 且保留进度;⑤ 生产路径相对基线零差异;⑥ 本机全量 `375 passed / 1 skipped`,`git diff --check` 通过,Windows 侧 check/build 采信留痕。
 - **第 1–3 项完成记录（Codex，2026-08-10）**：已提交版本化 `ORBIT_DATA1R_HALT_REGISTRY_V1` 登记表，按官方 `.CHECKSUM` 重新下载/校验 12 个原始 ZIP 后重扫并录入精确 `symbol + month + start/end open_time_ms + count + archive SHA-256 + 依据`，合计 12 个窗口、905 根 15m。构建器只在窗口三元组与原始 ZIP SHA-256 同时精确匹配时解除 COMPLETE 阻断；登记外缺口继续失败，宽于实际缺口的登记即使 `--allow-partial` 也拒绝。质量报告、分区质量、`metadata/verified_halt_registry.json` 与 manifest 均携带 `verified_halt_windows` 和登记表哈希，原始 `missing_count/coverage_ratio` 不抹除。聚合器补齐首末观测之间的全空 1h/4h 桶，确保整段停牌也显式产出不可交易的 `INCOMPLETE`，不再静默缺行。真实 12 分区复验：12/12 窗口命中、905/905 缺失归档、登记外缺失 0，24 个窗口×周期检查点全部 `INCOMPLETE`；重复构建的质量哈希与数据集指纹一致。针对性 20 项、后端全量 380 项及 `git diff --check` 通过。当前工作区没有已下载的 40,137 个全量分区，因此本记录只宣告第 1–3 项代码与真实 12 分区证据完成，不冒充验收项③的全量 COMPLETE 构建；第 4 项磁盘检查不在本轮范围。
 
-### 任务 R-0：短线策略族先行筛查（轨道 A,优先级：高,依赖 DATA-1R,交付 Codex）
+**DATA-1R-FIX1 验收结论 + 数据集正式交付（Claude，2026-08-10）：通过,数据线贯通。** ① 停牌登记表（`config/research/data1r_halt_registry.v1.json`,`214cbc2`）12 条与现场扫描逐毫秒吻合,且每条锚定归档文件 SHA（比规格更严）;精确匹配放行/宽窗口拒绝/登记外 FAIL/初始表校验四类测试齐全,`379 passed`。② **全量构建 COMPLETE**：829/829 合约,**数据集指纹 `dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546`**,质量报告 SHA `f5885005…6638710f`。③ `verify-native` 六组多样化抽样（BTC 2021-06/ETH 2024-11/LUNA 2022-04/BNX 停牌月 2022-08/SOL 2023-03/DOGE 2025-12,共 2,670 根 1h/4h）全部零差异通过。**R-0 预注册自此可冻结,须引用上述数据集指纹。**
+
+### 任务 R-0：短线策略族先行筛查（轨道 A,优先级：高,依赖 DATA-1R,交付 Codex;**前置已就绪:数据集指纹 `dcb60c95…ca546`**）
 
 - **目标**：在平台投入前回答——**突破/动量族**与**超跌反弹族**（15m 信号周期,用户拍板不用更细粒度）扣除保守成本后是否存在正期望迹象。这是筛查不是准入:PASS 只解锁「值得为它建平台并进入组合级回测研究」,不授权任何交易。
 - **方法（先预注册后跑数,四护栏全套）**：
