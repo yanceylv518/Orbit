@@ -949,6 +949,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
   4. **补 DATA-UI-1 遗留**：sync/build 启动前磁盘余量检查（低于可配置阈值拒绝并提示,UI 与 CLI 共用）。
 - **验收**：① 登记外缺口 FAIL、登记内精确匹配则 COMPLETE 且 manifest 含 `verified_halt_windows`（各有测试）;② 登记条目宽于实际缺口被拒绝（测试）;③ 12 窗口录入后全量 build 产出 COMPLETE 数据集与最终指纹;④ `verify-native` 抽样通过;⑤ 磁盘检查 UI/CLI 双路径测试;⑥ 全量测试绿,`git diff --check` 通过。
 - **约束**：不放松聚合 INCOMPLETE 语义;登记表修改属数据治理动作,须随普通提交评审,不提供运行时旁路。
+- **进度澄清（Claude，2026-08-10）**：`6f3c8ad` 已交付本任务第 4 项（磁盘检查）及任务安全加固,**第 1–3 项（停牌窗口登记表）尚未实现**——本机 grep 证实构建代码无 halt registry 引用,12 个停牌缺口仍会阻断全量 COMPLETE 构建。**FIX1 核心仍待交付,是当前数据线的唯一阻塞项。**
+- **验收结论（Claude，2026-08-10,对 `6f3c8ad` 任务安全加固部分）：通过。** ① 跨进程数据集锁为真实进程级验证——UI 持锁时**真实启动 CLI 子进程**被拒（`test_real_cli_is_rejected_while_ui_holds_dataset_lock`）,锁元数据公开持有者/PID/起始时间,父进程退出而工作进程存活不误开;② 磁盘阈值+运行时禁用开关在 job 创建前拦截（DATA-UI-1 遗留项就此闭合）;③ 断点续传做了真实故障注入——第 7 字节切断下载,`.part` 保留、重启发 `Range: bytes=7-`、终态官方 SHA-256 一致、原子替换后无残留;④ 中断任务重启后投影为 `interrupted/resumable` 且保留进度;⑤ 生产路径相对基线零差异;⑥ 本机全量 `375 passed / 1 skipped`,`git diff --check` 通过,Windows 侧 check/build 采信留痕。
 
 ### 任务 R-0：短线策略族先行筛查（轨道 A,优先级：高,依赖 DATA-1R,交付 Codex）
 
