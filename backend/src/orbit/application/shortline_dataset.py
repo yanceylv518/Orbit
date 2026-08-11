@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import platform
 import re
 from typing import Any, Iterable, Sequence
 from typing import Callable
@@ -36,7 +37,11 @@ from orbit.infrastructure.persistence.atomic_file import replace_with_retry
 
 
 DATASET_PROTOCOL = "ORBIT_SHORTLINE_DATASET_V1"
+NATIVE_ATTESTATION_PROTOCOL = "ORBIT_NATIVE_AGGREGATE_ATTESTATION_V1"
 PARTITION_RE = re.compile(r"^(?P<symbol>[A-Z0-9]+USDT)-15m-(?P<month>\d{4}-\d{2})\.zip$")
+
+_IDENTITY_EXCLUDED_FILES = {"manifest.json", "verification_report.json"}
+_IDENTITY_EXCLUDED_PREFIXES = ("verification/", "attestations/")
 
 
 class ShortlineDatasetError(RuntimeError):
@@ -281,51 +286,127 @@ class ShortlineDatasetBuilder:
         manifest = self.build_manifest(dataset_cutoff_ms=cutoff, quality_report_sha256=quality_hash)
         return {"contracts": contracts, "quality_report": quality_report, "manifest": manifest}
 
-    def record_native_verification(self, result: dict[str, Any]) -> dict[str, Any]:
+    def record_native_verification(
+        self,
+        result: dict[str, Any],
+        *,
+        attester_id: str | None = None,
+    ) -> dict[str, Any]:
         required = {"symbol", "month", "interval", "compared", "mismatches", "passed"}
         if not required.issubset(result):
             raise ShortlineDatasetError("native verification result is incomplete")
-        path = self.root / "verification_report.json"
-        existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {
-            "protocol": DATASET_PROTOCOL,
-            "samples": [],
-        }
-        key = (result["symbol"], result["month"], result["interval"])
-        samples = [
-            item for item in existing.get("samples") or []
-            if (item.get("symbol"), item.get("month"), item.get("interval")) != key
-        ]
-        samples.append(result)
-        samples.sort(key=lambda item: (item["symbol"], item["month"], item["interval"]))
-        core = {"protocol": DATASET_PROTOCOL, "samples": samples}
-        report = {**core, "report_sha256": _payload_hash(core)}
-        _write_json(path, report)
         manifest_path = self.root / "manifest.json"
-        if manifest_path.exists():
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.build_manifest(
-                dataset_cutoff_ms=int(manifest["dataset_cutoff_ms"]),
-                quality_report_sha256=str(manifest["quality_report_sha256"]),
+        if not manifest_path.exists():
+            raise ShortlineDatasetError("manifest must exist before native verification")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        ledger_path = self.root / "attestations" / "native_verification.jsonl"
+        self._seed_attestation_ledger_from_legacy_report(
+            str(manifest["dataset_fingerprint"])
+        )
+        existing = _read_jsonl(ledger_path)
+        core = {
+            "protocol": NATIVE_ATTESTATION_PROTOCOL,
+            "sequence": len(existing) + 1,
+            "dataset_fingerprint": str(manifest["dataset_fingerprint"]),
+            "attester_id": attester_id or platform.node() or "unknown-machine",
+            "result": result,
+        }
+        attestation = {**core, "attestation_sha256": _payload_hash(core)}
+        _append_jsonl_atomic(ledger_path, attestation)
+
+        # Compatibility projection for operators. Both this projection and the
+        # append-only ledger are evidence about the dataset, never its identity.
+        attestations = [*existing, attestation]
+        report_core = {
+            "protocol": DATASET_PROTOCOL,
+            "attestation_protocol": NATIVE_ATTESTATION_PROTOCOL,
+            "dataset_fingerprint": str(manifest["dataset_fingerprint"]),
+            "attestation_count": len(attestations),
+            "samples": [item["result"] for item in attestations],
+        }
+        _write_json(
+            self.root / "verification_report.json",
+            {**report_core, "report_sha256": _payload_hash(report_core)},
+        )
+        return attestation
+
+    def migrate_manifest_identity(self) -> dict[str, Any]:
+        """Remove validation evidence from the content identity without touching data."""
+        manifest_path = self.root / "manifest.json"
+        if not manifest_path.exists():
+            raise ShortlineDatasetError("manifest does not exist")
+        previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+        before_partitions = _partition_hashes(previous.get("entries") or [])
+        migrated = self.build_manifest(
+            dataset_cutoff_ms=int(previous["dataset_cutoff_ms"]),
+            quality_report_sha256=str(previous["quality_report_sha256"]),
+            write=False,
+        )
+        after_partitions = _partition_hashes(migrated["entries"])
+        if before_partitions != after_partitions:
+            raise ShortlineDatasetError("manifest migration changed data partition hashes")
+        imported = self._seed_attestation_ledger_from_legacy_report(
+            str(migrated["dataset_fingerprint"])
+        )
+        _write_json(manifest_path, migrated)
+        return {
+            "protocol": DATASET_PROTOCOL,
+            "previous_fingerprint": previous.get("dataset_fingerprint"),
+            "dataset_fingerprint": migrated["dataset_fingerprint"],
+            "partition_count": len(after_partitions),
+            "partitions_unchanged": True,
+            "legacy_attestations_imported": imported,
+        }
+
+    def _seed_attestation_ledger_from_legacy_report(
+        self,
+        dataset_fingerprint: str,
+    ) -> int:
+        ledger_path = self.root / "attestations" / "native_verification.jsonl"
+        if ledger_path.exists():
+            return 0
+        report_path = self.root / "verification_report.json"
+        if not report_path.exists():
+            return 0
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if report.get("attestation_protocol") == NATIVE_ATTESTATION_PROTOCOL:
+            return 0
+        samples = report.get("samples") or []
+        for sequence, result in enumerate(samples, 1):
+            core = {
+                "protocol": NATIVE_ATTESTATION_PROTOCOL,
+                "sequence": sequence,
+                "dataset_fingerprint": dataset_fingerprint,
+                "attester_id": "legacy-verification-report",
+                "legacy_result_sha256": _payload_hash(result),
+                "result": result,
+            }
+            _append_jsonl_atomic(
+                ledger_path,
+                {**core, "attestation_sha256": _payload_hash(core)},
             )
-        return report
+        return len(samples)
 
     def build_manifest(
         self,
         *,
         dataset_cutoff_ms: int,
         quality_report_sha256: str,
+        write: bool = True,
     ) -> dict[str, Any]:
         entries = []
         for path in sorted(self.root.rglob("*")):
             if (
                 not path.is_file()
                 or path.name.endswith(".part")
-                or path.name == "manifest.json"
+                or path.name in _IDENTITY_EXCLUDED_FILES
                 or path.name in {"dataset_job.lock", "dataset_job_lock.json"}
                 or path.name.endswith("_state.json")
             ):
                 continue
             relative = path.relative_to(self.root).as_posix()
+            if relative.startswith(_IDENTITY_EXCLUDED_PREFIXES):
+                continue
             entries.append({
                 "path": relative,
                 "size_bytes": path.stat().st_size,
@@ -345,10 +426,13 @@ class ShortlineDatasetBuilder:
             "dataset_state": quality_report.get("dataset_state", "UNKNOWN"),
             "halt_registry_sha256": quality_report.get("halt_registry_sha256"),
             "verified_halt_windows": quality_report.get("verified_halt_windows", []),
+            "identity_scope": "DATA_CONTENT_QUALITY_AND_HALT_REGISTRY_ONLY",
+            "validation_attestations_in_identity": False,
             "entries": entries,
             "dataset_fingerprint": fingerprint,
         }
-        _write_json(self.root / "manifest.json", manifest)
+        if write:
+            _write_json(self.root / "manifest.json", manifest)
         return manifest
 
     def _write_partition(
@@ -534,6 +618,47 @@ def _atomic_write_if_changed(path: Path, content: bytes) -> None:
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_bytes(content)
     replace_with_retry(temporary, path)
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    records = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise ShortlineDatasetError(
+                f"invalid attestation ledger line {line_number}"
+            ) from exc
+    return records
+
+
+def _append_jsonl_atomic(path: Path, record: dict[str, Any]) -> None:
+    existing = path.read_bytes() if path.exists() else b""
+    if existing and not existing.endswith(b"\n"):
+        existing += b"\n"
+    line = json.dumps(
+        record, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8") + b"\n"
+    _atomic_write_if_changed(path, existing + line)
+
+
+def _partition_hashes(entries: Sequence[dict[str, Any]]) -> dict[str, str]:
+    partition_kinds = {
+        "RAW_KLINE_15M",
+        "RAW_FUNDING",
+        "DERIVED_KLINE_1H",
+        "DERIVED_KLINE_4H",
+        "DAILY_LIQUIDITY",
+    }
+    return {
+        str(item["path"]): str(item["sha256"])
+        for item in entries
+        if item.get("kind") in partition_kinds
+    }
 
 
 def _payload_hash(payload: Any) -> str:

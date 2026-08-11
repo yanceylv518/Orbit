@@ -38,12 +38,13 @@ shortline-data-v1/
 ├─ derived/4h/{symbol}/*.jsonl.gz
 ├─ derived/daily_liquidity/{symbol}/*.jsonl.gz
 ├─ verification/native/{interval}/{symbol}/*.zip
+├─ attestations/native_verification.jsonl
 ├─ verification_report.json
 ├─ quality_report.json
 └─ manifest.json
 ```
 
-派生 gzip 固定 `mtime=0`，JSON 字段排序，因此相同输入产生相同字节和 SHA-256。manifest 按路径排序并计算数据集指纹；重复构建不会因为运行时间改变指纹。
+派生 gzip 固定 `mtime=0`，JSON 字段排序，因此相同输入产生相同字节和 SHA-256。manifest 按路径排序并计算数据集指纹；重复构建不会因为运行时间改变指纹。原生聚合校验源、校验报告和 append-only 校验凭证属于对数据的“证词”，不属于数据内容，因此明确排除在 manifest 身份清单之外。重复校验或换机器校验只能追加证词，不得改变数据集指纹。
 
 ## 3. 数据模型与无未来规则
 
@@ -89,11 +90,14 @@ shortline-data-v1/
 # 5. 样本构建只能显式标记 partial
 .\.venv\Scripts\python.exe backend/tools/shortline_dataset.py build --allow-partial
 
-# 6. 与官方原生聚合逐字段核对，结果写入 verification_report 和 manifest
+# 6. 与官方原生聚合逐字段核对；结果追加到独立凭证账本，不改变 manifest 指纹
 .\.venv\Scripts\python.exe backend/tools/shortline_dataset.py verify-native `
   --symbol LUNAUSDT --month 2022-05 --interval 1h
 
-# 7. 查询 T 时点的流动性币池
+# 7. 旧版 manifest 一次性迁移：移除校验证词，不改任何数据分区
+.\.venv\Scripts\python.exe backend/tools/shortline_dataset.py migrate-manifest
+
+# 8. 查询 T 时点的流动性币池
 .\.venv\Scripts\python.exe backend/tools/shortline_dataset.py universe `
   --timestamp 2022-05-01T00:00:00Z --min-history-days 30 `
   --lookback-days 7 --min-median-quote-volume 10000000 --limit 30

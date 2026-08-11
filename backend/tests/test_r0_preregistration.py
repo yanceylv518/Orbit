@@ -7,6 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = ROOT / "config" / "research" / "r0_shortline_screen.v1.json"
 DOC_PATH = ROOT / "docs" / "design" / "R0_SHORTLINE_SCREEN.md"
+FORMAL_MANIFEST_PATH = ROOT / "var" / "calibration" / "shortline-data-v1" / "manifest.json"
 
 
 class R0PreregistrationTests(unittest.TestCase):
@@ -28,7 +29,7 @@ class R0PreregistrationTests(unittest.TestCase):
         split = self.spec["sample_split"]
         self.assertEqual(
             dataset["manifest_fingerprint"],
-            "5c2404f90dc82c0ef074ca5b95cce5f67f15688e55674377032f48de13cf900a",
+            "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
         )
         self.assertEqual(
             dataset["quality_report_sha256"],
@@ -72,9 +73,22 @@ class R0PreregistrationTests(unittest.TestCase):
         self.assertIn("FROZEN_BEFORE_SIGNAL_EVALUATION", document)
         self.assertEqual(
             spec_sha256,
-            "806752e15bf7bf9ef4472c3e6b33ad7d05bd13804784a565cebc3ea8122a5c04",
+            "1e6574850cc13a7cde217ec292c953a36c52a7a24455f3101d13f634faacc8be",
         )
         self.assertIn(spec_sha256, document)
+
+    def test_contract_matches_formal_data_machine_when_dataset_is_present(self):
+        if not FORMAL_MANIFEST_PATH.exists():
+            self.skipTest("formal dataset is intentionally not stored in git")
+        manifest = json.loads(FORMAL_MANIFEST_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(
+            self.spec["dataset"]["manifest_fingerprint"],
+            manifest["dataset_fingerprint"],
+        )
+        self.assertEqual(
+            self.spec["dataset"]["quality_report_sha256"],
+            manifest["quality_report_sha256"],
+        )
 
 
 if __name__ == "__main__":

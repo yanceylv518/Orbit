@@ -5,7 +5,7 @@
   "dataset": {
     "protocol": "ORBIT_SHORTLINE_DATASET_V1",
     "root": "var/calibration/shortline-data-v1",
-    "manifest_fingerprint": "5c2404f90dc82c0ef074ca5b95cce5f67f15688e55674377032f48de13cf900a",
+    "manifest_fingerprint": "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
     "quality_report_sha256": "f5885005ebd245e79cfd1a2a7afb13837be5048b952c9bae02b9682c6638710f",
     "dataset_cutoff_ms": 1785542399999,
     "raw_interval": "15m",

@@ -85,6 +85,11 @@ def main() -> None:
     )
     verify_batch.add_argument("--sample-symbols", type=int, default=3)
 
+    commands.add_parser(
+        "migrate-manifest",
+        help="Separate stable data identity from validation attestations",
+    )
+
     query = commands.add_parser("universe", help="Query the point-in-time liquidity universe")
     query.add_argument("--timestamp", required=True)
     query.add_argument("--min-history-days", type=int, default=30)
@@ -229,6 +234,9 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False))
         if not result["passed"]:
             raise SystemExit(2)
+    elif args.command == "migrate-manifest":
+        result = ShortlineDatasetBuilder(root).migrate_manifest_identity()
+        print(json.dumps(result, ensure_ascii=False))
     elif args.command == "universe":
         result = query_universe(
             root, parse_timestamp(args.timestamp), args.min_history_days,

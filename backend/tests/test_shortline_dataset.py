@@ -321,14 +321,97 @@ class ShortlineDatasetBuilderTests(unittest.TestCase):
                 "symbol": "LUNAUSDT", "month": "2022-04", "interval": "1h",
                 "compared": 1, "mismatches": [], "passed": True,
             }
-            report = builder.record_native_verification(verification)
-            repeated = builder.record_native_verification(verification)
+            fingerprint = first["manifest"]["dataset_fingerprint"]
+            first_attestation = builder.record_native_verification(
+                verification, attester_id="machine-a",
+            )
+            first_ledger = (
+                root / "attestations" / "native_verification.jsonl"
+            ).read_bytes()
+            second_attestation = builder.record_native_verification(
+                verification, attester_id="machine-b",
+            )
+            complete_ledger = (
+                root / "attestations" / "native_verification.jsonl"
+            ).read_bytes()
             manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(report["report_sha256"], repeated["report_sha256"])
-            self.assertEqual(len(repeated["samples"]), 1)
-            self.assertIn(
+            report = json.loads(
+                (root / "verification_report.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["dataset_fingerprint"], fingerprint)
+            self.assertEqual(first_attestation["dataset_fingerprint"], fingerprint)
+            self.assertEqual(second_attestation["dataset_fingerprint"], fingerprint)
+            self.assertEqual(first_attestation["sequence"], 1)
+            self.assertEqual(second_attestation["sequence"], 2)
+            self.assertTrue(complete_ledger.startswith(first_ledger))
+            self.assertGreater(len(complete_ledger), len(first_ledger))
+            self.assertEqual(report["attestation_count"], 2)
+            self.assertNotIn(
                 "NATIVE_AGGREGATE_VERIFICATION",
                 {item["kind"] for item in manifest["entries"]},
+            )
+            self.assertFalse(manifest["validation_attestations_in_identity"])
+
+    def test_manifest_identity_migration_preserves_every_partition_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "shortline-data-v1"
+            raw = root / "raw" / "klines" / "15m" / "LUNAUSDT"
+            raw.mkdir(parents=True)
+            source = raw / "LUNAUSDT-15m-2022-04.zip"
+            _write_kline_zip(source, [candle_row(i * INTERVAL_MS) for i in range(4)])
+            write_archive_index(root / "metadata" / "archive_index.json", [ArchiveObject(
+                key="data/futures/um/monthly/klines/LUNAUSDT/15m/LUNAUSDT-15m-2022-04.zip",
+                size=source.stat().st_size, last_modified="2022-05-01T00:00:00Z",
+                etag=None, kind="KLINE_15M", symbol="LUNAUSDT", month="2022-04",
+            )], scope="ALL_USDT_PERPETUAL")
+            builder = ShortlineDatasetBuilder(root)
+            built = builder.build(dataset_cutoff_ms=_ms("2026-01-01T00:00:00Z"))
+            stable_fingerprint = built["manifest"]["dataset_fingerprint"]
+            partition_hashes = {
+                item["path"]: item["sha256"]
+                for item in built["manifest"]["entries"]
+                if item["kind"].startswith("RAW_") or item["kind"].startswith("DERIVED_")
+            }
+
+            evidence = root / "verification" / "native" / "1h" / "LUNAUSDT" / "sample.zip"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_bytes(b"validation evidence, not dataset content")
+            (root / "verification_report.json").write_text(json.dumps({
+                "protocol": "ORBIT_SHORTLINE_DATASET_V1",
+                "samples": [{
+                    "symbol": "LUNAUSDT", "month": "2022-04", "interval": "1h",
+                    "compared": 1, "mismatches": [], "passed": True,
+                }],
+            }), encoding="utf-8")
+            legacy = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+            legacy["entries"].append({
+                "path": evidence.relative_to(root).as_posix(),
+                "size_bytes": evidence.stat().st_size,
+                "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest(),
+                "kind": "NATIVE_KLINE_VERIFICATION_SOURCE",
+            })
+            legacy["dataset_fingerprint"] = "legacy-verification-dependent-fingerprint"
+            (root / "manifest.json").write_text(json.dumps(legacy), encoding="utf-8")
+
+            result = builder.migrate_manifest_identity()
+            migrated = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+            migrated_partition_hashes = {
+                item["path"]: item["sha256"]
+                for item in migrated["entries"]
+                if item["kind"].startswith("RAW_") or item["kind"].startswith("DERIVED_")
+            }
+            self.assertTrue(result["partitions_unchanged"])
+            self.assertEqual(result["legacy_attestations_imported"], 1)
+            self.assertEqual(result["dataset_fingerprint"], stable_fingerprint)
+            self.assertEqual(migrated_partition_hashes, partition_hashes)
+            self.assertTrue(evidence.exists())
+            legacy_attestations = (
+                root / "attestations" / "native_verification.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(legacy_attestations), 1)
+            self.assertEqual(
+                json.loads(legacy_attestations[0])["dataset_fingerprint"],
+                stable_fingerprint,
             )
 
     def test_complete_build_rejects_missing_indexed_partitions(self):

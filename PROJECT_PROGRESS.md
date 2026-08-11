@@ -1265,3 +1265,11 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 - **已知边界**：30% 回撤机制当前只停止后续订单，不会自动平仓；逐仓不构成组合最大损失
   保证。风险调整后的 3 倍理论权益基准尚未独立落账，暂不能用原始 paper 差额替代。
 - **验证**：后端全量 `340 tests OK`；前端 `npm run check` 与生产 `npm run build` 通过。
+
+### R0-FIX：稳定数据身份与独立校验证词（2026-08-11）
+
+- **打回缺陷已修复**：manifest 内容身份明确排除 `verification/native/`、`verification_report.json` 与 `attestations/`；原生聚合校验不再重建或改变数据指纹。
+- **独立 append-only 证词**：每次 `verify-native` 追加一条 `ORBIT_NATIVE_AGGREGATE_ATTESTATION_V1` 凭证，包含所证明的数据指纹、机器标识、顺序号、结果及自身 SHA；兼容报告只是证词投影，不进入数据身份。正式数据原有 6 组原生校验记录已一次性导入该账本，未丢失历史证据。
+- **正式数据一次性迁移完成**：旧指纹 `5c2404f9…f900a` 恢复为首次 COMPLETE 构建登记的稳定指纹 `dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546`；现场逐项核对 `101,721` 个数据分区，迁移前后哈希完全一致，质量报告 SHA 仍为 `f5885005…6638710f`。
+- **R-0 重新锁定**：机器契约已绑定稳定正式指纹，新契约 SHA-256 为 `1e6574850cc13a7cde217ec292c953a36c52a7a24455f3101d13f634faacc8be`；文档与静态哈希门同步更新，并新增“正式数据存在时契约必须与实测 manifest 一致”的 fail-closed 测试。
+- **验收证据**：重复校验/跨机器校验指纹不变、证词前缀只追加、迁移零分区变化均有自动化测试；聚焦 `27 tests OK`，后端全量 `401 tests OK`，`MODULAR_BASELINE_PASS`，`git diff --check` 通过。未读取任何 R-0 信号或收益，未打开锁箱，未修改 TB4、LIVE 或运行账本。

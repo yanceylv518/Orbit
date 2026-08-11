@@ -3,7 +3,7 @@
 预注册时间：2026-08-11  
 状态：`FROZEN_BEFORE_SIGNAL_EVALUATION`  
 机器契约：`config/research/r0_shortline_screen.v1.json`  
-机器契约 SHA-256：`806752e15bf7bf9ef4472c3e6b33ad7d05bd13804784a565cebc3ea8122a5c04`
+机器契约 SHA-256：`1e6574850cc13a7cde217ec292c953a36c52a7a24455f3101d13f634faacc8be`
 
 ## 1. 这次研究究竟回答什么
 
@@ -19,13 +19,13 @@ R-0 只回答一个问题：在 Binance USDT 永续合约的全历史市场中�
 ### 2.1 唯一数据版本
 
 - 数据协议：`ORBIT_SHORTLINE_DATASET_V1`；
-- 当前正式 manifest 指纹：`5c2404f90dc82c0ef074ca5b95cce5f67f15688e55674377032f48de13cf900a`；
+- 当前正式 manifest 指纹：`dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546`；
 - 质量报告 SHA-256：`f5885005ebd245e79cfd1a2a7afb13837be5048b952c9bae02b9682c6638710f`；
 - 数据截止：`2026-07-31 23:59:59.999 UTC`；
 - 原始周期：15 分钟；只使用连续、完整的原始 K 线；
 - 要求数据状态为 `COMPLETE`、未解释缺失为 0、重复 K 线为 0。
 
-进度文档曾记录初次 COMPLETE 构建指纹 `dcb60c95…ca546`。之后原生聚合校验报告及其校验源进入 manifest，当前 manifest 已更新为上述 `5c2404f9…f900a`，质量报告 SHA 未变。R-0 绑定当前完整 manifest；运行时任一指纹不一致都必须停止，不能自动换用“差不多”的数据版本。
+正式数据身份已经迁移为稳定的内容指纹：数据分区、质量报告、停牌登记及构建元数据属于内容身份；原生聚合校验报告、校验源和 append-only 校验凭证属于独立证词，不进入身份清单。迁移没有修改任何数据分区，并恢复初次 COMPLETE 构建登记的 `dcb60c95…ca546`。R-0 绑定该稳定内容指纹；运行时任一指纹不一致都必须停止，不能自动换用“差不多”的数据版本。
 
 ### 2.2 训练与一次性锁箱
 
