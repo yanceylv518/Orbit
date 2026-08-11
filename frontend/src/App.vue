@@ -75,6 +75,12 @@
           <template v-if="store.activePage === 'strategy'">
             <span class="pill">冻结定义 · 只读</span>
           </template>
+          <template v-else-if="store.activePage === 'data'">
+            <span class="pill">历史研究数据 · 与实盘隔离</span>
+          </template>
+          <template v-else-if="store.activePage === 'research'">
+            <span class="pill">预注册 · 结果只追加</span>
+          </template>
           <template v-else-if="store.activePage === 'forward'">
             <span class="pill">自动执行与核对</span>
           </template>
@@ -118,7 +124,9 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import NavIcon from "./components/NavIcon.vue";
 import GlossaryModal from "./components/GlossaryModal.vue";
 import AccountsPage from "./pages/AccountsPage.vue";
+import DataPage from "./pages/DataPage.vue";
 import ForwardPage from "./pages/ForwardPage.vue";
+import ResearchPage from "./pages/ResearchPage.vue";
 import ReviewPage from "./pages/ReviewPage.vue";
 import RiskPage from "./pages/RiskPage.vue";
 import StrategyPage from "./pages/StrategyPage.vue";
@@ -147,8 +155,10 @@ const navGroups = [
   {
     label: "",
     items: [
-      { id: "forward", label: "实盘" },
+      { id: "data", label: "数据" },
+      { id: "research", label: "研究" },
       { id: "strategy", label: "策略" },
+      { id: "forward", label: "实盘" },
       { id: "review", label: "复盘" },
       { id: "risk", label: "风控" },
       { id: "accounts", label: "账户" },
@@ -161,6 +171,8 @@ const readOnlyMode = computed(() => store.state?.strategy?.mode === "read_only")
 const riskStatusText = computed(() => statusLabel(store.state?.strategy?.risk_status || "normal"));
 const riskStatusClass = computed(() => (store.state?.strategy?.risk_status === "normal" ? "ok" : "warn"));
 const pageComponents = {
+  data: DataPage,
+  research: ResearchPage,
   strategy: StrategyPage,
   accounts: AccountsPage,
   forward: ForwardPage,

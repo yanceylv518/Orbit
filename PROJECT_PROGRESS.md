@@ -929,6 +929,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 **MOD-0 完成记录（Codex，2026-08-11）：本地基线通过，生产运行快照待部署主机执行。** 新增机器可读 `ORBIT_MODULAR1_RUNTIME_BASELINE_V1`，冻结 TB4 spec SHA `f74db0b9…c56ed`、definition hash `3207b10f…e6753`，并逐文件锁定 Paper/Live协议、runner、前向、执行、订单和风险关键路径；新增只读 `verify_modular_baseline.py`，可在开发机核对静态基线，也可在已初始化主机用 `--require-runtime` 验证真实 Paper manifest 与事件哈希链且不写运行状态。`MODULAR1_BASELINE.md` 已盘点重构前导航、API、代码归属和统一术语。故障隔离测试向 DATA-1R 目录注入失败并证明兄弟 `var/forward/tb4` manifest/events 字节不变。验收：机器基线 PASS；新增定向 8 项通过；后端全量 `387 passed`；TB4 对齐 `9,940` 周期/`237` 次再平衡、收益与目标权重误差均 `0.0`、`TB4_ALIGNMENT_PASS`；前端 check/build 与 `git diff --check` 通过。开发机未初始化 TB4，不冒充生产manifest/账本快照已验；该项必须在生产发布前后按基线文档执行。
 
+**MOD-1 完成记录（Codex，2026-08-11）：七模块信息架构已落地，交易后端零改动。** 一级导航调整为「数据 / 研究 / 策略 / 实盘 / 复盘 / 风控 / 账户」；新增独立数据工作区承接 DATA-1R、数据任务历史、本地数据目录和手工拉取，研究工作区聚焦「量价关系」主题、预注册候选、实验任务和只追加结果，策略工作区只展示冻结的 TB4 正式定义与证据。旧 `#strategy/research` 地址兼容跳转到 `#research`。正式数据版本固定优先识别 `shortline-data-v1`，归档 manifest 条目与旧缓存文件/K线/Funding 数量分开表达；数据任务状态使用「任务完成/任务失败」，不再与研究 PASS/FAIL 混淆。前端状态也将数据错误与研究错误分开，可恢复 DATA-1R 携带的历史错误不会串到研究页面。验收：前端 check/build 通过；浏览器桌面与 `390×844` 窄屏实测通过，三页内容边界成立且控制台无 warning/error；后端全量 `387 passed`；机器基线 `MODULAR_BASELINE_PASS`，受保护 TB4 文件哈希全部不变；TB4 对齐 `9,940` 周期/`237` 次再平衡、收益与目标权重误差均 `0.0`、`TB4_ALIGNMENT_PASS`。本阶段未修改任何后端/API/策略定义/实盘路径；开发机仍无 `var/forward/tb4` 运行快照，生产发布前后必须执行 `--require-runtime` 门禁。
+
 ## 短线平台推进（2026-08-10 起，用户拍板）
 
 **背景**：LIVE-SMALL V1（TB4×3 自动实盘）已在生产运行。用户决定启动下一阶段：研究新的短线策略、升级多账户多策略架构。按架构评审（2026-08-10）的前置条件,推进分两轨,**任何工作不得触碰生产运行路径**：

@@ -1,23 +1,44 @@
 <template>
-  <section class="page active research-page">
+  <section class="page active research-page" :class="{ 'data-center-page': isDataMode }">
     <div class="page-toolbar">
       <div>
-        <h2>候选策略检验记录</h2>
-        <p>每个结论都必须对照跑数前写死的参数、成本和及格线。</p>
+        <h2>{{ isDataMode ? "市场数据中心" : "量价关系研究" }}</h2>
+        <p>
+          {{ isDataMode
+            ? "统一管理历史研究数据、数据质量和构建任务；这里的故障不会改变实盘运行数据。"
+            : "先验证成交量与价格之间是否存在可重复关系，再讨论具体入场信号。" }}
+        </p>
       </div>
       <div class="toolbar">
         <button class="button ghost" :disabled="store.researchBusy" @click="loadResearchCatalog">
-          {{ store.researchBusy ? "读取中..." : "刷新档案" }}
+          {{ store.researchBusy ? "读取中..." : isDataMode ? "刷新数据" : "刷新研究档案" }}
         </button>
-        <button class="button primary" @click="showCreate = !showCreate">
+        <button v-if="isResearchMode" class="button primary" @click="showCreate = !showCreate">
           {{ showCreate ? "收起新候选" : "登记新候选" }}
         </button>
       </div>
     </div>
 
-    <div v-if="store.researchError" class="service-alert">{{ store.researchError }}</div>
+    <div v-if="pageError" class="service-alert">{{ pageError }}</div>
 
-    <article v-if="showCreate" class="panel research-create-panel">
+    <article v-if="isResearchMode" class="panel research-topic-panel">
+      <div class="panel-head research-panel-head">
+        <div>
+          <span class="eyebrow">当前研究主题</span>
+          <h3>量价关系</h3>
+          <p class="muted">目标是判断成交量变化与后续价格行为是否存在跨市场、跨周期可重复的统计关系。当前阶段不组合入场信号，也不授权Paper或Live。</p>
+        </div>
+        <StatusBadge text="研究中" color="blue" />
+      </div>
+      <div class="research-audit-strip">
+        <div><span>统一历史数据</span><strong>{{ officialDataset?.dataset_state === "COMPLETE" ? "已完整" : "待确认" }}</strong></div>
+        <div><span>基础周期</span><strong>15分钟</strong></div>
+        <div><span>派生周期</span><strong>1小时 / 4小时</strong></div>
+        <div><span>下一步</span><strong>冻结R-0假设与变量</strong></div>
+      </div>
+    </article>
+
+    <article v-if="isResearchMode && showCreate" class="panel research-create-panel">
       <div class="panel-head research-panel-head">
         <div>
           <h3>先写死规则，再登记新候选 <HelpTip term="预注册" /></h3>
@@ -80,16 +101,34 @@
       </div>
     </article>
 
-    <div class="summary-grid research-summary">
+    <div v-if="isDataMode" class="summary-grid research-summary">
       <div class="summary-item">
-        <span>可用的本地数据</span>
-        <strong>{{ store.researchDatasets.length }}</strong>
-        <small>{{ totalRows.toLocaleString("zh-CN") }} 行记录</small>
+        <span>正式历史数据版本</span>
+        <strong>{{ officialDataset?.dataset_state === "COMPLETE" ? "完整" : officialDataset ? "不完整" : "未登记" }}</strong>
+        <small class="mono">{{ shortHash(officialDataset?.sha256) }}</small>
       </div>
       <div class="summary-item">
-        <span>已登记候选</span>
+        <span>全市场归档条目</span>
+        <strong>{{ Number(officialDataset?.rows || 0).toLocaleString("zh-CN") }}</strong>
+        <small>manifest条目，不是K线根数</small>
+      </div>
+      <div class="summary-item">
+        <span>旧缓存数据文件</span>
+        <strong>{{ legacyDatasets.length }}</strong>
+        <small>{{ ohlcDatasetCount }} 个K线 · {{ fundingDatasetCount }} 个Funding</small>
+      </div>
+      <div class="summary-item">
+        <span>数据任务历史</span>
+        <strong>{{ dataRuns.length }}</strong>
+        <small>成功、失败和停止记录均保留</small>
+      </div>
+    </div>
+
+    <div v-else class="summary-grid research-summary">
+      <div class="summary-item">
+        <span>历史研究候选</span>
         <strong>{{ store.researchCandidates.length }}</strong>
-        <small>登记后不可修改</small>
+        <small>M0 / F1 / G1 / G2 等既有档案</small>
       </div>
       <div class="summary-item">
         <span>未通过的候选</span>
@@ -101,16 +140,24 @@
         <strong>{{ availableResults }}</strong>
         <small>本地结构化结果</small>
       </div>
+      <div class="summary-item">
+        <span>实验任务历史</span>
+        <strong>{{ experimentRuns.length }}</strong>
+        <small>不包含数据下载和构建任务</small>
+      </div>
     </div>
 
-    <article v-if="store.researchRuns.length" class="panel research-runs-panel">
+    <article v-if="visibleRuns.length" class="panel research-runs-panel">
       <div class="panel-head">
-        <div><h3>正在做和做完的检验</h3><p class="muted">一次只运行一个；历史状态和结果只能新增，不能覆盖</p></div>
-        <span class="pill">{{ store.researchRuns.length }} 次</span>
+        <div>
+          <h3>{{ isDataMode ? "数据任务记录" : "实验运行记录" }}</h3>
+          <p class="muted">{{ isDataMode ? "只显示数据拉取、全市场构建及其历史错误" : "只显示候选实验；程序完成不等于研究通过" }}</p>
+        </div>
+        <span class="pill">{{ visibleRuns.length }} 次</span>
       </div>
       <div class="research-run-list">
-        <button v-for="run in store.researchRuns.slice(0, 8)" :key="run.id" class="research-run-row" :class="{ static: run.job_type === 'dataset_fetch' }" @click="openRunTarget(run)">
-          <span class="candidate-id mono">{{ run.job_type === "dataset_fetch" ? "DATA" : run.candidate_id }}</span>
+        <button v-for="run in visibleRuns.slice(0, 8)" :key="run.id" class="research-run-row" :class="{ static: Boolean(run.job_type) }" @click="openRunTarget(run)">
+          <span class="candidate-id mono">{{ run.job_type ? "DATA" : run.candidate_id }}</span>
           <span class="research-run-copy"><strong>{{ runLabel(run) }}</strong><small>{{ dateTime(run.updated_at) }} · {{ run.id }}</small></span>
           <span class="research-progress"><i :style="{ width: `${run.progress || 0}%` }"></i></span>
           <StatusBadge :text="runStatusLabel(run)" :raw="run.status" :color="runStatusColor(run)" />
@@ -118,7 +165,7 @@
       </div>
     </article>
 
-    <article class="panel research-shortline-panel">
+    <article v-if="isDataMode" class="panel research-shortline-panel">
       <div class="panel-head research-panel-head">
         <div>
           <h3>全市场短线研究数据</h3>
@@ -177,7 +224,7 @@
       </div>
     </article>
 
-    <article class="panel research-dataset-panel">
+    <article v-if="isDataMode" class="panel research-dataset-panel">
       <div class="panel-head research-panel-head">
         <div>
           <h3>研究可以使用哪些本地数据？</h3>
@@ -228,12 +275,12 @@
       </div>
     </article>
 
-    <div class="research-workspace">
+    <div v-if="isResearchMode" class="research-workspace">
       <article class="panel research-history-panel">
         <div class="panel-head">
           <div>
-            <h3>以前检验过哪些想法？</h3>
-            <p class="muted">通过和失败都永久保留，不能只留下好看的结果</p>
+            <h3>历史研究档案</h3>
+            <p class="muted">M0、F1、G1、G2及后续实验的通过和失败记录都永久保留</p>
           </div>
           <span class="pill">{{ store.researchCandidates.length }} 项</span>
         </div>
@@ -398,6 +445,9 @@ import {
   store,
 } from "../stores/appStore.js";
 
+const props = defineProps({
+  mode: { type: String, default: "research" },
+});
 const datasetQuery = ref("");
 const datasetKind = ref("all");
 const showCreate = ref(false);
@@ -415,8 +465,24 @@ const datasetKinds = [
   { value: "series", label: "序列" },
 ];
 
+const isDataMode = computed(() => props.mode === "data");
+const isResearchMode = computed(() => !isDataMode.value);
+const pageError = computed(() => (isDataMode.value ? store.dataError : store.researchError));
 const candidate = computed(() => store.researchCandidate);
 const result = computed(() => store.researchResult);
+const dataRuns = computed(() => store.researchRuns.filter((item) => (
+  item.job_type === "dataset_fetch" || item.job_type === "shortline_dataset"
+)));
+const experimentRuns = computed(() => store.researchRuns.filter((item) => !item.job_type));
+const visibleRuns = computed(() => (isDataMode.value ? dataRuns.value : experimentRuns.value));
+const officialDataset = computed(() => (
+  store.researchDatasets.find((item) => item.id === "shortline-data-v1")
+  || store.researchDatasets.find((item) => item.kind === "dataset_manifest")
+  || null
+));
+const legacyDatasets = computed(() => store.researchDatasets.filter((item) => item.kind !== "dataset_manifest"));
+const ohlcDatasetCount = computed(() => legacyDatasets.value.filter((item) => ["ohlc", "series"].includes(item.kind)).length);
+const fundingDatasetCount = computed(() => legacyDatasets.value.filter((item) => item.kind === "funding").length);
 const selectedTemplate = computed(() => store.researchTemplates.find((item) => item.id === draft.protocol) || null);
 const activeRunStatuses = ["queued", "running", "cancelling"];
 const hasActiveRun = computed(() => store.researchRuns.some((item) => activeRunStatuses.includes(item.status)));
@@ -433,7 +499,6 @@ const compatibleDatasets = computed(() => {
 const canFreeze = computed(() => Boolean(
   draft.confirmed && draft.id && draft.protocol && draft.datasetIds.length,
 ));
-const totalRows = computed(() => store.researchDatasets.reduce((sum, item) => sum + Number(item.rows || 0), 0));
 const failedCandidates = computed(() => store.researchCandidates.filter((item) => {
   const verdict = item.latest_verdict || item.verdict;
   return verdict && String(verdict).toUpperCase() !== "PENDING" && !isPass(verdict);
@@ -580,7 +645,7 @@ function openRunTarget(run) {
 function startRunPolling() {
   if (runPollTimer) return;
   runPollTimer = window.setInterval(async () => {
-    const active = store.researchRuns.find((item) => activeRunStatuses.includes(item.status));
+    const active = visibleRuns.value.find((item) => activeRunStatuses.includes(item.status));
     if (!active) {
       window.clearInterval(runPollTimer);
       runPollTimer = null;
@@ -608,6 +673,8 @@ function runLabel(run) {
 }
 
 function runStatusLabel(run) {
+  if (run.job_type && run.status === "succeeded") return "任务完成";
+  if (run.job_type && run.status === "failed") return "任务失败";
   return {
     queued: enumLabel("queued"),
     running: `正在运行 ${run.progress || 0}%`,

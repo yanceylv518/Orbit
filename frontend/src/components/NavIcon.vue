@@ -15,6 +15,11 @@
       <path d="m13 15 2.2 2.2L20 12.4" />
       <path d="M3 3h18v18H3z" />
     </template>
+    <template v-else-if="name === 'data'">
+      <ellipse cx="12" cy="5" rx="8" ry="3" />
+      <path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" />
+      <path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
+    </template>
     <template v-else-if="name === 'dashboard'">
       <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
       <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />

@@ -26,7 +26,6 @@ import { LEGACY_PAGE_ALIASES } from "../domain/labels.js";
 export const store = reactive({
   state: null,
   activePage: (location.hash.replace("#", "") || "forward").split("/")[0],
-  activeStrategyTab: location.hash.replace("#", "") === "strategy/research" ? "research" : "official",
   selectedSymbol: "",
   selectedPlanAccount: "",
   loginBusy: false,
@@ -44,6 +43,7 @@ export const store = reactive({
   researchResultBusy: false,
   researchWorkflowBusy: false,
   researchError: "",
+  dataError: "",
   strategies: [],
   selectedStrategy: null,
   strategyCatalogBusy: false,
@@ -158,18 +158,11 @@ export const symbolOverviews = computed(() => aggregateSymbols(symbols.value));
 export function setActivePage(page) {
   const requested = String(page || "forward");
   const route = LEGACY_PAGE_ALIASES[requested] || requested;
-  const [base, child] = route.split("/");
+  const [base] = route.split("/");
   store.activePage = base;
-  if (base === "strategy") {
-    store.activeStrategyTab = child === "research" ? "research" : "official";
-  }
   if (location.hash !== `#${route}`) {
     history.replaceState(null, "", `#${route}`);
   }
-}
-
-export function setStrategyTab(tab) {
-  setActivePage(tab === "research" ? "strategy/research" : "strategy");
 }
 
 export function selectSymbol(symbol, openPage = false) {
@@ -213,6 +206,7 @@ export async function loadResearchCatalog() {
   if (store.researchBusy) return false;
   store.researchBusy = true;
   store.researchError = "";
+  store.dataError = "";
   try {
     const [datasetsResponse, candidatesResponse, templatesResponse, runsResponse] = await Promise.all([
       fetchResearchDatasets(),
@@ -252,7 +246,9 @@ export async function loadResearchCatalog() {
     if (selectedId) await selectResearchCandidate(selectedId);
     return true;
   } catch (error) {
-    store.researchError = error instanceof Error ? error.message : "读取研究档案失败。";
+    const message = error instanceof Error ? error.message : "读取研究档案失败。";
+    store.researchError = message;
+    store.dataError = message;
     return false;
   } finally {
     store.researchBusy = false;
@@ -391,7 +387,7 @@ export async function startResearchRun(candidateId, openLockbox = false) {
 export async function startResearchDatasetFetch(payload) {
   if (store.researchWorkflowBusy) return null;
   store.researchWorkflowBusy = true;
-  store.researchError = "";
+  store.dataError = "";
   try {
     const { response, data } = await createResearchDatasetFetchRequest(payload);
     if (!response.ok || data.error) {
@@ -400,7 +396,7 @@ export async function startResearchDatasetFetch(payload) {
     store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
     return data;
   } catch (error) {
-    store.researchError = error instanceof Error ? error.message : "启动数据拉取失败。";
+    store.dataError = error instanceof Error ? error.message : "启动数据拉取失败。";
     return null;
   } finally {
     store.researchWorkflowBusy = false;
@@ -410,7 +406,7 @@ export async function startResearchDatasetFetch(payload) {
 export async function startShortlineDatasetBuild(payload) {
   if (store.researchWorkflowBusy) return null;
   store.researchWorkflowBusy = true;
-  store.researchError = "";
+  store.dataError = "";
   try {
     const { response, data } = await createShortlineDatasetRequest(payload);
     if (!response.ok || data.error) {
@@ -419,7 +415,7 @@ export async function startShortlineDatasetBuild(payload) {
     store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
     return data;
   } catch (error) {
-    store.researchError = error instanceof Error ? error.message : "启动全市场数据任务失败。";
+    store.dataError = error instanceof Error ? error.message : "启动全市场数据任务失败。";
     return null;
   } finally {
     store.researchWorkflowBusy = false;
@@ -429,7 +425,7 @@ export async function startShortlineDatasetBuild(payload) {
 export async function cancelResearchRun(runId) {
   if (store.researchWorkflowBusy) return null;
   store.researchWorkflowBusy = true;
-  store.researchError = "";
+  store.dataError = "";
   try {
     const { response, data } = await cancelResearchRunRequest(runId);
     if (!response.ok || data.error) {
@@ -438,7 +434,7 @@ export async function cancelResearchRun(runId) {
     store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
     return data;
   } catch (error) {
-    store.researchError = error instanceof Error ? error.message : "停止数据任务失败。";
+    store.dataError = error instanceof Error ? error.message : "停止数据任务失败。";
     return null;
   } finally {
     store.researchWorkflowBusy = false;
@@ -447,8 +443,13 @@ export async function cancelResearchRun(runId) {
 
 export async function refreshResearchRun(runId) {
   const { response, data } = await fetchResearchRun(runId);
-  if (!response.ok || data.error) {
-    store.researchError = researchErrorMessage(response, data, "读取研究任务失败");
+  // A run may retain its last domain error while a resumable data task is
+  // running again. Only an error-shaped API response should become a page
+  // error; the run's own error remains visible in its task-history row.
+  if (!response.ok || (data.error && !data.id)) {
+    const existing = store.researchRuns.find((item) => item.id === runId);
+    const errorKey = existing?.job_type ? "dataError" : "researchError";
+    store[errorKey] = researchErrorMessage(response, data, "读取研究任务失败");
     return null;
   }
   store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
