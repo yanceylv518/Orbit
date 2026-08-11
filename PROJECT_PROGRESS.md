@@ -927,6 +927,8 @@ V1+V2 完成后是一个**显式 go/no-go 决策点**：过 bar → 才进入运
 
 **用户确认（2026-08-11）：五项决策全部按建议通过,设计升级 `ACCEPTED`。** Codex 执行顺序：MOD-0（冻结基线）→ MOD-1（信息架构）,与 R-0（按既有研究平台机制预注册+筛查）并行;每个 MOD 独立验收,§12 六条 TB4 回归证据每阶段必跑。
 
+**MOD-0 完成记录（Codex，2026-08-11）：本地基线通过，生产运行快照待部署主机执行。** 新增机器可读 `ORBIT_MODULAR1_RUNTIME_BASELINE_V1`，冻结 TB4 spec SHA `f74db0b9…c56ed`、definition hash `3207b10f…e6753`，并逐文件锁定 Paper/Live协议、runner、前向、执行、订单和风险关键路径；新增只读 `verify_modular_baseline.py`，可在开发机核对静态基线，也可在已初始化主机用 `--require-runtime` 验证真实 Paper manifest 与事件哈希链且不写运行状态。`MODULAR1_BASELINE.md` 已盘点重构前导航、API、代码归属和统一术语。故障隔离测试向 DATA-1R 目录注入失败并证明兄弟 `var/forward/tb4` manifest/events 字节不变。验收：机器基线 PASS；新增定向 8 项通过；后端全量 `387 passed`；TB4 对齐 `9,940` 周期/`237` 次再平衡、收益与目标权重误差均 `0.0`、`TB4_ALIGNMENT_PASS`；前端 check/build 与 `git diff --check` 通过。开发机未初始化 TB4，不冒充生产manifest/账本快照已验；该项必须在生产发布前后按基线文档执行。
+
 ## 短线平台推进（2026-08-10 起，用户拍板）
 
 **背景**：LIVE-SMALL V1（TB4×3 自动实盘）已在生产运行。用户决定启动下一阶段：研究新的短线策略、升级多账户多策略架构。按架构评审（2026-08-10）的前置条件,推进分两轨,**任何工作不得触碰生产运行路径**：

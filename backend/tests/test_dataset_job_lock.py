@@ -34,6 +34,39 @@ class RecordingEvaluator(CachedToolEvaluator):
 
 
 class DatasetJobLockTests(unittest.TestCase):
+    def test_data1r_failure_cannot_modify_tb4_runtime_files(self):
+        class FailingEvaluator(RecordingEvaluator):
+            def _run_shortline_phase(self, command, **kwargs):
+                self.shortline_root.mkdir(parents=True, exist_ok=True)
+                (self.shortline_root / "failure-marker.json").write_text(
+                    json.dumps({"phase": kwargs["phase"]}), encoding="utf-8",
+                )
+                raise RuntimeError("injected DATA-1R failure")
+
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            calibration = project / "var" / "calibration"
+            tb4 = project / "var" / "forward" / "tb4"
+            tb4.mkdir(parents=True)
+            manifest = tb4 / "manifest.json"
+            events = tb4 / "events.jsonl"
+            manifest.write_bytes(b'{"immutable":"manifest"}\n')
+            events.write_bytes(b'{"immutable":"event"}\n')
+            before = {path.name: path.read_bytes() for path in (manifest, events)}
+            evaluator = FailingEvaluator(project, calibration)
+            evaluator.reserve_shortline_dataset("run-failure")
+
+            with self.assertRaisesRegex(RuntimeError, "injected DATA-1R failure"):
+                evaluator.build_shortline_dataset(
+                    {"workers": 1}, "run-failure", lambda _item: None,
+                )
+
+            self.assertTrue((evaluator.shortline_root / "failure-marker.json").is_file())
+            self.assertEqual(
+                {path.name: path.read_bytes() for path in (manifest, events)},
+                before,
+            )
+
     def test_lock_excludes_cli_and_ui_and_exposes_holder(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "shortline-data-v1"

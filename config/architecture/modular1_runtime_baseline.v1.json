@@ -1,0 +1,21 @@
+{
+  "protocol": "ORBIT_MODULAR1_RUNTIME_BASELINE_V1",
+  "accepted_design": "MODULAR-1",
+  "source_commit": "c5ed5cf9d2e283d9af6fa0279ec080d68652fdad",
+  "tb4": {
+    "strategy_id": "TB4_TREND_BASKET_V1",
+    "spec_sha256": "f74db0b9f9c8018ffb21ecdc5a0f1fbb6d615704f291f9b72f478ed62bfc56ed",
+    "definition_hash": "3207b10f98382254a308dc07f133718f0c33615dce55c358dc5e03ef5bae6753",
+    "paper_data_dir": "var/forward/tb4",
+    "live_execution_ledger": "var/forward/live-small/executions.jsonl"
+  },
+  "protected_files": {
+    "docs/design/TB4_FORWARD.md": "f143c5f5d0dc06b9b687c1c65e815c181baca6e77757f9dc6c73af69b187cf08",
+    "docs/design/LIVE_SMALL.md": "386b1db0033d73dc1cac33b72123b6f8ac26646cbddfabae65aef6b29ad4bc75",
+    "backend/src/orbit/domain/strategy/trend_basket_runner.py": "c51ae92a2da6c01536b1c221f26e30219d03c87d6a34b1962aaad8f212c51ba8",
+    "backend/src/orbit/application/trend_forward.py": "97417c4bc57147085213ef5b2dc9de51accf8c4e14d411c3ba8e0b2b5e2dd10c",
+    "backend/src/orbit/application/live_execution.py": "b7434abc787b1598b70fad7308b3c25c0d1204ba66066144cf21ce4af98817ac",
+    "backend/src/orbit/application/order_execution.py": "05050be674b634cb07c5ad59751760a7df8cebd61b3b0c20efa4fba9e3504366",
+    "backend/src/orbit/application/live_risk.py": "d4aa77df34c45751b5259c82bc0b001d3d937aa81b72d54d33bd11aca3444e92"
+  }
+}
