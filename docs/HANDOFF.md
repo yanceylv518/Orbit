@@ -107,6 +107,7 @@ Orbit 是一个**面向加密永续合约的、纪律化的策略研究 + 多账
 
 ## 9. 关键文件地图
 
+- 系统模块重划分：`docs/design/SYSTEM_MODULE_REDESIGN.md`（状态 `PROPOSED`，定义数据/研究/策略/运行/执行/风险/复盘/账户边界与 TB4 零影响迁移门）
 - 策略研究结论：`docs/design/{MODEL_REASSESSMENT,ADMISSION,TREND_BASKET,TB3_ADMISSION,TB_ROBUST,TB4_FORWARD}.md`
 - 冻结策略实现：`backend/src/orbit/domain/strategy/trend_basket_runner.py`
 - 研究/标定内核：`backend/src/orbit/domain/calibration/`（`trend_basket.py`、`estimators.py`、`replay.py`）
