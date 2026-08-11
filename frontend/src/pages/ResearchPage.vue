@@ -750,6 +750,7 @@ import {
   loadDataCatalog,
   loadDataQuality,
   loadResearchCatalog,
+  refreshR0Status,
   refreshResearchRun,
   selectResearchCandidate,
   selectResearchResult,
@@ -902,7 +903,7 @@ async function refreshCatalog(force = false) {
   const loaded = await loadResearchCatalog();
   catalogReady.value = loaded;
   if (loaded && !draft.datasetIds.length) applySuggestedDatasets();
-  if (loaded && hasActiveRun.value) startRunPolling();
+  if (loaded && (hasActiveRun.value || r0Status.value?.training_active)) startRunPolling();
 }
 
 async function openQuality(kind, page = 1) {
@@ -1130,6 +1131,10 @@ function startRunPolling() {
   runPollTimer = window.setInterval(async () => {
     const runs = isDataMode.value ? dataRuns.value : experimentRuns.value;
     const active = runs.find((item) => activeRunStatuses.includes(item.status));
+    if (!active && isResearchMode.value && r0Status.value?.training_active) {
+      await refreshR0Status();
+      return;
+    }
     if (!active) {
       window.clearInterval(runPollTimer);
       runPollTimer = null;

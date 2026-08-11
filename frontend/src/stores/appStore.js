@@ -473,6 +473,16 @@ export async function startR0Run(phase, confirmation = "") {
   }
 }
 
+export async function refreshR0Status() {
+  const { response, data } = await fetchR0Status();
+  if (!response.ok || data.error) {
+    store.researchError = researchErrorMessage(response, data, "读取短线筛查状态失败");
+    return null;
+  }
+  store.r0Status = data;
+  return data;
+}
+
 export async function startResearchDatasetFetch(payload) {
   if (store.researchWorkflowBusy) return null;
   store.researchWorkflowBusy = true;
