@@ -3,6 +3,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 import sys
 
@@ -94,6 +95,25 @@ class ResearchCatalogTests(unittest.TestCase):
         self.assertEqual(items[0]["start_time_ms"], 1000)
         self.assertEqual(items[0]["end_time_ms"], 2000)
         self.assertEqual(items[0]["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+
+    def test_dataset_catalog_reuses_metadata_until_a_source_file_changes(self):
+        first_path = self.calibration_dir / "BTCUSDT_15m_ohlc.json"
+        first_path.write_text(json.dumps([[1000, 10], [2000, 11]]), encoding="utf-8")
+
+        with patch.object(self.catalog, "_scan_datasets", wraps=self.catalog._scan_datasets) as scan:
+            first = self.catalog.datasets()
+            first[0]["rows"] = 999
+            second = self.catalog.datasets()
+
+            self.assertEqual(scan.call_count, 1)
+            self.assertEqual(second[0]["rows"], 2)
+
+            second_path = self.calibration_dir / "ETHUSDT_15m_ohlc.json"
+            second_path.write_text(json.dumps([[1000, 20]]), encoding="utf-8")
+            refreshed = self.catalog.datasets()
+
+            self.assertEqual(scan.call_count, 2)
+            self.assertEqual({item["market"] for item in refreshed}, {"BTCUSDT", "ETHUSDT"})
 
     def test_seed_candidates_have_frozen_hash_and_verdict(self):
         candidates = self.catalog.candidates()

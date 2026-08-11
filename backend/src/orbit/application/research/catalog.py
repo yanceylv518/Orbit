@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from threading import RLock
 from typing import Any
 
 from orbit.application.research.candidates import INITIAL_CANDIDATES
@@ -19,8 +20,26 @@ class ResearchCatalogService:
         self.calibration_dir = calibration_dir
         self.registry = registry
         self.run_ledger = run_ledger
+        self._dataset_cache_lock = RLock()
+        self._dataset_cache_signature: tuple[tuple[str, int, int], ...] | None = None
+        self._dataset_cache: list[dict[str, Any]] = []
 
     def datasets(self) -> list[dict[str, Any]]:
+        with self._dataset_cache_lock:
+            signature = self._dataset_signature()
+            if signature == self._dataset_cache_signature:
+                return [dict(item) for item in self._dataset_cache]
+            items = self._scan_datasets()
+            signature_after_scan = self._dataset_signature()
+            if signature_after_scan == signature:
+                self._dataset_cache_signature = signature
+                self._dataset_cache = [dict(item) for item in items]
+            else:
+                self._dataset_cache_signature = None
+                self._dataset_cache = []
+            return [dict(item) for item in items]
+
+    def _scan_datasets(self) -> list[dict[str, Any]]:
         items = []
         if not self.calibration_dir.exists():
             return items
@@ -50,6 +69,19 @@ class ResearchCatalogService:
             })
         items.extend(self._manifest_datasets())
         return items
+
+    def _dataset_signature(self) -> tuple[tuple[str, int, int], ...]:
+        if not self.calibration_dir.exists():
+            return ()
+        paths = [*self.calibration_dir.glob("*.json"), *self.calibration_dir.glob("*/manifest.json")]
+        signature = []
+        for path in sorted(set(paths)):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            signature.append((path.relative_to(self.calibration_dir).as_posix(), stat.st_size, stat.st_mtime_ns))
+        return tuple(signature)
 
     def _manifest_datasets(self) -> list[dict[str, Any]]:
         items = []

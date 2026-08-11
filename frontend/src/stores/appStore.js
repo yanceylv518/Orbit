@@ -40,6 +40,8 @@ export const store = reactive({
   researchTemplates: [],
   researchRuns: [],
   researchBusy: false,
+  dataBusy: false,
+  dataCatalogLoadedAt: "",
   researchResultBusy: false,
   researchWorkflowBusy: false,
   researchError: "",
@@ -255,6 +257,37 @@ export async function loadResearchCatalog() {
   }
 }
 
+export async function loadDataCatalog() {
+  if (store.dataBusy) return Boolean(store.dataCatalogLoadedAt);
+  store.dataBusy = true;
+  store.dataError = "";
+  try {
+    const [datasetsResponse, runsResponse] = await Promise.all([
+      fetchResearchDatasets(),
+      fetchResearchRuns(),
+    ]);
+    if (!datasetsResponse.response.ok || datasetsResponse.data.error) {
+      throw new Error(researchErrorMessage(
+        datasetsResponse.response,
+        datasetsResponse.data,
+        "读取历史数据目录失败",
+      ));
+    }
+    if (!runsResponse.response.ok || runsResponse.data.error) {
+      throw new Error(researchErrorMessage(runsResponse.response, runsResponse.data, "读取数据更新记录失败"));
+    }
+    store.researchDatasets = datasetsResponse.data.items || [];
+    store.researchRuns = runsResponse.data.items || [];
+    store.dataCatalogLoadedAt = new Date().toISOString();
+    return true;
+  } catch (error) {
+    store.dataError = error instanceof Error ? error.message : "读取历史数据失败。";
+    return false;
+  } finally {
+    store.dataBusy = false;
+  }
+}
+
 export async function loadStrategyCatalog() {
   if (store.strategyCatalogBusy) return false;
   store.strategyCatalogBusy = true;
@@ -453,7 +486,10 @@ export async function refreshResearchRun(runId) {
     return null;
   }
   store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
-  if (["succeeded", "failed", "cancelled"].includes(data.status)) await loadResearchCatalog();
+  if (["succeeded", "failed", "cancelled"].includes(data.status)) {
+    if (data.job_type) await loadDataCatalog();
+    else await loadResearchCatalog();
+  }
   return data;
 }
 
@@ -506,6 +542,13 @@ export async function login(loginId, password) {
 export async function logout() {
   await logoutRequest();
   store.state = null;
+  store.researchDatasets = [];
+  store.researchCandidates = [];
+  store.researchCandidate = null;
+  store.researchResult = null;
+  store.researchTemplates = [];
+  store.researchRuns = [];
+  store.dataCatalogLoadedAt = "";
   store.liveExecutionReports = [];
   store.liveExecutionReportsError = "";
 }

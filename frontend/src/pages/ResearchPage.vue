@@ -10,8 +10,8 @@
         </p>
       </div>
       <div class="toolbar">
-        <button class="button ghost" :disabled="store.researchBusy" @click="refreshCatalog">
-          {{ store.researchBusy ? "读取中..." : isDataMode ? "刷新数据" : "刷新研究档案" }}
+        <button class="button ghost" :disabled="isDataMode ? store.dataBusy : store.researchBusy" @click="refreshCatalog(true)">
+          {{ (isDataMode ? store.dataBusy : store.researchBusy) ? "读取中..." : isDataMode ? "刷新数据" : "刷新研究档案" }}
         </button>
       </div>
     </div>
@@ -605,6 +605,7 @@ import {
   cancelResearchRun,
   createResearchCandidate,
   isAuthenticated,
+  loadDataCatalog,
   loadResearchCatalog,
   refreshResearchRun,
   selectResearchCandidate,
@@ -724,7 +725,15 @@ function normalizeEvidence(report) {
   return [];
 }
 
-async function refreshCatalog() {
+async function refreshCatalog(force = false) {
+  if (isDataMode.value) {
+    const hadCachedData = Boolean(store.dataCatalogLoadedAt);
+    if (hadCachedData && !force) catalogReady.value = true;
+    const loaded = await loadDataCatalog();
+    catalogReady.value = loaded || hadCachedData;
+    if (loaded && hasActiveRun.value) startRunPolling();
+    return;
+  }
   const loaded = await loadResearchCatalog();
   catalogReady.value = loaded;
   if (loaded && !draft.datasetIds.length) applySuggestedDatasets();
