@@ -6,6 +6,8 @@ import {
   createResearchRunRequest,
   createShortlineDatasetRequest,
   fetchAppState,
+  fetchDataQuality,
+  fetchDataSummary,
   fetchResearchCandidate,
   fetchResearchCandidates,
   fetchResearchDatasets,
@@ -42,6 +44,9 @@ export const store = reactive({
   researchBusy: false,
   dataBusy: false,
   dataCatalogLoadedAt: "",
+  dataSummary: null,
+  dataQuality: null,
+  dataQualityBusy: false,
   researchResultBusy: false,
   researchWorkflowBusy: false,
   researchError: "",
@@ -262,9 +267,10 @@ export async function loadDataCatalog() {
   store.dataBusy = true;
   store.dataError = "";
   try {
-    const [datasetsResponse, runsResponse] = await Promise.all([
+    const [datasetsResponse, runsResponse, summaryResponse] = await Promise.all([
       fetchResearchDatasets(),
       fetchResearchRuns(),
+      fetchDataSummary(),
     ]);
     if (!datasetsResponse.response.ok || datasetsResponse.data.error) {
       throw new Error(researchErrorMessage(
@@ -276,8 +282,12 @@ export async function loadDataCatalog() {
     if (!runsResponse.response.ok || runsResponse.data.error) {
       throw new Error(researchErrorMessage(runsResponse.response, runsResponse.data, "读取数据更新记录失败"));
     }
+    if (!summaryResponse.response.ok || summaryResponse.data.error) {
+      throw new Error(researchErrorMessage(summaryResponse.response, summaryResponse.data, "读取数据质量摘要失败"));
+    }
     store.researchDatasets = datasetsResponse.data.items || [];
     store.researchRuns = runsResponse.data.items || [];
+    store.dataSummary = summaryResponse.data;
     store.dataCatalogLoadedAt = new Date().toISOString();
     return true;
   } catch (error) {
@@ -285,6 +295,25 @@ export async function loadDataCatalog() {
     return false;
   } finally {
     store.dataBusy = false;
+  }
+}
+
+export async function loadDataQuality(kind = "halts", page = 1, pageSize = 50) {
+  if (store.dataQualityBusy) return false;
+  store.dataQualityBusy = true;
+  store.dataError = "";
+  try {
+    const { response, data } = await fetchDataQuality(kind, page, pageSize);
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "读取数据质量明细失败"));
+    }
+    store.dataQuality = data;
+    return true;
+  } catch (error) {
+    store.dataError = error instanceof Error ? error.message : "读取数据质量明细失败。";
+    return false;
+  } finally {
+    store.dataQualityBusy = false;
   }
 }
 
@@ -549,6 +578,8 @@ export async function logout() {
   store.researchTemplates = [];
   store.researchRuns = [];
   store.dataCatalogLoadedAt = "";
+  store.dataSummary = null;
+  store.dataQuality = null;
   store.liveExecutionReports = [];
   store.liveExecutionReportsError = "";
 }

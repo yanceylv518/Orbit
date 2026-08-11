@@ -63,6 +63,16 @@ export function fetchResearchRun(runId) {
   return getJson(`/api/research/runs/${encodeURIComponent(runId)}`);
 }
 
+export function fetchDataSummary() {
+  return getJson("/api/data/summary");
+}
+
+export function fetchDataQuality(kind = "halts", page = 1, pageSize = 50) {
+  return getJson(
+    `/api/data/quality?kind=${encodeURIComponent(kind)}&page=${encodeURIComponent(page)}&page_size=${encodeURIComponent(pageSize)}`,
+  );
+}
+
 export function fetchStrategies() {
   return getJson("/api/strategies");
 }

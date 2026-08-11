@@ -10,6 +10,7 @@ from orbit.application.account_sync import AccountSyncService
 from orbit.application.accounts import AccountDirectoryService, AccountService
 from orbit.application.audit import AuditService
 from orbit.application.credentials import CredentialService
+from orbit.application.data_summary import DataSummaryService
 from orbit.application.execution_plans import ExecutionPlanRefreshService, ExecutionPlanService
 from orbit.application.market_data import MarketFeedService
 from orbit.application.metrics import MetricHistoryService
@@ -107,6 +108,7 @@ class ApplicationContainer:
     strategy_catalog_service: Any
     strategy_control_plane_repository: Any
     strategy_control_plane_service: Any
+    data_summary: Any
     research_catalog: Any
     research_workflow: Any
     app_uow: Any
@@ -286,6 +288,7 @@ def build_application_container(
     if not run_ledger_path.is_absolute():
         run_ledger_path = root / run_ledger_path
     run_ledger = AppendOnlyResearchRunLedger(run_ledger_path)
+    data_summary = DataSummaryService(calibration_dir / "shortline-data-v1")
     research_catalog = ResearchCatalogService(
         calibration_dir,
         AppendOnlyResearchRegistry(registry_path),
@@ -520,6 +523,7 @@ def build_application_container(
         strategy_catalog_service=strategy_catalog_service,
         strategy_control_plane_repository=strategy_control_plane_repository,
         strategy_control_plane_service=strategy_control_plane_service,
+        data_summary=data_summary,
         research_catalog=research_catalog,
         research_workflow=research_workflow,
         app_uow=app_uow,

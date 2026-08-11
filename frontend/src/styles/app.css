@@ -1278,6 +1278,39 @@ td .muted { font-size: 11.5px; }
 .data-gap-card { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; }
 .data-gap-card h3 { margin: 5px 0 7px; font-size: 13px; }
 .data-gap-card p { flex: 1; margin-bottom: 12px; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+.data-quality-panel { border-color: rgba(62, 142, 247, 0.28); }
+.data-quality-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 14px 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--line-soft);
+}
+.data-quality-summary > div { min-width: 0; padding: 13px; background: var(--panel-inset); }
+.data-quality-summary span,
+.data-quality-summary strong,
+.data-quality-summary small { display: block; }
+.data-quality-summary span { color: var(--faint); font-size: 10.5px; }
+.data-quality-summary strong { margin-top: 5px; color: var(--text-strong); font-size: 17px; }
+.data-quality-summary small { margin-top: 4px; color: var(--muted); font-size: 10.5px; }
+.data-quality-toolbar,
+.quality-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.data-quality-toolbar { margin-bottom: 10px; }
+.quality-pagination {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 11px;
+}
+.quality-pagination > div { display: flex; gap: 7px; }
 .structured-empty-state {
   padding: 24px;
   border: 1px dashed var(--line-strong);
@@ -1658,7 +1691,8 @@ span.help-tip-trigger {
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .data-version-grid,
   .technical-details-grid,
-  .data-gap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .data-gap-grid,
+  .data-quality-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
@@ -1727,7 +1761,10 @@ span.help-tip-trigger {
   .research-summary { grid-template-columns: 1fr; }
   .data-version-grid,
   .technical-details-grid,
-  .data-gap-grid { grid-template-columns: 1fr; }
+  .data-gap-grid,
+  .data-quality-summary { grid-template-columns: 1fr; }
+  .data-quality-toolbar,
+  .quality-pagination { align-items: stretch; flex-direction: column; }
   .legacy-data-summary { align-items: flex-start; flex-direction: column; }
   .legacy-data-summary .pill { margin-left: 0; }
   .archive-head-actions { align-items: flex-start; flex-direction: column; }

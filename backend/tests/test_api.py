@@ -287,6 +287,63 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tmp.cleanup()
 
+    async def test_data_summary_is_admin_only(self):
+        tmp, api = self.make_api()
+        try:
+            api.state.orbit.sessions["business-session"] = "user_001"
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                anonymous = await client.get("/api/data/summary")
+                client.cookies.set("orbit_session", "business-session")
+                forbidden = await client.get("/api/data/quality")
+
+            self.assertEqual(anonymous.status_code, 401)
+            self.assertEqual(forbidden.status_code, 403)
+        finally:
+            tmp.cleanup()
+
+    async def test_admin_can_read_data_summary_and_paginated_quality_facts(self):
+        class FrozenDataSummary:
+            def summary(self):
+                return {
+                    "dataset_cutoff_ms": 2000,
+                    "contracts": {"total": 2, "trading": 1, "delisted": 1},
+                    "quality": {"unverified_missing_15m_candles": 0},
+                }
+
+            def quality_page(self, kind, *, page, page_size):
+                return {
+                    "kind": kind,
+                    "page": page,
+                    "page_size": page_size,
+                    "total": 1,
+                    "items": [{"symbol": "OLDUSDT", "missing_candles": 1}],
+                }
+
+        tmp, api = self.make_api(login_required=False)
+        try:
+            api.state.orbit.data_summary = FrozenDataSummary()
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api),
+                base_url="http://testserver",
+            ) as client:
+                summary = await client.get("/api/data/summary")
+                quality = await client.get(
+                    "/api/data/quality",
+                    params={"kind": "missing", "page": 2, "page_size": 10},
+                )
+
+            self.assertEqual(summary.status_code, 200)
+            self.assertEqual(summary.json()["contracts"]["trading"], 1)
+            self.assertEqual(quality.status_code, 200)
+            self.assertEqual(quality.json()["kind"], "missing")
+            self.assertEqual(quality.json()["page"], 2)
+            self.assertEqual(quality.json()["page_size"], 10)
+        finally:
+            tmp.cleanup()
+
     async def test_admin_can_read_research_catalog_candidates_and_results(self):
         tmp, api = self.make_api(login_required=False)
         try:

@@ -33,16 +33,16 @@
           <p class="muted">包含 Binance 永续合约的历史价格与资金费率。正在进行的更新不会影响已经准备好的数据。</p>
         </div>
         <StatusBadge
-          :text="datasetStateLabel(officialDataset)"
-          :raw="officialDataset?.dataset_state || 'UNREGISTERED'"
-          :color="officialDataset?.dataset_state === 'COMPLETE' ? 'green' : 'orange'"
+          :text="datasetStateLabel(dataSummary || officialDataset)"
+          :raw="dataSummary?.dataset_state || officialDataset?.dataset_state || 'UNREGISTERED'"
+          :color="(dataSummary?.dataset_state || officialDataset?.dataset_state) === 'COMPLETE' ? 'green' : 'orange'"
         />
       </div>
       <div class="data-version-grid">
         <div>
           <span>覆盖的历史合约</span>
-          <strong>{{ shortlineRun?.contract_count ? `${Number(shortlineRun.contract_count).toLocaleString("zh-CN")} 个` : "明细待完善" }}</strong>
-          <small>包含仍在交易和已经退市的永续合约</small>
+          <strong>{{ dataSummary ? `${Number(dataSummary.contracts.total).toLocaleString("zh-CN")} 个` : "正在读取" }}</strong>
+          <small v-if="dataSummary">{{ dataSummary.contracts.trading }} 个仍在交易 · {{ dataSummary.contracts.delisted }} 个已退市</small>
         </div>
         <div>
           <span>可研究的时间尺度</span>
@@ -51,13 +51,13 @@
         </div>
         <div>
           <span>数据更新到什么时候</span>
-          <strong>暂时无法统一确认</strong>
-          <small>后续将显示全部合约共同覆盖到的日期</small>
+          <strong>{{ dataCutoffLabel(dataSummary?.dataset_cutoff_ms) }}</strong>
+          <small>全部在交易合约共同覆盖到这个时点</small>
         </div>
         <div>
           <span>数据有没有缺失</span>
-          <strong>暂时无法汇总</strong>
-          <small>后续将分别显示缺失、重复和停牌时段</small>
+          <strong>{{ dataQualityHeadline(dataSummary?.quality) }}</strong>
+          <small v-if="dataSummary">{{ dataSummary.quality.verified_halt_windows }} 个交易暂停时段已核实 · {{ dataSummary.quality.duplicate_15m_candles }} 个重复</small>
         </div>
       </div>
       <div v-if="!officialDataset" class="data-empty-callout">
@@ -69,7 +69,7 @@
           <div><span>内部版本编号</span><strong class="mono">{{ officialDataset.id }}</strong></div>
           <div><span>数据校验码</span><strong class="mono" :title="officialDataset.sha256">{{ shortHash(officialDataset.sha256) }}</strong></div>
           <div><span>存储清单条目</span><strong>{{ Number(officialDataset.rows || 0).toLocaleString("zh-CN") }}</strong></div>
-          <div><span>最近构建分片</span><strong>{{ Number(shortlineRun?.partition_count || 0).toLocaleString("zh-CN") }}</strong></div>
+          <div><span>最近构建分片</span><strong>{{ Number(dataSummary?.coverage?.partitions || 0).toLocaleString("zh-CN") }}</strong></div>
         </div>
         <p>以上数字仅用于开发人员验证文件是否完整，不代表合约数量、K线条数或可交易市场数量，普通研究无需关注。</p>
       </details>
@@ -88,7 +88,7 @@
         <div><span>统一历史数据</span><strong>{{ officialDataset?.dataset_state === "COMPLETE" ? "已完整" : "待确认" }}</strong></div>
         <div><span>基础周期</span><strong>15分钟</strong></div>
         <div><span>派生周期</span><strong>1小时 / 4小时</strong></div>
-        <div><span>下一步</span><strong>接入 R-0 预注册定义</strong></div>
+        <div><span>下一步</span><strong>开放量价关系预注册</strong></div>
       </div>
     </article>
 
@@ -122,7 +122,7 @@
             <h3>量价关系假设</h3>
             <p class="muted">预注册、程序运行和研究结论分列；程序完成不代表关系成立。</p>
           </div>
-          <StatusBadge text="R-01 / R-02 待读模型" color="orange" />
+          <StatusBadge text="预注册功能尚未开放" color="orange" />
         </div>
         <div v-if="topicCandidates.length" class="table-wrap">
           <table>
@@ -140,8 +140,8 @@
         </div>
         <div v-else class="structured-empty-state">
           <strong>尚无量价关系的正式预注册假设</strong>
-          <p>R-0 的结构化变量和数据版本绑定将在 MOD-3 接入。在此之前不使用旧协议冒充量价关系，也不会提供一个无法满足冻结契约的创建按钮。</p>
-          <span>下一步：完成 R-01 研究投影与 R-02 预注册命令。</span>
+          <p>量价关系的变量定义和数据版本绑定仍在建设中。在正式开放前，不使用旧研究协议冒充当前主题，也不提供无法保证可复现性的创建入口。</p>
+          <span>下一步：开放正式假设登记和可复现实验。</span>
         </div>
       </article>
 
@@ -169,7 +169,7 @@
       <div class="panel-head research-panel-head">
         <div>
           <h3>登记历史协议候选 <HelpTip term="预注册" /></h3>
-          <p class="muted">仅用于 M0 / F1 / G1 / G2 兼容协议；它不是 R-0 量价关系预注册入口。提交后不可修改。</p>
+          <p class="muted">仅用于复现以前的研究协议，不是当前量价关系的假设登记入口。提交后不可修改。</p>
         </div>
         <StatusBadge text="历史兼容工具" color="orange" />
       </div>
@@ -231,8 +231,8 @@
     <div v-if="isDataMode" class="summary-grid research-summary">
       <div class="summary-item">
         <span>历史合约</span>
-        <strong>{{ shortlineRun?.contract_count ? Number(shortlineRun.contract_count).toLocaleString("zh-CN") : "—" }}</strong>
-        <small>单位：个 · 包含已退市合约</small>
+        <strong>{{ dataSummary ? Number(dataSummary.contracts.total).toLocaleString("zh-CN") : "—" }}</strong>
+        <small v-if="dataSummary">{{ dataSummary.contracts.trading }} 个仍交易 · {{ dataSummary.contracts.delisted }} 个已退市</small>
       </div>
       <div class="summary-item">
         <span>价格数据</span>
@@ -245,9 +245,9 @@
         <small>用于还原永续合约的持仓成本</small>
       </div>
       <div class="summary-item">
-        <span>最近一次更新</span>
-        <strong>{{ shortlineRun?.updated_at ? dateTime(shortlineRun.updated_at) : "暂无记录" }}</strong>
-        <small>{{ shortlineRun ? runStatusLabel(shortlineRun) : "尚未运行数据更新" }}</small>
+        <span>数据覆盖截止</span>
+        <strong>{{ dataCutoffLabel(dataSummary?.dataset_cutoff_ms) }}</strong>
+        <small>统一按 UTC 时间展示</small>
       </div>
     </div>
 
@@ -351,6 +351,62 @@
       </div>
     </article>
 
+    <article v-if="isDataMode" class="panel data-quality-panel">
+      <div class="panel-head research-panel-head">
+        <div>
+          <h3>数据质量检查</h3>
+          <p class="muted">缺失、重复和交易暂停分别记录；已核实的交易暂停不算未知数据错误。</p>
+        </div>
+        <StatusBadge
+          :text="dataQualityHeadline(dataSummary?.quality)"
+          :color="dataQualityHealthy(dataSummary?.quality) ? 'green' : 'orange'"
+        />
+      </div>
+      <div class="data-quality-summary" v-if="dataSummary">
+        <div><span>未解释的缺失</span><strong>{{ Number(dataSummary.quality.unverified_missing_15m_candles).toLocaleString("zh-CN") }}</strong><small>单位：根 15 分钟K线</small></div>
+        <div><span>重复数据</span><strong>{{ Number(dataSummary.quality.duplicate_15m_candles).toLocaleString("zh-CN") }}</strong><small>单位：根 15 分钟K线</small></div>
+        <div><span>已核实交易暂停</span><strong>{{ Number(dataSummary.quality.verified_halt_windows).toLocaleString("zh-CN") }}</strong><small>{{ Number(dataSummary.quality.verified_halt_missing_candles).toLocaleString("zh-CN") }} 根K线处于暂停时段</small></div>
+        <div><span>资金费率覆盖</span><strong>{{ Number(dataSummary.quality.funding_symbols).toLocaleString("zh-CN") }} 个合约</strong><small>{{ dataSummary.quality.missing_funding_symbols }} 个合约缺少资金费率</small></div>
+      </div>
+      <div class="data-quality-toolbar">
+        <div class="research-segments" aria-label="质量明细类型">
+          <button
+            v-for="option in qualityKinds"
+            :key="option.value"
+            class="tab"
+            :class="{ active: qualityKind === option.value }"
+            @click="openQuality(option.value, 1)"
+          >{{ option.label }}</button>
+        </div>
+        <span v-if="store.dataQualityBusy" class="muted">正在读取明细…</span>
+      </div>
+      <div v-if="qualityDetails" class="table-wrap research-data-table data-quality-table">
+        <table>
+          <thead><tr><th>合约</th><th>月份</th><th>时间范围</th><th>数量</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr v-for="(item, index) in qualityDetails.items" :key="`${qualityDetails.kind}-${index}-${item.symbol}`">
+              <td><strong>{{ item.symbol || "-" }}</strong></td>
+              <td>{{ item.month || "-" }}</td>
+              <td class="mono research-date-range">
+                <span>{{ qualityTime(item.start_open_time_ms) }}</span>
+                <span v-if="item.end_open_time_ms">{{ qualityTime(item.end_open_time_ms) }}</span>
+              </td>
+              <td>{{ qualityItemCount(item).toLocaleString("zh-CN") }}</td>
+              <td>{{ qualityItemExplanation(item, qualityDetails.kind) }}</td>
+            </tr>
+            <tr v-if="!qualityDetails.items.length"><td colspan="5" class="muted">没有发现这类问题。</td></tr>
+          </tbody>
+        </table>
+        <div class="quality-pagination">
+          <span>共 {{ qualityDetails.total }} 条 · 第 {{ qualityDetails.page }} 页</span>
+          <div>
+            <button class="button ghost compact" :disabled="qualityDetails.page <= 1 || store.dataQualityBusy" @click="openQuality(qualityKind, qualityDetails.page - 1)">上一页</button>
+            <button class="button ghost compact" :disabled="qualityDetails.page * qualityDetails.page_size >= qualityDetails.total || store.dataQualityBusy" @click="openQuality(qualityKind, qualityDetails.page + 1)">下一页</button>
+          </div>
+        </div>
+      </div>
+    </article>
+
     <div v-if="isDataMode" class="data-gap-grid">
       <article class="panel data-gap-card">
         <span class="eyebrow">功能建设中</span><h3>查看以前的数据版本</h3>
@@ -358,14 +414,14 @@
         <StatusBadge text="尚未开放" color="orange" />
       </article>
       <article class="panel data-gap-card">
-        <span class="eyebrow">功能建设中</span><h3>每个合约覆盖多久</h3>
-        <p>以后可以分别查看仍在交易和已经退市的合约，以及每个合约的起止日期。</p>
-        <StatusBadge text="尚未开放" color="orange" />
+        <span class="eyebrow">合约覆盖</span><h3>{{ dataSummary?.contracts.trading || 0 }} 个仍在交易</h3>
+        <p>历史数据还包含 {{ dataSummary?.contracts.delisted || 0 }} 个已经退市的合约，避免研究时只看幸存市场。</p>
+        <StatusBadge text="覆盖已汇总" color="green" />
       </article>
       <article class="panel data-gap-card">
-        <span class="eyebrow">功能建设中</span><h3>数据缺失与停牌检查</h3>
-        <p>以后会分别展示缺失、重复、停牌和不同周期之间不一致的情况。</p>
-        <StatusBadge text="尚未开放" color="orange" />
+        <span class="eyebrow">质量检查</span><h3>{{ dataQualityHeadline(dataSummary?.quality) }}</h3>
+        <p>上方可以分页查看交易暂停、缺失和重复数据的具体合约与月份。</p>
+        <StatusBadge :text="dataQualityHealthy(dataSummary?.quality) ? '检查通过' : '需要关注'" :color="dataQualityHealthy(dataSummary?.quality) ? 'green' : 'orange'" />
       </article>
       <article class="panel data-gap-card">
         <span class="eyebrow">功能建设中</span><h3>实时行情是否正常</h3>
@@ -606,6 +662,7 @@ import {
   createResearchCandidate,
   isAuthenticated,
   loadDataCatalog,
+  loadDataQuality,
   loadResearchCatalog,
   refreshResearchRun,
   selectResearchCandidate,
@@ -621,6 +678,7 @@ const props = defineProps({
 });
 const datasetQuery = ref("");
 const datasetKind = ref("all");
+const qualityKind = ref("halts");
 const showCreate = ref(false);
 const showFetch = ref(false);
 const openLockbox = ref(false);
@@ -636,6 +694,11 @@ const datasetKinds = [
   { value: "funding", label: "资金费率" },
   { value: "series", label: "序列" },
 ];
+const qualityKinds = [
+  { value: "halts", label: "交易暂停" },
+  { value: "missing", label: "缺失数据" },
+  { value: "duplicates", label: "重复数据" },
+];
 
 const isDataMode = computed(() => props.mode === "data");
 const isResearchMode = computed(() => !isDataMode.value);
@@ -643,6 +706,8 @@ const pageError = computed(() => {
   const error = isDataMode.value ? store.dataError : store.researchError;
   return isDataMode.value ? userFacingDataMessage(error) : error;
 });
+const dataSummary = computed(() => store.dataSummary);
+const qualityDetails = computed(() => store.dataQuality);
 const candidate = computed(() => store.researchCandidate);
 const result = computed(() => store.researchResult);
 const dataRuns = computed(() => store.researchRuns.filter((item) => (
@@ -731,6 +796,7 @@ async function refreshCatalog(force = false) {
     if (hadCachedData && !force) catalogReady.value = true;
     const loaded = await loadDataCatalog();
     catalogReady.value = loaded || hadCachedData;
+    if (loaded && !store.dataQuality) openQuality(qualityKind.value, 1);
     if (loaded && hasActiveRun.value) startRunPolling();
     return;
   }
@@ -738,6 +804,11 @@ async function refreshCatalog(force = false) {
   catalogReady.value = loaded;
   if (loaded && !draft.datasetIds.length) applySuggestedDatasets();
   if (loaded && hasActiveRun.value) startRunPolling();
+}
+
+async function openQuality(kind, page = 1) {
+  qualityKind.value = kind;
+  await loadDataQuality(kind, page, 50);
 }
 
 function isLegacyCandidate(item) {
@@ -779,6 +850,55 @@ function researchVerdictColor(value) {
 function datasetStateLabel(dataset) {
   if (!dataset) return "尚未准备好";
   return dataset.dataset_state === "COMPLETE" ? "已准备好，可以开始研究" : "需要继续检查";
+}
+
+function dataQualityHealthy(quality) {
+  return Boolean(quality)
+    && Number(quality.unverified_missing_15m_candles || 0) === 0
+    && Number(quality.duplicate_15m_candles || 0) === 0
+    && Number(quality.missing_funding_symbols || 0) === 0;
+}
+
+function dataQualityHeadline(quality) {
+  if (!quality) return "正在读取质量结果";
+  return dataQualityHealthy(quality) ? "没有发现未解释的缺失" : "发现需要关注的数据问题";
+}
+
+function dataCutoffLabel(value) {
+  if (!value) return "正在读取";
+  const formatted = new Date(Number(value)).toLocaleString("zh-CN", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${formatted} UTC`;
+}
+
+function qualityTime(value) {
+  if (!value) return "-";
+  return new Date(Number(value)).toLocaleString("zh-CN", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function qualityItemCount(item) {
+  return Number(item.missing_candles || item.duplicate_candles || 0);
+}
+
+function qualityItemExplanation(item, kind) {
+  if (kind === "halts") return "交易所公开数据确认的暂停时段";
+  if (kind === "duplicates") return "同一时间出现重复K线";
+  return item.explained_by_halt ? "已由交易暂停记录解释" : "尚未解释，需要检查";
 }
 
 function toggleLegacyCreate() {
@@ -933,7 +1053,7 @@ function userFacingDataMessage(value) {
     return "数据更新未取得写入权限。请重新启动后台服务后再试。";
   }
   return message
-    .replace(/DATA-1R/gi, "全市场历史数据更新")
+    .replace(/\b[A-Z]+-\d+[A-Z]*\b/g, "全市场历史数据更新")
     .replace(/dataset/gi, "数据")
     .replace(/manifest/gi, "数据清单")
     .replace(/checksum/gi, "文件校验");
