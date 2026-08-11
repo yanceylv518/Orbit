@@ -289,14 +289,22 @@ def universe_at(
             continue
         score = Decimal("0")
         if liquidity_by_symbol is not None:
-            visible = [
-                row for row in liquidity_by_symbol.get(contract.symbol, ())
-                if row.get("status") == "COMPLETE"
-                and int(row["day_close_time_ms"]) < timestamp_ms
-            ][-liquidity_lookback_days:]
-            if len(visible) < liquidity_lookback_days:
+            day_open = timestamp_ms // DAY_MS * DAY_MS
+            required_closes = [
+                day_open - offset * DAY_MS - 1
+                for offset in range(liquidity_lookback_days)
+            ]
+            by_close = {
+                int(row["day_close_time_ms"]): row
+                for row in liquidity_by_symbol.get(contract.symbol, ())
+            }
+            visible = [by_close.get(close_time) for close_time in required_closes]
+            if any(
+                row is None or row.get("status") != "COMPLETE"
+                for row in visible
+            ):
                 continue
-            values = sorted(Decimal(str(row["quote_volume"])) for row in visible)
+            values = sorted(Decimal(str(row["quote_volume"])) for row in visible if row)
             middle = len(values) // 2
             score = (
                 values[middle]
