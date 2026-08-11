@@ -28,9 +28,9 @@
     <article v-if="isDataMode" class="panel data-version-panel">
       <div class="panel-head research-panel-head">
         <div>
-          <span class="eyebrow">当前正式历史数据版本</span>
-          <h3>{{ officialDataset?.id || "尚未登记正式版本" }}</h3>
-          <p class="muted">这是研究使用的数据事实；当前下载任务的进度不会改变这里的完整性结论。</p>
+          <span class="eyebrow">当前研究数据</span>
+          <h3>{{ officialDataset ? "全市场历史数据" : "历史数据尚未准备好" }}</h3>
+          <p class="muted">包含 Binance 永续合约的历史价格与资金费率。正在进行的更新不会影响已经准备好的数据。</p>
         </div>
         <StatusBadge
           :text="datasetStateLabel(officialDataset)"
@@ -40,29 +40,39 @@
       </div>
       <div class="data-version-grid">
         <div>
-          <span>内容指纹 <HelpTip term="哈希指纹" /></span>
-          <strong class="mono" :title="officialDataset?.sha256">{{ shortHash(officialDataset?.sha256) }}</strong>
-          <small>来源：正式 manifest</small>
+          <span>覆盖的历史合约</span>
+          <strong>{{ shortlineRun?.contract_count ? `${Number(shortlineRun.contract_count).toLocaleString("zh-CN")} 个` : "明细待完善" }}</strong>
+          <small>包含仍在交易和已经退市的永续合约</small>
         </div>
         <div>
-          <span>基础与派生周期</span>
-          <strong>15m → 1h / 4h</strong>
-          <small>来源：DATA-1R 冻结规则</small>
+          <span>可研究的时间尺度</span>
+          <strong>15分钟 / 1小时 / 4小时</strong>
+          <small>1小时和4小时由15分钟数据统一生成</small>
         </div>
         <div>
-          <span>统一数据截止</span>
-          <strong>尚未接入</strong>
-          <small>D-01 · 等待 MOD-2 读模型</small>
+          <span>数据更新到什么时候</span>
+          <strong>暂时无法统一确认</strong>
+          <small>后续将显示全部合约共同覆盖到的日期</small>
         </div>
         <div>
-          <span>质量摘要</span>
-          <strong>尚未接入</strong>
-          <small>D-02 · 不从任务进度推断</small>
+          <span>数据有没有缺失</span>
+          <strong>暂时无法汇总</strong>
+          <small>后续将分别显示缺失、重复和停牌时段</small>
         </div>
       </div>
       <div v-if="!officialDataset" class="data-empty-callout">
-        尚未生成正式版本。请先完成 DATA-1R 构建与质量校验；实盘行情与本页隔离，不会因此停止。
+        尚未生成可供研究使用的完整数据。请先在下方检查并更新历史数据；实盘行情与本页隔离，不会因此停止。
       </div>
+      <details v-if="officialDataset" class="technical-details">
+        <summary>技术详情（供开发与排障使用）</summary>
+        <div class="technical-details-grid">
+          <div><span>内部版本编号</span><strong class="mono">{{ officialDataset.id }}</strong></div>
+          <div><span>数据校验码</span><strong class="mono" :title="officialDataset.sha256">{{ shortHash(officialDataset.sha256) }}</strong></div>
+          <div><span>存储清单条目</span><strong>{{ Number(officialDataset.rows || 0).toLocaleString("zh-CN") }}</strong></div>
+          <div><span>最近构建分片</span><strong>{{ Number(shortlineRun?.partition_count || 0).toLocaleString("zh-CN") }}</strong></div>
+        </div>
+        <p>以上数字仅用于开发人员验证文件是否完整，不代表合约数量、K线条数或可交易市场数量，普通研究无需关注。</p>
+      </details>
     </article>
 
     <article v-if="isResearchMode" class="panel research-topic-panel">
@@ -220,24 +230,24 @@
 
     <div v-if="isDataMode" class="summary-grid research-summary">
       <div class="summary-item">
-        <span>全市场归档分区</span>
-        <strong>{{ Number(officialDataset?.rows || 0).toLocaleString("zh-CN") }}</strong>
-        <small>单位：个 · 来源：正式 manifest</small>
+        <span>历史合约</span>
+        <strong>{{ shortlineRun?.contract_count ? Number(shortlineRun.contract_count).toLocaleString("zh-CN") : "—" }}</strong>
+        <small>单位：个 · 包含已退市合约</small>
       </div>
       <div class="summary-item">
-        <span>兼容缓存文件</span>
-        <strong>{{ legacyDatasets.length }}</strong>
-        <small>单位：个 · 不是正式版本</small>
+        <span>价格数据</span>
+        <strong>{{ officialDataset?.dataset_state === "COMPLETE" ? "已包含" : "未准备好" }}</strong>
+        <small>15分钟、1小时和4小时 K 线</small>
       </div>
       <div class="summary-item">
-        <span>K线 / 序列缓存</span>
-        <strong>{{ ohlcDatasetCount }}</strong>
-        <small>单位：个文件 · 周期见明细</small>
+        <span>资金费率</span>
+        <strong>{{ officialDataset?.dataset_state === "COMPLETE" ? "已包含" : "未准备好" }}</strong>
+        <small>用于还原永续合约的持仓成本</small>
       </div>
       <div class="summary-item">
-        <span>Funding 缓存</span>
-        <strong>{{ fundingDatasetCount }}</strong>
-        <small>单位：个文件 · 不与K线相加</small>
+        <span>最近一次更新</span>
+        <strong>{{ shortlineRun?.updated_at ? dateTime(shortlineRun.updated_at) : "暂无记录" }}</strong>
+        <small>{{ shortlineRun ? runStatusLabel(shortlineRun) : "尚未运行数据更新" }}</small>
       </div>
     </div>
 
@@ -262,8 +272,8 @@
     <article v-if="isDataMode" class="panel research-shortline-panel">
       <div class="panel-head research-panel-head">
         <div>
-          <h3>全市场短线研究数据</h3>
-          <p class="muted">一次完成历史合约索引、官方校验下载，以及15分钟到1小时/4小时的本地聚合。</p>
+          <h3>更新全市场历史数据</h3>
+          <p class="muted">系统会自动查找历史合约、下载并核对公开数据，再生成15分钟、1小时和4小时数据。</p>
         </div>
         <StatusBadge
           :text="shortlineRun ? runStatusLabel(shortlineRun) : '尚未启动'"
@@ -273,8 +283,8 @@
       </div>
       <div class="research-shortline-grid">
         <section class="research-shortline-copy">
-          <strong>{{ shortlineRun ? shortlinePhaseLabel(shortlineRun.phase) : "等待建立 DATA-1R" }}</strong>
-          <p>{{ shortlineRun?.message || "预计占用约 8–12 GB；已完成文件会保留，失败或取消后再次启动会校验并继续。" }}</p>
+          <strong>{{ shortlineRun ? shortlinePhaseLabel(shortlineRun.phase) : "尚未更新历史数据" }}</strong>
+          <p>{{ shortlineRun?.message ? userFacingDataMessage(shortlineRun.message) : "预计占用约 8–12 GB；已经下载好的文件会保留，中断后可以继续。" }}</p>
           <div v-if="shortlineActive" class="research-progress large">
             <i :style="{ width: `${shortlineRun.progress || 0}%` }"></i>
           </div>
@@ -287,26 +297,26 @@
             已校验 {{ formatBytes(shortlineRun.completed_bytes) }} / {{ formatBytes(shortlineRun.total_bytes) }}
             <template v-if="shortlineRun.error_count"> · {{ shortlineRun.error_count }} 个错误</template>
           </small>
-          <ul v-if="shortlineActive && shortlineRun?.recent_logs?.length" class="research-shortline-logs">
-            <li v-for="line in shortlineRun.recent_logs" :key="line">{{ line }}</li>
-          </ul>
-          <small v-if="shortlineActive && shortlineRun?.lock_holder" class="muted">
-            当前单飞锁 {{ shortlineRun.lock_holder.owner }} · PID {{ shortlineRun.lock_holder.pid }} · {{ dateTime(shortlineRun.lock_holder.started_at) }}
-          </small>
+          <details v-if="shortlineActive && (shortlineRun?.recent_logs?.length || shortlineRun?.lock_holder)" class="technical-details compact">
+            <summary>查看排障信息</summary>
+            <ul v-if="shortlineRun?.recent_logs?.length" class="research-shortline-logs">
+              <li v-for="line in shortlineRun.recent_logs" :key="line">{{ line }}</li>
+            </ul>
+            <small v-if="shortlineRun?.lock_holder" class="muted">
+              任务进程 {{ shortlineRun.lock_holder.owner }} · PID {{ shortlineRun.lock_holder.pid }} · {{ dateTime(shortlineRun.lock_holder.started_at) }}
+            </small>
+          </details>
           <small v-if="shortlineRun && !shortlineActive" class="muted">最近任务于 {{ dateTime(shortlineRun.updated_at) }} 结束；正式数据完整性以上方版本卡为准。</small>
-          <small v-if="shortlineRun?.dataset_fingerprint" class="muted mono" :title="shortlineRun.dataset_fingerprint">
-            数据指纹 {{ shortHash(shortlineRun.dataset_fingerprint) }} · {{ shortlineRun.contract_count || "-" }} 个合约 · {{ shortlineRun.partition_count || "-" }} 个分区
-          </small>
         </section>
         <section class="research-shortline-actions">
           <template v-if="!shortlineActive">
-            <label><span>并行下载数</span><select v-model.number="shortlineDraft.workers"><option v-for="value in [1, 2, 4, 6, 8]" :key="value" :value="value">{{ value }}</option></select></label>
+            <label><span>同时下载几个文件（速度设置）</span><select v-model.number="shortlineDraft.workers"><option v-for="value in [1, 2, 4, 6, 8]" :key="value" :value="value">{{ value }}</option></select></label>
             <label class="research-confirm-check">
               <input v-model="shortlineDraft.confirmed" type="checkbox" />
               <span>我确认开始全市场公开数据下载，并允许占用约 8–12 GB 磁盘。</span>
             </label>
             <button class="button primary" :disabled="!shortlineDraft.confirmed || store.researchWorkflowBusy || hasActiveRun" @click="startShortline">
-              {{ shortlineRun?.status === "cancelled" || shortlineRun?.status === "failed" ? "校验并继续" : "开始建立数据集" }}
+              {{ shortlineRun?.status === "cancelled" || shortlineRun?.status === "failed" ? "检查并继续更新" : "检查并更新数据" }}
             </button>
           </template>
           <template v-else>
@@ -322,54 +332,62 @@
     <article v-if="isDataMode" class="panel research-runs-panel">
       <div class="panel-head">
         <div>
-          <h3>数据任务记录</h3>
-          <p class="muted">这里只显示拉取、构建及历史错误；任务完成不等于正式数据版本完整。</p>
+          <h3>最近的数据更新记录</h3>
+          <p class="muted">这里记录每次更新是否完成。上方显示“已准备好，可以开始研究”才代表数据可以使用。</p>
         </div>
         <span class="pill">{{ dataRuns.length }} 次</span>
       </div>
       <div v-if="dataRuns.length" class="research-run-list">
         <div v-for="run in dataRuns.slice(0, 8)" :key="run.id" class="research-run-row static">
-          <span class="candidate-id mono">DATA</span>
-          <span class="research-run-copy"><strong>{{ runLabel(run) }}</strong><small>{{ dateTime(run.updated_at) }} · {{ run.id }}</small></span>
+          <span class="candidate-id">数据</span>
+          <span class="research-run-copy"><strong>{{ runLabel(run) }}</strong><small>{{ dateTime(run.updated_at) }}</small></span>
           <span class="research-progress"><i :style="{ width: `${run.progress || 0}%` }"></i></span>
           <StatusBadge :text="runStatusLabel(run)" :raw="run.status" :color="runStatusColor(run)" />
         </div>
       </div>
       <div v-else class="structured-empty-state compact">
-        <strong>尚无数据任务</strong>
-        <p>开始 DATA-1R 或单市场拉取后，任务 ID、进度和错误会显示在这里。</p>
+        <strong>还没有更新记录</strong>
+        <p>使用上方“检查并更新数据”后，进度和结果会显示在这里。</p>
       </div>
     </article>
 
     <div v-if="isDataMode" class="data-gap-grid">
       <article class="panel data-gap-card">
-        <span class="eyebrow">D-03</span><h3>版本历史</h3>
-        <p>尚未接入数据目录历史。当前只展示正式版本，不允许在此切换研究或实盘数据源。</p>
-        <StatusBadge text="等待 MOD-2" color="orange" />
+        <span class="eyebrow">功能建设中</span><h3>查看以前的数据版本</h3>
+        <p>以后可以查看每次数据更新产生的版本。目前只显示现在可供研究使用的数据。</p>
+        <StatusBadge text="尚未开放" color="orange" />
       </article>
       <article class="panel data-gap-card">
-        <span class="eyebrow">D-04</span><h3>合约与分区覆盖</h3>
-        <p>活跃/退市合约及时间覆盖需要后端聚合；不会在浏览器遍历 manifest 拼算。</p>
-        <StatusBadge text="等待 MOD-2" color="orange" />
+        <span class="eyebrow">功能建设中</span><h3>每个合约覆盖多久</h3>
+        <p>以后可以分别查看仍在交易和已经退市的合约，以及每个合约的起止日期。</p>
+        <StatusBadge text="尚未开放" color="orange" />
       </article>
       <article class="panel data-gap-card">
-        <span class="eyebrow">D-02</span><h3>质量与停牌窗口</h3>
-        <p>缺失、重复、停牌和原生聚合差异将分项展示；当前不以“0”伪装无异常。</p>
-        <StatusBadge text="等待 MOD-2" color="orange" />
+        <span class="eyebrow">功能建设中</span><h3>数据缺失与停牌检查</h3>
+        <p>以后会分别展示缺失、重复、停牌和不同周期之间不一致的情况。</p>
+        <StatusBadge text="尚未开放" color="orange" />
       </article>
       <article class="panel data-gap-card">
-        <span class="eyebrow">D-05</span><h3>实时公共行情健康</h3>
-        <p>尚无独立公共行情健康读模型；不会用账户同步状态或 DATA-1R 任务代替。</p>
-        <StatusBadge text="尚未接入" color="orange" />
+        <span class="eyebrow">功能建设中</span><h3>实时行情是否正常</h3>
+        <p>以后会单独显示公共实时行情的连接和更新时间，不与历史数据混在一起。</p>
+        <StatusBadge text="尚未开放" color="orange" />
       </article>
     </div>
 
-    <article v-if="isDataMode" class="panel research-dataset-panel">
-      <div class="panel-head research-panel-head">
+    <details v-if="isDataMode" class="panel research-dataset-panel legacy-data-details">
+      <summary class="legacy-data-summary">
         <div>
-          <h3>兼容缓存文件</h3>
-          <p class="muted">{{ filteredDatasets.length }} / {{ legacyDatasets.length }} 个文件 · 不是正式 DATA-1R 版本</p>
+          <h3>旧研究数据（用于复现以前的报告）</h3>
+          <p class="muted">通常不需要操作。这里保留 {{ legacyDatasets.length }} 个旧文件，展开后可查看或补充单个市场。</p>
         </div>
+        <span class="pill">高级工具</span>
+      </summary>
+      <div class="legacy-data-content">
+        <div class="panel-head research-panel-head">
+          <div>
+            <h4>旧数据文件</h4>
+            <p class="muted">这些文件只用于复现历史报告，不是当前全市场研究数据。</p>
+          </div>
         <div class="research-filters">
           <input v-model.trim="datasetQuery" type="search" placeholder="筛选市场或文件" aria-label="筛选数据集" />
           <div class="research-segments" aria-label="数据类型">
@@ -383,7 +401,7 @@
               {{ option.label }}
             </button>
           </div>
-          <button class="button ghost compact" @click="showFetch = !showFetch">{{ showFetch ? "收起拉取" : "拉取新数据" }}</button>
+          <button class="button ghost compact" @click="showFetch = !showFetch">{{ showFetch ? "收起工具" : "补充单个市场数据" }}</button>
         </div>
       </div>
       <div v-if="showFetch" class="research-fetch-strip">
@@ -395,7 +413,7 @@
       </div>
       <div class="table-wrap research-data-table">
         <table>
-          <thead><tr><th>数据集</th><th>市场</th><th>类型</th><th>周期</th><th>记录数</th><th>数据区间</th><th>内容指纹 <HelpTip term="哈希指纹" /></th></tr></thead>
+          <thead><tr><th>文件</th><th>市场</th><th>数据内容</th><th>周期</th><th>数据条数</th><th>覆盖日期</th><th>文件校验码</th></tr></thead>
           <tbody>
             <tr v-for="dataset in filteredDatasets" :key="dataset.id">
               <td><strong>{{ dataset.id }}</strong><div class="muted">{{ dataset.relative_path }}</div></td>
@@ -409,11 +427,12 @@
               </td>
               <td><span class="mono research-hash" :title="dataset.sha256">{{ shortHash(dataset.sha256) }}</span></td>
             </tr>
-            <tr v-if="!filteredDatasets.length"><td colspan="7" class="muted">没有符合当前筛选条件的兼容缓存文件。</td></tr>
+            <tr v-if="!filteredDatasets.length"><td colspan="7" class="muted">没有符合当前筛选条件的旧数据文件。</td></tr>
           </tbody>
         </table>
       </div>
-    </article>
+      </div>
+    </details>
 
     <div v-if="isResearchMode" class="summary-grid research-summary legacy-summary">
       <div class="summary-item"><span>历史候选</span><strong>{{ legacyCandidates.length }}</strong><small>单位：个 · M0/F1/G1/G2</small></div>
@@ -619,7 +638,10 @@ const datasetKinds = [
 
 const isDataMode = computed(() => props.mode === "data");
 const isResearchMode = computed(() => !isDataMode.value);
-const pageError = computed(() => (isDataMode.value ? store.dataError : store.researchError));
+const pageError = computed(() => {
+  const error = isDataMode.value ? store.dataError : store.researchError;
+  return isDataMode.value ? userFacingDataMessage(error) : error;
+});
 const candidate = computed(() => store.researchCandidate);
 const result = computed(() => store.researchResult);
 const dataRuns = computed(() => store.researchRuns.filter((item) => (
@@ -632,8 +654,6 @@ const officialDataset = computed(() => (
   || null
 ));
 const legacyDatasets = computed(() => store.researchDatasets.filter((item) => item.kind !== "dataset_manifest"));
-const ohlcDatasetCount = computed(() => legacyDatasets.value.filter((item) => ["ohlc", "series"].includes(item.kind)).length);
-const fundingDatasetCount = computed(() => legacyDatasets.value.filter((item) => item.kind === "funding").length);
 const activeRunStatuses = ["queued", "running", "cancelling"];
 const legacyProtocolIds = new Set(["M0", "F1", "G1", "G2"]);
 const legacyCandidates = computed(() => store.researchCandidates.filter(isLegacyCandidate));
@@ -748,8 +768,8 @@ function researchVerdictColor(value) {
 }
 
 function datasetStateLabel(dataset) {
-  if (!dataset) return "未登记";
-  return dataset.dataset_state === "COMPLETE" ? "数据完整" : "数据不完整";
+  if (!dataset) return "尚未准备好";
+  return dataset.dataset_state === "COMPLETE" ? "已准备好，可以开始研究" : "需要继续检查";
 }
 
 function toggleLegacyCreate() {
@@ -837,7 +857,7 @@ async function fetchDataset() {
 }
 
 async function startShortline() {
-  if (!window.confirm("确认开始全市场 DATA-1R 下载与构建？预计占用约 8–12 GB 磁盘。")) return;
+  if (!window.confirm("确认检查并更新全市场历史数据？预计占用约 8–12 GB 磁盘。")) return;
   const run = await startShortlineDatasetBuild({
     confirm_full_download: shortlineDraft.confirmed,
     workers: shortlineDraft.workers,
@@ -873,11 +893,13 @@ function startRunPolling() {
 }
 
 function runLabel(run) {
-  if (run.status === "failed") return run.error || "评估失败";
+  if (run.status === "failed") return run.job_type
+    ? (userFacingDataMessage(run.error) || "数据更新失败")
+    : (run.error || "评估失败");
   if (run.job_type === "shortline_dataset") {
-    if (run.status === "succeeded") return "DATA-1R 全市场数据集完成";
-    if (run.status === "cancelled") return "DATA-1R 数据任务已停止";
-    return `${shortlinePhaseLabel(run.phase)} · ${run.message || "正在处理"}`;
+    if (run.status === "succeeded") return "全市场历史数据已更新";
+    if (run.status === "cancelled") return "历史数据更新已停止";
+    return `${shortlinePhaseLabel(run.phase)} · ${userFacingDataMessage(run.message) || "正在处理"}`;
   }
   if (run.job_type === "dataset_fetch") {
     const request = run.request || {};
@@ -887,6 +909,25 @@ function runLabel(run) {
   }
   if (run.status === "succeeded") return "实验程序已完成";
   return run.status === "running" ? "正在运行缓存评估" : "等待执行";
+}
+
+function userFacingDataMessage(value) {
+  const message = String(value || "").trim();
+  if (!message) return "";
+  if (/全市场研究数据集已完成|research dataset.*complete/i.test(message)) {
+    return "全部历史数据已经下载、校验并整理完成。";
+  }
+  if (/WinError\s*5|拒绝访问/i.test(message)) {
+    return "无法写入数据目录，可能有文件正被其他程序占用。请稍后重试；如果持续出现，请联系开发人员。";
+  }
+  if (/does not hold the dataset lock|dataset lock/i.test(message)) {
+    return "数据更新未取得写入权限。请重新启动后台服务后再试。";
+  }
+  return message
+    .replace(/DATA-1R/gi, "全市场历史数据更新")
+    .replace(/dataset/gi, "数据")
+    .replace(/manifest/gi, "数据清单")
+    .replace(/checksum/gi, "文件校验");
 }
 
 function runStatusLabel(run) {
@@ -915,9 +956,9 @@ function shortlinePhaseLabel(value) {
     download: "第二步：下载并校验原始数据",
     build: "第三步：聚合并生成质量报告",
     verify: "第四步：核对官方原生聚合",
-    complete: "数据集构建完成",
-    interrupted: "服务重启后等待续校",
-  }[value] || "数据任务";
+    complete: "历史数据已更新完成",
+    interrupted: "上次更新中断，可以继续",
+  }[value] || "正在处理历史数据";
 }
 
 function formatBytes(value) {
