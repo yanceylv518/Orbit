@@ -10,16 +10,60 @@
         </p>
       </div>
       <div class="toolbar">
-        <button class="button ghost" :disabled="store.researchBusy" @click="loadResearchCatalog">
+        <button class="button ghost" :disabled="store.researchBusy" @click="refreshCatalog">
           {{ store.researchBusy ? "读取中..." : isDataMode ? "刷新数据" : "刷新研究档案" }}
-        </button>
-        <button v-if="isResearchMode" class="button primary" @click="showCreate = !showCreate">
-          {{ showCreate ? "收起新候选" : "登记新候选" }}
         </button>
       </div>
     </div>
 
     <div v-if="pageError" class="service-alert">{{ pageError }}</div>
+
+    <div v-if="!catalogReady && !pageError" class="panel structured-empty-state catalog-loading-state">
+      <strong>{{ isDataMode ? "正在读取数据版本与任务…" : "正在读取研究假设与历史档案…" }}</strong>
+      <p>载入完成前不显示 0 值，避免把“尚未读取”误解为“没有数据”。</p>
+    </div>
+
+    <template v-else-if="catalogReady">
+
+    <article v-if="isDataMode" class="panel data-version-panel">
+      <div class="panel-head research-panel-head">
+        <div>
+          <span class="eyebrow">当前正式历史数据版本</span>
+          <h3>{{ officialDataset?.id || "尚未登记正式版本" }}</h3>
+          <p class="muted">这是研究使用的数据事实；当前下载任务的进度不会改变这里的完整性结论。</p>
+        </div>
+        <StatusBadge
+          :text="datasetStateLabel(officialDataset)"
+          :raw="officialDataset?.dataset_state || 'UNREGISTERED'"
+          :color="officialDataset?.dataset_state === 'COMPLETE' ? 'green' : 'orange'"
+        />
+      </div>
+      <div class="data-version-grid">
+        <div>
+          <span>内容指纹 <HelpTip term="哈希指纹" /></span>
+          <strong class="mono" :title="officialDataset?.sha256">{{ shortHash(officialDataset?.sha256) }}</strong>
+          <small>来源：正式 manifest</small>
+        </div>
+        <div>
+          <span>基础与派生周期</span>
+          <strong>15m → 1h / 4h</strong>
+          <small>来源：DATA-1R 冻结规则</small>
+        </div>
+        <div>
+          <span>统一数据截止</span>
+          <strong>尚未接入</strong>
+          <small>D-01 · 等待 MOD-2 读模型</small>
+        </div>
+        <div>
+          <span>质量摘要</span>
+          <strong>尚未接入</strong>
+          <small>D-02 · 不从任务进度推断</small>
+        </div>
+      </div>
+      <div v-if="!officialDataset" class="data-empty-callout">
+        尚未生成正式版本。请先完成 DATA-1R 构建与质量校验；实盘行情与本页隔离，不会因此停止。
+      </div>
+    </article>
 
     <article v-if="isResearchMode" class="panel research-topic-panel">
       <div class="panel-head research-panel-head">
@@ -34,17 +78,90 @@
         <div><span>统一历史数据</span><strong>{{ officialDataset?.dataset_state === "COMPLETE" ? "已完整" : "待确认" }}</strong></div>
         <div><span>基础周期</span><strong>15分钟</strong></div>
         <div><span>派生周期</span><strong>1小时 / 4小时</strong></div>
-        <div><span>下一步</span><strong>冻结R-0假设与变量</strong></div>
+        <div><span>下一步</span><strong>接入 R-0 预注册定义</strong></div>
       </div>
     </article>
 
-    <article v-if="isResearchMode && showCreate" class="panel research-create-panel">
+    <template v-if="isResearchMode">
+      <div class="summary-grid research-summary">
+        <div class="summary-item">
+          <span>量价关系预注册假设</span>
+          <strong>{{ topicCandidates.length }}</strong>
+          <small>单位：个 · 来源：研究登记</small>
+        </div>
+        <div class="summary-item">
+          <span>正在运行的实验</span>
+          <strong>{{ activeTopicRuns.length }}</strong>
+          <small>单位：项 · 仅实验任务</small>
+        </div>
+        <div class="summary-item">
+          <span>得到支持</span>
+          <strong class="positive">{{ supportedTopicCandidates }}</strong>
+          <small>研究 verdict，不是任务状态</small>
+        </div>
+        <div class="summary-item">
+          <span>未支持 / 证据不足</span>
+          <strong>{{ unresolvedTopicCandidates }}</strong>
+          <small>单位：个 · 结果永久保留</small>
+        </div>
+      </div>
+
+      <article class="panel research-hypothesis-panel">
+        <div class="panel-head">
+          <div>
+            <h3>量价关系假设</h3>
+            <p class="muted">预注册、程序运行和研究结论分列；程序完成不代表关系成立。</p>
+          </div>
+          <StatusBadge text="R-01 / R-02 待读模型" color="orange" />
+        </div>
+        <div v-if="topicCandidates.length" class="table-wrap">
+          <table>
+            <thead><tr><th>假设</th><th>预注册</th><th>最近任务</th><th>研究结论</th><th>证据</th></tr></thead>
+            <tbody>
+              <tr v-for="item in topicCandidates" :key="item.id">
+                <td><strong>{{ item.id }}</strong><div class="muted">{{ item.name || "未命名假设" }}</div></td>
+                <td><StatusBadge :text="item.status === 'frozen' ? '已冻结' : enumLabel(item.status)" color="blue" /><div class="muted">{{ dateTime(item.frozen_at) }}</div></td>
+                <td><StatusBadge :text="latestRunFor(item.id) ? runStatusLabel(latestRunFor(item.id)) : '尚未运行'" :color="latestRunFor(item.id) ? runStatusColor(latestRunFor(item.id)) : 'blue'" /></td>
+                <td><StatusBadge :text="researchVerdictLabel(item.latest_verdict)" :color="researchVerdictColor(item.latest_verdict)" /></td>
+                <td class="mono">{{ shortHash(item.frozen_hash) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="structured-empty-state">
+          <strong>尚无量价关系的正式预注册假设</strong>
+          <p>R-0 的结构化变量和数据版本绑定将在 MOD-3 接入。在此之前不使用旧协议冒充量价关系，也不会提供一个无法满足冻结契约的创建按钮。</p>
+          <span>下一步：完成 R-01 研究投影与 R-02 预注册命令。</span>
+        </div>
+      </article>
+
+      <article class="panel research-runs-panel">
+        <div class="panel-head">
+          <div><h3>量价关系实验运行</h3><p class="muted">这里只显示当前主题实验，永远不包含数据下载任务。</p></div>
+          <span class="pill">{{ topicExperimentRuns.length }} 次</span>
+        </div>
+        <div v-if="topicExperimentRuns.length" class="research-run-list">
+          <button v-for="run in topicExperimentRuns.slice(0, 8)" :key="run.id" class="research-run-row" @click="openRunTarget(run)">
+            <span class="candidate-id mono">{{ run.candidate_id }}</span>
+            <span class="research-run-copy"><strong>{{ runLabel(run) }}</strong><small>{{ dateTime(run.updated_at) }} · {{ run.id }}</small></span>
+            <span class="research-progress"><i :style="{ width: `${run.progress || 0}%` }"></i></span>
+            <StatusBadge :text="runStatusLabel(run)" :raw="run.status" :color="runStatusColor(run)" />
+          </button>
+        </div>
+        <div v-else class="structured-empty-state compact">
+          <strong>当前没有量价关系实验在运行</strong>
+          <p>先完成预注册，随后实验任务及其错误会显示在这里；数据构建任务请到“数据”页查看。</p>
+        </div>
+      </article>
+    </template>
+
+    <article id="legacy-create" v-if="isResearchMode && showCreate" class="panel research-create-panel legacy-create-panel">
       <div class="panel-head research-panel-head">
         <div>
-          <h3>先写死规则，再登记新候选 <HelpTip term="预注册" /></h3>
-          <p class="muted">提交后参数、成本、数据指纹与及格线永久不可修改。</p>
+          <h3>登记历史协议候选 <HelpTip term="预注册" /></h3>
+          <p class="muted">仅用于 M0 / F1 / G1 / G2 兼容协议；它不是 R-0 量价关系预注册入口。提交后不可修改。</p>
         </div>
-        <StatusBadge text="预注册" color="blue" />
+        <StatusBadge text="历史兼容工具" color="orange" />
       </div>
       <div class="research-create-grid">
         <section class="research-create-fields">
@@ -103,61 +220,38 @@
 
     <div v-if="isDataMode" class="summary-grid research-summary">
       <div class="summary-item">
-        <span>正式历史数据版本</span>
-        <strong>{{ officialDataset?.dataset_state === "COMPLETE" ? "完整" : officialDataset ? "不完整" : "未登记" }}</strong>
-        <small class="mono">{{ shortHash(officialDataset?.sha256) }}</small>
-      </div>
-      <div class="summary-item">
-        <span>全市场归档条目</span>
+        <span>全市场归档分区</span>
         <strong>{{ Number(officialDataset?.rows || 0).toLocaleString("zh-CN") }}</strong>
-        <small>manifest条目，不是K线根数</small>
+        <small>单位：个 · 来源：正式 manifest</small>
       </div>
       <div class="summary-item">
-        <span>旧缓存数据文件</span>
+        <span>兼容缓存文件</span>
         <strong>{{ legacyDatasets.length }}</strong>
-        <small>{{ ohlcDatasetCount }} 个K线 · {{ fundingDatasetCount }} 个Funding</small>
+        <small>单位：个 · 不是正式版本</small>
       </div>
       <div class="summary-item">
-        <span>数据任务历史</span>
-        <strong>{{ dataRuns.length }}</strong>
-        <small>成功、失败和停止记录均保留</small>
+        <span>K线 / 序列缓存</span>
+        <strong>{{ ohlcDatasetCount }}</strong>
+        <small>单位：个文件 · 周期见明细</small>
+      </div>
+      <div class="summary-item">
+        <span>Funding 缓存</span>
+        <strong>{{ fundingDatasetCount }}</strong>
+        <small>单位：个文件 · 不与K线相加</small>
       </div>
     </div>
 
-    <div v-else class="summary-grid research-summary">
-      <div class="summary-item">
-        <span>历史研究候选</span>
-        <strong>{{ store.researchCandidates.length }}</strong>
-        <small>M0 / F1 / G1 / G2 等既有档案</small>
-      </div>
-      <div class="summary-item">
-        <span>未通过的候选</span>
-        <strong class="negative">{{ failedCandidates }}</strong>
-        <small>没有通过预先写定的门槛</small>
-      </div>
-      <div class="summary-item">
-        <span>可以查看的结果报告</span>
-        <strong>{{ availableResults }}</strong>
-        <small>本地结构化结果</small>
-      </div>
-      <div class="summary-item">
-        <span>实验任务历史</span>
-        <strong>{{ experimentRuns.length }}</strong>
-        <small>不包含数据下载和构建任务</small>
-      </div>
-    </div>
-
-    <article v-if="visibleRuns.length" class="panel research-runs-panel">
+    <article v-if="isResearchMode && legacyExperimentRuns.length" class="panel research-runs-panel legacy-run-panel">
       <div class="panel-head">
         <div>
-          <h3>{{ isDataMode ? "数据任务记录" : "实验运行记录" }}</h3>
-          <p class="muted">{{ isDataMode ? "只显示数据拉取、全市场构建及其历史错误" : "只显示候选实验；程序完成不等于研究通过" }}</p>
+          <h3>历史协议实验任务</h3>
+          <p class="muted">M0 / F1 / G1 / G2 的运行记录，与当前量价关系主题分开。</p>
         </div>
-        <span class="pill">{{ visibleRuns.length }} 次</span>
+        <span class="pill">{{ legacyExperimentRuns.length }} 次</span>
       </div>
       <div class="research-run-list">
-        <button v-for="run in visibleRuns.slice(0, 8)" :key="run.id" class="research-run-row" :class="{ static: Boolean(run.job_type) }" @click="openRunTarget(run)">
-          <span class="candidate-id mono">{{ run.job_type ? "DATA" : run.candidate_id }}</span>
+        <button v-for="run in legacyExperimentRuns.slice(0, 8)" :key="run.id" class="research-run-row" @click="openRunTarget(run)">
+          <span class="candidate-id mono">{{ run.candidate_id }}</span>
           <span class="research-run-copy"><strong>{{ runLabel(run) }}</strong><small>{{ dateTime(run.updated_at) }} · {{ run.id }}</small></span>
           <span class="research-progress"><i :style="{ width: `${run.progress || 0}%` }"></i></span>
           <StatusBadge :text="runStatusLabel(run)" :raw="run.status" :color="runStatusColor(run)" />
@@ -181,24 +275,25 @@
         <section class="research-shortline-copy">
           <strong>{{ shortlineRun ? shortlinePhaseLabel(shortlineRun.phase) : "等待建立 DATA-1R" }}</strong>
           <p>{{ shortlineRun?.message || "预计占用约 8–12 GB；已完成文件会保留，失败或取消后再次启动会校验并继续。" }}</p>
-          <div v-if="shortlineRun" class="research-progress large">
+          <div v-if="shortlineActive" class="research-progress large">
             <i :style="{ width: `${shortlineRun.progress || 0}%` }"></i>
           </div>
-          <small v-if="shortlineRun?.total_items" class="muted">
+          <small v-if="shortlineActive && shortlineRun?.total_items" class="muted">
             已完成 {{ Number(shortlineRun.completed_items || 0).toLocaleString("zh-CN") }} /
             {{ Number(shortlineRun.total_items).toLocaleString("zh-CN") }}
             <template v-if="shortlineRun.current_item"> · {{ shortlineRun.current_item }}</template>
           </small>
-          <small v-if="shortlineRun?.total_bytes" class="muted">
+          <small v-if="shortlineActive && shortlineRun?.total_bytes" class="muted">
             已校验 {{ formatBytes(shortlineRun.completed_bytes) }} / {{ formatBytes(shortlineRun.total_bytes) }}
             <template v-if="shortlineRun.error_count"> · {{ shortlineRun.error_count }} 个错误</template>
           </small>
-          <ul v-if="shortlineRun?.recent_logs?.length" class="research-shortline-logs">
+          <ul v-if="shortlineActive && shortlineRun?.recent_logs?.length" class="research-shortline-logs">
             <li v-for="line in shortlineRun.recent_logs" :key="line">{{ line }}</li>
           </ul>
-          <small v-if="shortlineRun?.lock_holder" class="muted">
-            任务锁 {{ shortlineRun.lock_holder.owner }} · PID {{ shortlineRun.lock_holder.pid }} · {{ dateTime(shortlineRun.lock_holder.started_at) }}
+          <small v-if="shortlineActive && shortlineRun?.lock_holder" class="muted">
+            当前单飞锁 {{ shortlineRun.lock_holder.owner }} · PID {{ shortlineRun.lock_holder.pid }} · {{ dateTime(shortlineRun.lock_holder.started_at) }}
           </small>
+          <small v-if="shortlineRun && !shortlineActive" class="muted">最近任务于 {{ dateTime(shortlineRun.updated_at) }} 结束；正式数据完整性以上方版本卡为准。</small>
           <small v-if="shortlineRun?.dataset_fingerprint" class="muted mono" :title="shortlineRun.dataset_fingerprint">
             数据指纹 {{ shortHash(shortlineRun.dataset_fingerprint) }} · {{ shortlineRun.contract_count || "-" }} 个合约 · {{ shortlineRun.partition_count || "-" }} 个分区
           </small>
@@ -224,11 +319,56 @@
       </div>
     </article>
 
+    <article v-if="isDataMode" class="panel research-runs-panel">
+      <div class="panel-head">
+        <div>
+          <h3>数据任务记录</h3>
+          <p class="muted">这里只显示拉取、构建及历史错误；任务完成不等于正式数据版本完整。</p>
+        </div>
+        <span class="pill">{{ dataRuns.length }} 次</span>
+      </div>
+      <div v-if="dataRuns.length" class="research-run-list">
+        <div v-for="run in dataRuns.slice(0, 8)" :key="run.id" class="research-run-row static">
+          <span class="candidate-id mono">DATA</span>
+          <span class="research-run-copy"><strong>{{ runLabel(run) }}</strong><small>{{ dateTime(run.updated_at) }} · {{ run.id }}</small></span>
+          <span class="research-progress"><i :style="{ width: `${run.progress || 0}%` }"></i></span>
+          <StatusBadge :text="runStatusLabel(run)" :raw="run.status" :color="runStatusColor(run)" />
+        </div>
+      </div>
+      <div v-else class="structured-empty-state compact">
+        <strong>尚无数据任务</strong>
+        <p>开始 DATA-1R 或单市场拉取后，任务 ID、进度和错误会显示在这里。</p>
+      </div>
+    </article>
+
+    <div v-if="isDataMode" class="data-gap-grid">
+      <article class="panel data-gap-card">
+        <span class="eyebrow">D-03</span><h3>版本历史</h3>
+        <p>尚未接入数据目录历史。当前只展示正式版本，不允许在此切换研究或实盘数据源。</p>
+        <StatusBadge text="等待 MOD-2" color="orange" />
+      </article>
+      <article class="panel data-gap-card">
+        <span class="eyebrow">D-04</span><h3>合约与分区覆盖</h3>
+        <p>活跃/退市合约及时间覆盖需要后端聚合；不会在浏览器遍历 manifest 拼算。</p>
+        <StatusBadge text="等待 MOD-2" color="orange" />
+      </article>
+      <article class="panel data-gap-card">
+        <span class="eyebrow">D-02</span><h3>质量与停牌窗口</h3>
+        <p>缺失、重复、停牌和原生聚合差异将分项展示；当前不以“0”伪装无异常。</p>
+        <StatusBadge text="等待 MOD-2" color="orange" />
+      </article>
+      <article class="panel data-gap-card">
+        <span class="eyebrow">D-05</span><h3>实时公共行情健康</h3>
+        <p>尚无独立公共行情健康读模型；不会用账户同步状态或 DATA-1R 任务代替。</p>
+        <StatusBadge text="尚未接入" color="orange" />
+      </article>
+    </div>
+
     <article v-if="isDataMode" class="panel research-dataset-panel">
       <div class="panel-head research-panel-head">
         <div>
-          <h3>研究可以使用哪些本地数据？</h3>
-          <p class="muted">{{ filteredDatasets.length }} / {{ store.researchDatasets.length }} 个缓存文件</p>
+          <h3>兼容缓存文件</h3>
+          <p class="muted">{{ filteredDatasets.length }} / {{ legacyDatasets.length }} 个文件 · 不是正式 DATA-1R 版本</p>
         </div>
         <div class="research-filters">
           <input v-model.trim="datasetQuery" type="search" placeholder="筛选市场或文件" aria-label="筛选数据集" />
@@ -269,24 +409,34 @@
               </td>
               <td><span class="mono research-hash" :title="dataset.sha256">{{ shortHash(dataset.sha256) }}</span></td>
             </tr>
-            <tr v-if="!filteredDatasets.length"><td colspan="7" class="muted">没有符合当前筛选条件的数据集。</td></tr>
+            <tr v-if="!filteredDatasets.length"><td colspan="7" class="muted">没有符合当前筛选条件的兼容缓存文件。</td></tr>
           </tbody>
         </table>
       </div>
     </article>
+
+    <div v-if="isResearchMode" class="summary-grid research-summary legacy-summary">
+      <div class="summary-item"><span>历史候选</span><strong>{{ legacyCandidates.length }}</strong><small>单位：个 · M0/F1/G1/G2</small></div>
+      <div class="summary-item"><span>未通过门槛</span><strong class="negative">{{ failedLegacyCandidates }}</strong><small>研究结论，不是任务失败</small></div>
+      <div class="summary-item"><span>可查看报告</span><strong>{{ legacyAvailableResults }}</strong><small>单位：份 · 本地冻结结果</small></div>
+      <div class="summary-item"><span>历史实验任务</span><strong>{{ legacyExperimentRuns.length }}</strong><small>单位：次 · 不含数据任务</small></div>
+    </div>
 
     <div v-if="isResearchMode" class="research-workspace">
       <article class="panel research-history-panel">
         <div class="panel-head">
           <div>
             <h3>历史研究档案</h3>
-            <p class="muted">M0、F1、G1、G2及后续实验的通过和失败记录都永久保留</p>
+            <p class="muted">M0、F1、G1、G2 的通过和失败记录永久保留，不占据当前主题主流程。</p>
           </div>
-          <span class="pill">{{ store.researchCandidates.length }} 项</span>
+          <div class="archive-head-actions">
+            <span class="pill">{{ legacyCandidates.length }} 项</span>
+            <button class="button ghost compact" @click="toggleLegacyCreate">{{ showCreate ? "收起兼容工具" : "登记历史候选" }}</button>
+          </div>
         </div>
         <div class="candidate-history">
           <button
-            v-for="candidate in store.researchCandidates"
+            v-for="candidate in legacyCandidates"
             :key="candidate.id"
             class="candidate-row"
             :class="{ active: candidate.id === store.researchCandidate?.id }"
@@ -299,7 +449,7 @@
             </span>
             <StatusBadge :text="verdictLabel(candidate.latest_verdict)" :raw="candidate.latest_verdict || 'PENDING'" :color="verdictColor(candidate.latest_verdict)" />
           </button>
-          <p v-if="!store.researchCandidates.length && !store.researchBusy" class="muted">暂无冻结候选。</p>
+          <p v-if="!legacyCandidates.length && !store.researchBusy" class="muted">尚无 M0 / F1 / G1 / G2 历史档案。</p>
         </div>
       </article>
 
@@ -423,6 +573,7 @@
         <div v-else class="research-loading muted">请选择候选查看冻结定义与结果。</div>
       </article>
     </div>
+    </template>
   </section>
 </template>
 
@@ -453,6 +604,7 @@ const datasetKind = ref("all");
 const showCreate = ref(false);
 const showFetch = ref(false);
 const openLockbox = ref(false);
+const catalogReady = ref(false);
 const draft = reactive({ protocol: "M0", id: "", name: "", datasetIds: [], confirmed: false });
 const fetchDraft = reactive({ symbol: "BTCUSDT", kind: "ohlc", interval: "15m", days: 180 });
 const shortlineDraft = reactive({ workers: 4, confirmed: false });
@@ -474,7 +626,6 @@ const dataRuns = computed(() => store.researchRuns.filter((item) => (
   item.job_type === "dataset_fetch" || item.job_type === "shortline_dataset"
 )));
 const experimentRuns = computed(() => store.researchRuns.filter((item) => !item.job_type));
-const visibleRuns = computed(() => (isDataMode.value ? dataRuns.value : experimentRuns.value));
 const officialDataset = computed(() => (
   store.researchDatasets.find((item) => item.id === "shortline-data-v1")
   || store.researchDatasets.find((item) => item.kind === "dataset_manifest")
@@ -483,8 +634,20 @@ const officialDataset = computed(() => (
 const legacyDatasets = computed(() => store.researchDatasets.filter((item) => item.kind !== "dataset_manifest"));
 const ohlcDatasetCount = computed(() => legacyDatasets.value.filter((item) => ["ohlc", "series"].includes(item.kind)).length);
 const fundingDatasetCount = computed(() => legacyDatasets.value.filter((item) => item.kind === "funding").length);
-const selectedTemplate = computed(() => store.researchTemplates.find((item) => item.id === draft.protocol) || null);
 const activeRunStatuses = ["queued", "running", "cancelling"];
+const legacyProtocolIds = new Set(["M0", "F1", "G1", "G2"]);
+const legacyCandidates = computed(() => store.researchCandidates.filter(isLegacyCandidate));
+const topicCandidates = computed(() => store.researchCandidates.filter((item) => !isLegacyCandidate(item)));
+const topicCandidateIds = computed(() => new Set(topicCandidates.value.map((item) => item.id)));
+const topicExperimentRuns = computed(() => experimentRuns.value.filter((item) => topicCandidateIds.value.has(item.candidate_id)));
+const legacyExperimentRuns = computed(() => experimentRuns.value.filter((item) => !topicCandidateIds.value.has(item.candidate_id)));
+const activeTopicRuns = computed(() => topicExperimentRuns.value.filter((item) => activeRunStatuses.includes(item.status)));
+const supportedTopicCandidates = computed(() => topicCandidates.value.filter((item) => isSupportedVerdict(item.latest_verdict)).length);
+const unresolvedTopicCandidates = computed(() => topicCandidates.value.filter((item) => {
+  const verdict = String(item.latest_verdict || "PENDING").toUpperCase();
+  return verdict !== "PENDING" && !isSupportedVerdict(verdict);
+}).length);
+const selectedTemplate = computed(() => store.researchTemplates.find((item) => item.id === draft.protocol) || null);
 const hasActiveRun = computed(() => store.researchRuns.some((item) => activeRunStatuses.includes(item.status)));
 const shortlineRun = computed(() => store.researchRuns.find((item) => item.job_type === "shortline_dataset") || null);
 const shortlineActive = computed(() => Boolean(shortlineRun.value && activeRunStatuses.includes(shortlineRun.value.status)));
@@ -499,17 +662,17 @@ const compatibleDatasets = computed(() => {
 const canFreeze = computed(() => Boolean(
   draft.confirmed && draft.id && draft.protocol && draft.datasetIds.length,
 ));
-const failedCandidates = computed(() => store.researchCandidates.filter((item) => {
+const failedLegacyCandidates = computed(() => legacyCandidates.value.filter((item) => {
   const verdict = item.latest_verdict || item.verdict;
   return verdict && String(verdict).toUpperCase() !== "PENDING" && !isPass(verdict);
 }).length);
-const availableResults = computed(() => store.researchCandidates.reduce(
+const legacyAvailableResults = computed(() => legacyCandidates.value.reduce(
   (sum, item) => sum + (item.results || []).filter((entry) => entry.available).length,
   0,
 ));
 const filteredDatasets = computed(() => {
   const query = datasetQuery.value.toLowerCase();
-  return store.researchDatasets.filter((item) => {
+  return legacyDatasets.value.filter((item) => {
     const kindMatches = datasetKind.value === "all" || item.kind === datasetKind.value;
     const queryMatches = !query || `${item.id} ${item.market || ""} ${item.interval || ""}`.toLowerCase().includes(query);
     return kindMatches && queryMatches;
@@ -539,6 +702,59 @@ function normalizeEvidence(report) {
     return report.configurations.map((row, index) => evidenceRow(row.id || `配置 ${index + 1}`, row, index));
   }
   return [];
+}
+
+async function refreshCatalog() {
+  const loaded = await loadResearchCatalog();
+  catalogReady.value = loaded;
+  if (loaded && !draft.datasetIds.length) applySuggestedDatasets();
+  if (loaded && hasActiveRun.value) startRunPolling();
+}
+
+function isLegacyCandidate(item) {
+  const protocol = String(item?.protocol || item?.id || "").toUpperCase().split(/[-_]/)[0];
+  return legacyProtocolIds.has(protocol);
+}
+
+function latestRunFor(candidateId) {
+  return topicExperimentRuns.value.find((item) => item.candidate_id === candidateId) || null;
+}
+
+function isSupportedVerdict(value) {
+  return ["SUPPORTED", "GO", "PASS", "LOCKBOX_PASS"].includes(String(value || "").toUpperCase());
+}
+
+function researchVerdictLabel(value) {
+  const normalized = String(value || "PENDING").toUpperCase();
+  return {
+    PENDING: "等待结论",
+    SUPPORTED: "得到支持",
+    NOT_SUPPORTED: "未得到支持",
+    INCONCLUSIVE: "证据不足",
+    INVALID: "实验无效",
+    GO: "得到支持",
+    PASS: "得到支持",
+    LOCKBOX_PASS: "得到支持",
+    NO_GO: "未得到支持",
+    FAIL: "未得到支持",
+  }[normalized] || enumLabel(normalized);
+}
+
+function researchVerdictColor(value) {
+  const normalized = String(value || "PENDING").toUpperCase();
+  if (isSupportedVerdict(normalized)) return "green";
+  if (["NOT_SUPPORTED", "NO_GO", "FAIL", "INVALID"].includes(normalized)) return "red";
+  return normalized === "INCONCLUSIVE" ? "orange" : "blue";
+}
+
+function datasetStateLabel(dataset) {
+  if (!dataset) return "未登记";
+  return dataset.dataset_state === "COMPLETE" ? "数据完整" : "数据不完整";
+}
+
+function toggleLegacyCreate() {
+  showCreate.value = !showCreate.value;
+  if (showCreate.value) window.setTimeout(() => document.getElementById("legacy-create")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
 }
 
 function applySuggestedDatasets() {
@@ -645,7 +861,8 @@ function openRunTarget(run) {
 function startRunPolling() {
   if (runPollTimer) return;
   runPollTimer = window.setInterval(async () => {
-    const active = visibleRuns.value.find((item) => activeRunStatuses.includes(item.status));
+    const runs = isDataMode.value ? dataRuns.value : experimentRuns.value;
+    const active = runs.find((item) => activeRunStatuses.includes(item.status));
     if (!active) {
       window.clearInterval(runPollTimer);
       runPollTimer = null;
@@ -668,20 +885,18 @@ function runLabel(run) {
       ? `已新增 ${run.dataset_id}`
       : `拉取 ${request.symbol || "-"} ${request.kind === "funding" ? "资金费率" : request.interval || "K 线"}`;
   }
-  if (run.status === "succeeded") return `冻结结论：${verdictLabel(run.verdict)}`;
+  if (run.status === "succeeded") return "实验程序已完成";
   return run.status === "running" ? "正在运行缓存评估" : "等待执行";
 }
 
 function runStatusLabel(run) {
-  if (run.job_type && run.status === "succeeded") return "任务完成";
-  if (run.job_type && run.status === "failed") return "任务失败";
   return {
     queued: enumLabel("queued"),
     running: `正在运行 ${run.progress || 0}%`,
     cancelling: "正在停止",
     cancelled: "已停止",
-    succeeded: run.verdict ? verdictLabel(run.verdict) : enumLabel("succeeded"),
-    failed: enumLabel("failed"),
+    succeeded: "任务完成",
+    failed: "任务失败",
   }[run.status] || enumLabel(run.status);
 }
 
@@ -851,9 +1066,7 @@ function numberClass(value) {
 
 watch(() => candidate.value?.id, () => { openLockbox.value = false; });
 async function initializeResearch() {
-  await loadResearchCatalog();
-  if (!draft.datasetIds.length) applySuggestedDatasets();
-  if (hasActiveRun.value) startRunPolling();
+  await refreshCatalog();
 }
 
 onMounted(async () => {
