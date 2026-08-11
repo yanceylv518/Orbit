@@ -397,6 +397,40 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
                 bootstrap_samples=10,
             )
 
+    def test_ui_progress_checkpoints_resume_and_match_fresh_training(self):
+        context = self._context()
+        rows = self._oversold_fixture(exit_open=103.0)
+        rows += candles([103.0] * 20, start=len(rows) * RAW_INTERVAL_MS)
+        diagnostics = lambda *_: {
+            "volume_trend_3d": "NOT_STRICTLY_INCREASING",
+            "listing_age": "LE_30_DAYS",
+        }
+        progress = []
+        calls = []
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp)
+            first = training_report(
+                context, ["TESTUSDT"],
+                lambda symbol: (calls.append(symbol) or (rows, [])),
+                tier_at=lambda *_: "HIGH", diagnostics_at=diagnostics,
+                bootstrap_samples=10, progress_callback=progress.append,
+                checkpoint_dir=checkpoint,
+            )
+            second = training_report(
+                context, ["TESTUSDT"],
+                lambda symbol: self.fail(f"checkpoint did not resume: {symbol}"),
+                tier_at=lambda *_: "HIGH", diagnostics_at=diagnostics,
+                bootstrap_samples=10, checkpoint_dir=checkpoint,
+            )
+
+        self.assertEqual(calls, ["TESTUSDT"])
+        self.assertEqual(first, second)
+        self.assertTrue(any(item.get("completed_symbols") == 1 for item in progress))
+        self.assertEqual(
+            [item["completed_combinations"] for item in progress if item["phase"] == "evaluate"],
+            list(range(1, 17)),
+        )
+
     def test_tampered_training_selection_is_rejected(self):
         report = self._failed_training_report()
         report["selected_candidates"]["OVERSOLD_REBOUND"] = {

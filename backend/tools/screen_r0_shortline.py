@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 from datetime import datetime, timezone
 import gzip
 import hashlib
@@ -33,6 +34,8 @@ from orbit.infrastructure.market_data.binance_public_archive import (  # noqa: E
     iter_funding_zip,
     iter_kline_zip,
 )
+from orbit.infrastructure.persistence.atomic_file import replace_with_retry  # noqa: E402
+from orbit.infrastructure.persistence.dataset_job_lock import DatasetJobLock  # noqa: E402
 
 
 DEFAULT_SPEC = PROJECT_ROOT / "config" / "research" / "r0_shortline_screen.v2.json"
@@ -44,9 +47,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=str(DEFAULT_ROOT))
     parser.add_argument("--spec", default=str(DEFAULT_SPEC))
+    parser.add_argument("--lock-owner-token")
     commands = parser.add_subparsers(dest="command", required=True)
     train = commands.add_parser("train", help="Evaluate only the frozen training period")
     train.add_argument("--out", required=True)
+    train.add_argument("--progress-state")
+    train.add_argument("--checkpoint-dir")
     lockbox = commands.add_parser("lockbox", help="Open the one-time frozen lockbox")
     lockbox.add_argument("--training-report", required=True)
     lockbox.add_argument("--out", required=True)
@@ -54,12 +60,26 @@ def main() -> None:
         "--marker", default=str(PROJECT_ROOT / "var" / "research" / "r0_lockbox_opened.json"),
     )
     lockbox.add_argument("--confirm-open-lockbox", action="store_true")
+    lockbox.add_argument("--progress-state")
+    lockbox.add_argument("--checkpoint-dir")
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
+    if args.lock_owner_token:
+        DatasetJobLock.validate_token(root, args.lock_owner_token)
+    else:
+        direct_lock = DatasetJobLock(root, owner="r0-cli", run_id=args.command)
+        direct_lock.acquire()
+        atexit.register(direct_lock.release)
     context = verify_frozen_context(Path(args.spec).resolve(), root)
     contract = context["contract"]
     split = contract["sample_split"]
+    progress = _progress_reporter(
+        Path(args.progress_state).resolve() if args.progress_state else None,
+        phase=args.command.upper(),
+        contract_sha256=context["contract_sha256"],
+        dataset_fingerprint=context["manifest"]["dataset_fingerprint"],
+    )
 
     if args.command == "train":
         _require_absent(Path(args.out))
@@ -71,6 +91,8 @@ def main() -> None:
             _market_loader(root, minimum_time_ms=None, maximum_time_ms=end_ms),
             tier_at=resolver.tier_at,
             diagnostics_at=resolver.diagnostics_at,
+            progress_callback=progress,
+            checkpoint_dir=Path(args.checkpoint_dir).resolve() if args.checkpoint_dir else None,
         )
         _write_exclusive(Path(args.out), report)
     else:
@@ -104,8 +126,11 @@ def main() -> None:
             ),
             tier_at=resolver.tier_at,
             diagnostics_at=resolver.diagnostics_at,
+            progress_callback=progress,
+            checkpoint_dir=Path(args.checkpoint_dir).resolve() if args.checkpoint_dir else None,
         )
         _write_exclusive(Path(args.out), report)
+    progress({"phase": "complete", "progress": 100, "verdict": report["verdict"]})
     print(json.dumps({
         "phase": report["phase"], "verdict": report["verdict"],
         "output": str(Path(args.out).resolve()),
@@ -231,6 +256,48 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _progress_reporter(
+    path: Path | None,
+    *,
+    phase: str,
+    contract_sha256: str,
+    dataset_fingerprint: str,
+):
+    def report(detail: dict[str, Any]) -> None:
+        if path is None:
+            return
+        completed_symbols = int(detail.get("completed_symbols") or 0)
+        total_symbols = int(detail.get("total_symbols") or 0)
+        completed_combinations = int(detail.get("completed_combinations") or 0)
+        total_combinations = int(detail.get("total_combinations") or 0)
+        if detail.get("phase") == "scan":
+            calculated = int(85 * completed_symbols / total_symbols) if total_symbols else 0
+        elif detail.get("phase") == "evaluate":
+            calculated = 85 + (
+                int(14 * completed_combinations / total_combinations) if total_combinations else 0
+            )
+        else:
+            calculated = int(detail.get("progress") or 0)
+        payload = {
+            "protocol": "ORBIT_R0_UI_PROGRESS_V1",
+            "run_phase": phase,
+            "contract_sha256": contract_sha256,
+            "dataset_fingerprint": dataset_fingerprint,
+            "progress": calculated,
+            **detail,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        replace_with_retry(temporary, path)
+
+    report({"phase": "starting", "progress": 0})
+    return report
 
 
 if __name__ == "__main__":

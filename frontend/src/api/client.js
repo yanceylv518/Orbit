@@ -63,6 +63,10 @@ export function fetchResearchRun(runId) {
   return getJson(`/api/research/runs/${encodeURIComponent(runId)}`);
 }
 
+export function fetchR0Status() {
+  return getJson("/api/research/r0");
+}
+
 export function fetchDataSummary() {
   return getJson("/api/data/summary");
 }
@@ -101,6 +105,10 @@ export function createResearchCandidateRequest(payload) {
 
 export function createResearchRunRequest(payload) {
   return postJson("/api/research/runs", payload);
+}
+
+export function createR0RunRequest(payload) {
+  return postJson("/api/research/r0/runs", payload);
 }
 
 export function createResearchDatasetFetchRequest(payload) {

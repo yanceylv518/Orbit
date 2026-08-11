@@ -35,6 +35,11 @@ class ShortlineDatasetBuildRequest(BaseModel):
     workers: int = Field(default=4, ge=1, le=8)
 
 
+class R0RunRequest(BaseModel):
+    phase: Literal["training", "lockbox"]
+    confirmation: str = Field(default="", max_length=32)
+
+
 def workflow_error(exc: Exception) -> HTTPException:
     status = 409 if isinstance(exc, RuntimeError) else 400
     return HTTPException(status_code=status, detail=str(exc))
@@ -100,6 +105,28 @@ def create_candidate(
 def runs(request: Request, _user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     items = app_state(request).research_workflow.runs()
     return {"items": items, "count": len(items)}
+
+
+@router.get("/r0")
+def r0_status(request: Request, _user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return app_state(request).research_workflow.r0_status()
+    except (ValueError, RuntimeError) as exc:
+        raise workflow_error(exc) from exc
+
+
+@router.post("/r0/runs", status_code=202)
+def create_r0_run(
+    payload: R0RunRequest,
+    request: Request,
+    _user: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    try:
+        return app_state(request).research_workflow.create_r0_run(
+            payload.phase, payload.confirmation,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise workflow_error(exc) from exc
 
 
 @router.post("/runs", status_code=202)

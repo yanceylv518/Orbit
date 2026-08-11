@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -22,6 +23,18 @@ from orbit.infrastructure.persistence.research_runs import AppendOnlyResearchRun
 class FakeEvaluator:
     def __init__(self):
         self.cancelled = []
+        self.r0_state = {
+            "protocol": "ORBIT_R0_SHORTLINE_SCREEN_V2",
+            "contract_sha256": "c" * 64,
+            "dataset_fingerprint": "d" * 64,
+            "training_report_path": None,
+            "training_report": None,
+            "training_complete": False,
+            "training_passed": False,
+            "lockbox_opened": False,
+            "lockbox_report": None,
+            "lockbox_confirmation_phrase": "打开一次性锁箱",
+        }
 
     def evaluate(self, candidate, datasets, run_id):
         return {
@@ -57,6 +70,39 @@ class FakeEvaluator:
         }
 
     def cancel_shortline_dataset(self, run_id):
+        self.cancelled.append(run_id)
+
+    def r0_status(self):
+        return copy.deepcopy(self.r0_state)
+
+    def reserve_r0(self, run_id):
+        return {
+            "contract_sha256": self.r0_state["contract_sha256"],
+            "dataset_fingerprint": self.r0_state["dataset_fingerprint"],
+            "lock_holder": {"owner": "test", "run_id": run_id, "pid": 1, "started_at": "now"},
+        }
+
+    def run_r0(self, phase, run_id, on_progress):
+        on_progress({
+            "phase": "scan", "progress": 50, "completed_symbols": 1,
+            "total_symbols": 2, "events_found": 3,
+            "completed_combinations": 0, "total_combinations": 16,
+        })
+        if phase == "training":
+            self.r0_state.update({
+                "training_complete": True,
+                "training_passed": True,
+                "training_report_path": "training.json",
+                "training_report": {"verdict": "TRAINING_PASS_LOCKBOX_PENDING"},
+            })
+            verdict = "TRAINING_PASS_LOCKBOX_PENDING"
+        else:
+            self.r0_state["lockbox_opened"] = True
+            self.r0_state["lockbox_report"] = {"verdict": "R0_PASS"}
+            verdict = "R0_PASS"
+        return {"report_path": f"{phase}.json", "research_verdict": verdict}
+
+    def cancel_r0(self, run_id):
         self.cancelled.append(run_id)
 
 
@@ -256,6 +302,34 @@ class ResearchCatalogTests(unittest.TestCase):
         result = self.catalog.result(run["result_id"])
         self.assertEqual(len(result["report"]["reports"]), 4)
 
+    def test_external_r0_training_marker_blocks_duplicate_page_run(self):
+        evaluator = CachedToolEvaluator(BACKEND_ROOT.parent, self.calibration_dir)
+        evaluator.research_dir = self.root / "research"
+        evaluator.research_dir.mkdir(parents=True, exist_ok=True)
+        (evaluator.research_dir / "r0_external_training.json").write_text(
+            json.dumps({"pid": os.getpid(), "started_at": "now"}),
+            encoding="utf-8",
+        )
+
+        status = evaluator._active_external_training()
+
+        self.assertIsNotNone(status)
+        self.assertEqual(status["pid"], os.getpid())
+        self.assertFalse(status["progress_available"])
+
+    def test_r0_page_has_no_parameter_inputs(self):
+        template = (BACKEND_ROOT.parent / "frontend" / "src" / "pages" / "ResearchPage.vue").read_text(
+            encoding="utf-8"
+        )
+        panel = template.split('class="panel r0-run-panel"', 1)[1].split(
+            '<template v-if="isResearchMode">', 1
+        )[0]
+
+        self.assertEqual(panel.count("<input"), 1)
+        self.assertIn('v-model="r0LockboxPhrase"', panel)
+        self.assertNotIn("<select", panel)
+        self.assertNotIn('type="number"', panel)
+
     def test_paired_protocol_rejects_mixed_candle_interval(self):
         datasets = [
             {"id": "BTC-funding", "market": "BTCUSDT", "kind": "funding", "interval": None},
@@ -355,6 +429,45 @@ class ResearchCatalogTests(unittest.TestCase):
         self.assertTrue(recovered["resumable"])
         self.assertEqual(recovered["phase"], "interrupted")
         self.assertEqual(recovered["progress"], 10)
+
+    def test_r0_training_progress_and_one_time_lockbox_guard(self):
+        evaluator = FakeEvaluator()
+        workflow = ResearchWorkflowService(
+            self.catalog, self.run_ledger, evaluator,
+            submitter=lambda callback: callback(),
+        )
+
+        training = workflow.create_r0_run("training")
+
+        self.assertEqual(training["status"], "succeeded")
+        self.assertEqual(training["research_verdict"], "TRAINING_PASS_LOCKBOX_PENDING")
+        self.assertTrue(any(
+            event["event"].get("completed_symbols") == 1
+            for event in self.run_ledger._records()
+        ))
+        with self.assertRaisesRegex(ValueError, "confirmation phrase"):
+            workflow.create_r0_run("lockbox", "wrong")
+
+        lockbox = workflow.create_r0_run("lockbox", "打开一次性锁箱")
+
+        self.assertEqual(lockbox["status"], "succeeded")
+        self.assertEqual(lockbox["research_verdict"], "R0_PASS")
+        with self.assertRaisesRegex(RuntimeError, "already been opened"):
+            workflow.create_r0_run("lockbox", "打开一次性锁箱")
+
+    def test_r0_training_can_be_cancelled_but_lockbox_cannot(self):
+        evaluator = FakeEvaluator()
+        queued_ledger = AppendOnlyResearchRunLedger(self.root / "research" / "r0-queued.jsonl")
+        workflow = ResearchWorkflowService(
+            self.catalog, queued_ledger, evaluator,
+            submitter=lambda callback: None,
+        )
+        training = workflow.create_r0_run("training")
+
+        cancelled = workflow.cancel_run(training["id"])
+
+        self.assertEqual(cancelled["status"], "cancelling")
+        self.assertIn(training["id"], evaluator.cancelled)
 
 
 if __name__ == "__main__":

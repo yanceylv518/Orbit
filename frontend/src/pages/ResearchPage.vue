@@ -92,6 +92,92 @@
       </div>
     </article>
 
+    <article v-if="isResearchMode" class="panel r0-run-panel">
+      <div class="panel-head research-panel-head">
+        <div>
+          <span class="eyebrow">冻结规则评估</span>
+          <h3>全市场短线必要条件筛查</h3>
+          <p class="muted">按已经冻结的规则检查突破与超跌反弹两类现象。这里不能修改参数；程序完成也不等于可以交易。</p>
+        </div>
+        <StatusBadge
+          :text="r0Run ? runStatusLabel(r0Run) : r0Status?.training_complete ? '训练结果已生成' : r0Status?.training_active ? '后台运行中' : '等待启动'"
+          :raw="r0Run?.status || (r0Status?.training_complete ? 'succeeded' : r0Status?.training_active ? 'running' : 'idle')"
+          :color="r0Run ? runStatusColor(r0Run) : r0Status?.training_complete ? 'green' : 'blue'"
+        />
+      </div>
+
+      <div class="r0-identity-grid">
+        <div><span>检验规则</span><strong>第二版 · 已冻结</strong><small class="mono">{{ shortHash(r0Status?.contract_sha256) }}</small></div>
+        <div><span>历史数据</span><strong>{{ r0Status?.dataset_fingerprint ? '校验一致' : '等待校验' }}</strong><small class="mono">{{ shortHash(r0Status?.dataset_fingerprint) }}</small></div>
+        <div><span>训练任务</span><strong>{{ r0Status?.training_complete ? '已完成' : r0Status?.training_active || r0Run?.status === 'running' ? '运行中' : '尚未完成' }}</strong><small>固定 16 组组合</small></div>
+        <div><span>一次性检验</span><strong>{{ r0Status?.lockbox_opened ? '已经打开，不能重来' : r0Status?.training_passed ? '训练通过，可以确认打开' : '保持关闭' }}</strong><small>不会自动打开</small></div>
+      </div>
+
+      <section v-if="r0Status?.training_active && !r0Active" class="r0-live-progress r0-external-progress">
+        <div>
+          <strong>命令行训练正在后台运行</strong>
+          <p class="muted">这项任务早于页面进度协议启动，因此暂时没有逐合约进度；完成后结果会自动出现在这里。页面已禁止重复启动。</p>
+        </div>
+        <StatusBadge text="后台运行中" raw="running" color="blue" />
+      </section>
+
+      <section v-if="r0Run && activeRunStatuses.includes(r0Run.status)" class="r0-live-progress">
+        <div class="research-progress large"><i :style="{ width: `${r0Run.progress || 0}%` }"></i></div>
+        <div class="r0-progress-grid">
+          <div><span>当前阶段</span><strong>{{ r0PhaseLabel(r0Run.phase) }}</strong></div>
+          <div><span>已扫描合约</span><strong>{{ integerValue(r0Run.completed_symbols) }} / {{ integerValue(r0Run.total_symbols) }}</strong></div>
+          <div><span>已汇总组合</span><strong>{{ integerValue(r0Run.completed_combinations) }} / {{ integerValue(r0Run.total_combinations || 16) }}</strong></div>
+          <div><span>已发现事件</span><strong>{{ integerValue(r0Run.events_found) }}</strong></div>
+        </div>
+        <p class="muted">{{ r0Run.current_symbol ? `正在扫描 ${r0Run.current_symbol}` : r0Run.current_combination ? `正在汇总 ${r0Run.current_combination}` : '正在准备冻结数据' }}</p>
+      </section>
+
+      <div class="r0-actions">
+        <button
+          class="button primary"
+          :disabled="Boolean(r0Active || r0Status?.training_active || r0Status?.training_complete || store.researchWorkflowBusy)"
+          @click="startR0Training"
+        >{{ store.researchWorkflowBusy ? '正在提交…' : '按冻结规则启动训练' }}</button>
+        <button v-if="r0Run?.job_type === 'r0_training' && r0Active" class="button danger" @click="stopR0Training">停止训练</button>
+        <span class="muted">停止后只允许按相同契约继续，不会出现修改参数入口。</span>
+      </div>
+
+      <div v-if="r0ParameterReports.length" class="table-wrap r0-results-table">
+        <table>
+          <thead><tr><th>策略现象 / 固定组合</th><th>事件数</th><th>成本后均值</th><th>置信下界</th><th>九项门槛</th><th>研究任务结论</th></tr></thead>
+          <tbody>
+            <tr v-for="row in r0ParameterReports" :key="row.parameter_id">
+              <td><strong>{{ r0FamilyLabel(row.family_id) }}</strong><div class="mono muted">{{ r0ParameterLabel(row) }}</div></td>
+              <td class="mono">{{ integerValue(row.summary?.event_count) }}</td>
+              <td class="mono" :class="numberClass(row.summary?.mean_net_return_pct)">{{ percentValue(row.summary?.mean_net_return_pct) }}</td>
+              <td class="mono" :class="numberClass(row.summary?.bootstrap_mean_ci_low)">{{ percentValue(row.summary?.bootstrap_mean_ci_low) }}</td>
+              <td><span class="r0-gate-count">{{ r0PassedGateCount(row) }} / {{ Object.keys(row.gate?.checks || {}).length }}</span></td>
+              <td><StatusBadge :text="row.gate?.passed ? '达到训练门槛' : '未达到训练门槛'" :color="row.gate?.passed ? 'green' : 'red'" /></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="r0SelectedReports.length" class="r0-diagnostics">
+        <h4>只观察、不参与通过判定的对比</h4>
+        <p class="muted">以下差异不会改变本次候选选择，只为下一轮研究提供证据。</p>
+        <div class="r0-diagnostic-grid">
+          <section v-for="row in r0SelectedReports" :key="`diag-${row.parameter_id}`">
+            <strong>{{ r0FamilyLabel(row.family_id) }}</strong>
+            <div v-for="slice in r0DiagnosticRows(row)" :key="slice.key" class="r0-diagnostic-row">
+              <span>{{ slice.label }}</span><b>{{ integerValue(slice.count) }} 次 · {{ percentValue(slice.mean) }}</b>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <section v-if="r0Status?.training_passed && !r0Status?.lockbox_opened" class="r0-lockbox-guard">
+        <div><strong>训练门槛已通过，可以决定是否进行一次性检验</strong><p>打开后永久记录，不能重复。请输入下方显示的完整确认短语。</p></div>
+        <label><span>确认短语：{{ r0Status.lockbox_confirmation_phrase }}</span><input v-model="r0LockboxPhrase" autocomplete="off" /></label>
+        <button class="button danger" :disabled="r0LockboxPhrase !== r0Status.lockbox_confirmation_phrase || r0Active" @click="startR0Lockbox">打开一次性检验</button>
+      </section>
+    </article>
+
     <template v-if="isResearchMode">
       <div class="summary-grid research-summary">
         <div class="summary-item">
@@ -669,6 +755,7 @@ import {
   selectResearchResult,
   startResearchDatasetFetch,
   startResearchRun,
+  startR0Run,
   startShortlineDatasetBuild,
   store,
 } from "../stores/appStore.js";
@@ -682,6 +769,7 @@ const qualityKind = ref("halts");
 const showCreate = ref(false);
 const showFetch = ref(false);
 const openLockbox = ref(false);
+const r0LockboxPhrase = ref("");
 const catalogReady = ref(false);
 const draft = reactive({ protocol: "M0", id: "", name: "", datasetIds: [], confirmed: false });
 const fetchDraft = reactive({ symbol: "BTCUSDT", kind: "ohlc", interval: "15m", days: 180 });
@@ -737,6 +825,17 @@ const selectedTemplate = computed(() => store.researchTemplates.find((item) => i
 const hasActiveRun = computed(() => store.researchRuns.some((item) => activeRunStatuses.includes(item.status)));
 const shortlineRun = computed(() => store.researchRuns.find((item) => item.job_type === "shortline_dataset") || null);
 const shortlineActive = computed(() => Boolean(shortlineRun.value && activeRunStatuses.includes(shortlineRun.value.status)));
+const r0Status = computed(() => store.r0Status);
+const r0Runs = computed(() => store.researchRuns.filter((item) => ["r0_training", "r0_lockbox"].includes(item.job_type)));
+const r0Run = computed(() => r0Runs.value[0] || r0Status.value?.latest_run || null);
+const r0Active = computed(() => Boolean(r0Run.value && activeRunStatuses.includes(r0Run.value.status)));
+const r0Report = computed(() => r0Run.value?.report || r0Status.value?.lockbox_report || r0Status.value?.training_report || null);
+const r0ParameterReports = computed(() => r0Report.value?.parameter_reports || r0Run.value?.parameter_reports_progress || []);
+const r0SelectedReports = computed(() => {
+  const selected = Object.values(r0Report.value?.selected_candidates || {}).filter(Boolean);
+  const ids = new Set(selected.map((item) => item.parameter_id));
+  return r0ParameterReports.value.filter((item) => ids.has(item.parameter_id));
+});
 const compatibleDatasets = computed(() => {
   const mode = selectedTemplate.value?.dataset_rule?.mode;
   if (mode === "funding") return store.researchDatasets.filter((item) => item.kind === "funding");
@@ -975,6 +1074,25 @@ async function runCandidate() {
   startRunPolling();
 }
 
+async function startR0Training() {
+  const run = await startR0Run("training");
+  if (run) startRunPolling();
+}
+
+async function stopR0Training() {
+  if (!r0Run.value || !window.confirm("确认停止训练？已经完成的合约检查点会保留，下次只能按同一套规则继续。")) return;
+  const updated = await cancelResearchRun(r0Run.value.id);
+  if (updated) startRunPolling();
+}
+
+async function startR0Lockbox() {
+  if (!window.confirm("这是一次性检验，打开后永久不能重来。确认继续？")) return;
+  const run = await startR0Run("lockbox", r0LockboxPhrase.value);
+  if (!run) return;
+  r0LockboxPhrase.value = "";
+  startRunPolling();
+}
+
 async function fetchDataset() {
   const run = await startResearchDatasetFetch({
     symbol: fetchDraft.symbol,
@@ -1038,6 +1156,47 @@ function runLabel(run) {
   }
   if (run.status === "succeeded") return "实验程序已完成";
   return run.status === "running" ? "正在运行缓存评估" : "等待执行";
+}
+
+function r0PhaseLabel(value) {
+  return {
+    queued: "等待后台资源",
+    starting: "核验冻结规则与数据",
+    scan: "逐合约扫描历史事件",
+    evaluate: "逐组合汇总统计",
+    complete: "评估完成",
+    interrupted: "上次中断，可按原规则继续",
+  }[value] || "正在处理";
+}
+
+function r0FamilyLabel(value) {
+  return value === "BREAKOUT_MOMENTUM" ? "突破与动量" : "超跌反弹";
+}
+
+function r0ParameterLabel(row) {
+  return Object.entries(row.parameters || {}).map(([key, value]) => `${fieldLabel(key)}=${value}`).join(" · ");
+}
+
+function r0PassedGateCount(row) {
+  return Object.values(row.gate?.checks || {}).filter(Boolean).length;
+}
+
+function r0DiagnosticRows(row) {
+  const labels = {
+    STRICTLY_INCREASING: "三日成交额连续增加",
+    NOT_STRICTLY_INCREASING: "三日成交额未连续增加",
+    LE_30_DAYS: "上市不超过30天",
+    GT_30_DAYS: "上市超过30天",
+  };
+  return [
+    ...Object.entries(row.summary?.by_volume_trend_3d || {}),
+    ...Object.entries(row.summary?.by_listing_age || {}),
+  ].map(([key, value]) => ({
+    key: `${row.parameter_id}-${key}`,
+    label: labels[key] || key,
+    count: value.event_count,
+    mean: value.mean_net_return_pct,
+  }));
 }
 
 function userFacingDataMessage(value) {
@@ -1169,6 +1328,11 @@ function fieldLabel(value) {
     positive_expected_value: "期望收益为正",
     bootstrap_lower_bound_positive: "Bootstrap 下界为正",
     min_market_appearances: "最低市场出现次数",
+    channel_lookback_candles: "突破观察K线数",
+    minimum_relative_quote_volume: "成交额放大倍数",
+    return_lookback_candles: "跌幅观察K线数",
+    minimum_drop_fraction: "最低跌幅",
+    holding_candles: "最长持有K线数",
   };
   return labels[value] || value.replaceAll("_", " ");
 }

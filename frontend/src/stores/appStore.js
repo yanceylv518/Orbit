@@ -4,6 +4,7 @@ import {
   createResearchCandidateRequest,
   createResearchDatasetFetchRequest,
   createResearchRunRequest,
+  createR0RunRequest,
   createShortlineDatasetRequest,
   fetchAppState,
   fetchDataQuality,
@@ -13,6 +14,7 @@ import {
   fetchResearchDatasets,
   fetchResearchResult,
   fetchResearchRun,
+  fetchR0Status,
   fetchResearchRuns,
   fetchResearchTemplates,
   fetchStrategies,
@@ -41,6 +43,7 @@ export const store = reactive({
   researchResult: null,
   researchTemplates: [],
   researchRuns: [],
+  r0Status: null,
   researchBusy: false,
   dataBusy: false,
   dataCatalogLoadedAt: "",
@@ -215,11 +218,12 @@ export async function loadResearchCatalog() {
   store.researchError = "";
   store.dataError = "";
   try {
-    const [datasetsResponse, candidatesResponse, templatesResponse, runsResponse] = await Promise.all([
+    const [datasetsResponse, candidatesResponse, templatesResponse, runsResponse, r0Response] = await Promise.all([
       fetchResearchDatasets(),
       fetchResearchCandidates(),
       fetchResearchTemplates(),
       fetchResearchRuns(),
+      fetchR0Status(),
     ]);
     if (!datasetsResponse.response.ok || datasetsResponse.data.error) {
       throw new Error(researchErrorMessage(
@@ -245,10 +249,14 @@ export async function loadResearchCatalog() {
     if (!runsResponse.response.ok || runsResponse.data.error) {
       throw new Error(researchErrorMessage(runsResponse.response, runsResponse.data, "读取研究任务失败"));
     }
+    if (!r0Response.response.ok || r0Response.data.error) {
+      throw new Error(researchErrorMessage(r0Response.response, r0Response.data, "读取短线筛查状态失败"));
+    }
     store.researchDatasets = datasetsResponse.data.items || [];
     store.researchCandidates = candidatesResponse.data.items || [];
     store.researchTemplates = templatesResponse.data.items || [];
     store.researchRuns = runsResponse.data.items || [];
+    store.r0Status = r0Response.data;
     const selectedId = store.researchCandidate?.id || store.researchCandidates[0]?.id;
     if (selectedId) await selectResearchCandidate(selectedId);
     return true;
@@ -446,6 +454,25 @@ export async function startResearchRun(candidateId, openLockbox = false) {
   }
 }
 
+export async function startR0Run(phase, confirmation = "") {
+  if (store.researchWorkflowBusy) return null;
+  store.researchWorkflowBusy = true;
+  store.researchError = "";
+  try {
+    const { response, data } = await createR0RunRequest({ phase, confirmation });
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "启动短线筛查任务失败"));
+    }
+    store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
+    return data;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "启动短线筛查任务失败。";
+    return null;
+  } finally {
+    store.researchWorkflowBusy = false;
+  }
+}
+
 export async function startResearchDatasetFetch(payload) {
   if (store.researchWorkflowBusy) return null;
   store.researchWorkflowBusy = true;
@@ -487,7 +514,10 @@ export async function startShortlineDatasetBuild(payload) {
 export async function cancelResearchRun(runId) {
   if (store.researchWorkflowBusy) return null;
   store.researchWorkflowBusy = true;
-  store.dataError = "";
+  const existing = store.researchRuns.find((item) => item.id === runId);
+  const errorKey = ["dataset_fetch", "shortline_dataset"].includes(existing?.job_type)
+    ? "dataError" : "researchError";
+  store[errorKey] = "";
   try {
     const { response, data } = await cancelResearchRunRequest(runId);
     if (!response.ok || data.error) {
@@ -496,7 +526,7 @@ export async function cancelResearchRun(runId) {
     store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
     return data;
   } catch (error) {
-    store.dataError = error instanceof Error ? error.message : "停止数据任务失败。";
+    store[errorKey] = error instanceof Error ? error.message : "停止任务失败。";
     return null;
   } finally {
     store.researchWorkflowBusy = false;
@@ -510,13 +540,14 @@ export async function refreshResearchRun(runId) {
   // error; the run's own error remains visible in its task-history row.
   if (!response.ok || (data.error && !data.id)) {
     const existing = store.researchRuns.find((item) => item.id === runId);
-    const errorKey = existing?.job_type ? "dataError" : "researchError";
+    const errorKey = ["dataset_fetch", "shortline_dataset"].includes(existing?.job_type)
+      ? "dataError" : "researchError";
     store[errorKey] = researchErrorMessage(response, data, "读取研究任务失败");
     return null;
   }
   store.researchRuns = [data, ...store.researchRuns.filter((item) => item.id !== data.id)];
   if (["succeeded", "failed", "cancelled"].includes(data.status)) {
-    if (data.job_type) await loadDataCatalog();
+    if (["dataset_fetch", "shortline_dataset"].includes(data.job_type)) await loadDataCatalog();
     else await loadResearchCatalog();
   }
   return data;

@@ -14,6 +14,7 @@ from orbit.domain.calibration.r0_shortline import (
     simulate_symbol_events,
     summarize_events,
 )
+from orbit.infrastructure.persistence.atomic_file import replace_with_retry
 
 
 R0_CONTRACT_SHA256 = "a9a7abd45a69fd96e492549de2617a8ce472dce7cf56a80653060ed2f78a9799"
@@ -101,6 +102,9 @@ def evaluate_grid(
     diagnostics_at: Callable[[str, int], Mapping[str, str] | None] | None = None,
     selected_grid: Sequence[Mapping[str, Any]] | None = None,
     bootstrap_samples: int | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    checkpoint_dir: Path | None = None,
+    checkpoint_identity: str | None = None,
 ) -> list[dict[str, Any]]:
     if contract.get("diagnostics", {}).get("required_summary_dimensions") and diagnostics_at is None:
         raise R0ScreenError("R-0 V2 diagnostic resolver is required")
@@ -110,37 +114,62 @@ def evaluate_grid(
         str(item["tier"]): float(item["round_trip"])
         for item in contract["execution"]["costs_pct_per_side_by_tier"]
     }
-    for symbol in sorted(symbols):
-        candles, funding = market_loader(symbol)
-        for index, item in enumerate(grid):
-            generated = simulate_symbol_events(
-                symbol,
-                candles,
-                funding,
-                str(item["definition_id"]),
-                item["parameters"],
-                tier_at=tier_at,
-                diagnostics_at=diagnostics_at,
-                evaluation_start_ms=evaluation_start_ms,
-                evaluation_end_ms=evaluation_end_ms,
-                round_trip_cost_pct_by_tier=costs,
-                atr_period=int(contract["execution"]["stop_atr_period"]),
-                atr_multiple=float(contract["execution"]["stop_atr_multiple"]),
-            )
-            _validate_event_diagnostics(contract, generated)
+    ordered_symbols = sorted(symbols)
+    parameter_ids = [_parameter_id(item) for item in grid]
+    if checkpoint_dir is not None:
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    for symbol_index, symbol in enumerate(ordered_symbols, 1):
+        generated_sets = _symbol_event_sets(
+            contract,
+            symbol,
+            grid,
+            parameter_ids,
+            market_loader,
+            tier_at=tier_at,
+            diagnostics_at=diagnostics_at,
+            evaluation_start_ms=evaluation_start_ms,
+            evaluation_end_ms=evaluation_end_ms,
+            costs=costs,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_identity=checkpoint_identity,
+        )
+        for index, generated in enumerate(generated_sets):
             event_sets[index].extend(generated)
+        if progress_callback:
+            progress_callback({
+                "phase": "scan",
+                "completed_symbols": symbol_index,
+                "total_symbols": len(ordered_symbols),
+                "current_symbol": symbol,
+                "events_found": sum(len(events) for events in event_sets),
+                "completed_combinations": 0,
+                "total_combinations": len(grid),
+            })
     statistics_contract = contract["statistics"]
     samples = int(bootstrap_samples or statistics_contract["bootstrap_samples"])
     seed = int(statistics_contract["bootstrap_seed"])
     reports = []
-    for item, events in zip(grid, event_sets):
+    for combination_index, (item, events) in enumerate(zip(grid, event_sets), 1):
         summary = summarize_events(events, bootstrap_samples=samples, bootstrap_seed=seed)
-        reports.append({
+        parameter_report = {
             **item,
             "parameter_id": _parameter_id(item),
             "summary": summary,
             "gate": apply_gates(summary, gates),
-        })
+        }
+        reports.append(parameter_report)
+        if progress_callback:
+            progress_callback({
+                "phase": "evaluate",
+                "completed_symbols": len(ordered_symbols),
+                "total_symbols": len(ordered_symbols),
+                "current_symbol": None,
+                "events_found": sum(len(events) for events in event_sets),
+                "completed_combinations": combination_index,
+                "total_combinations": len(grid),
+                "current_combination": parameter_report["parameter_id"],
+                "latest_parameter_report": parameter_report,
+            })
     return reports
 
 
@@ -152,6 +181,8 @@ def training_report(
     tier_at: Callable[[str, int], str | None],
     diagnostics_at: Callable[[str, int], Mapping[str, str] | None] | None = None,
     bootstrap_samples: int | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    checkpoint_dir: Path | None = None,
 ) -> dict[str, Any]:
     contract = context["contract"]
     split = contract["sample_split"]
@@ -163,6 +194,9 @@ def training_report(
         evaluation_end_ms=int(split["training_end_ms"]),
         gates=contract["statistics"]["training_gates"],
         bootstrap_samples=bootstrap_samples,
+        progress_callback=progress_callback,
+        checkpoint_dir=checkpoint_dir,
+        checkpoint_identity=f"{context['contract_sha256']}:TRAINING",
     )
     selected = select_training_candidates(reports)
     family_verdicts = {
@@ -201,6 +235,8 @@ def lockbox_report(
     tier_at: Callable[[str, int], str | None],
     diagnostics_at: Callable[[str, int], Mapping[str, str] | None] | None = None,
     bootstrap_samples: int | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    checkpoint_dir: Path | None = None,
 ) -> dict[str, Any]:
     validate_training_report(context, training)
     selected = [
@@ -219,6 +255,9 @@ def lockbox_report(
         gates=contract["statistics"]["lockbox_gates"],
         selected_grid=selected,
         bootstrap_samples=bootstrap_samples,
+        progress_callback=progress_callback,
+        checkpoint_dir=checkpoint_dir,
+        checkpoint_identity=f"{context['contract_sha256']}:LOCKBOX",
     )
     by_family = {item["family_id"]: item for item in reports}
     family_verdicts = {
@@ -270,6 +309,67 @@ def _compact_candidate(report: Mapping[str, Any]) -> dict[str, Any]:
         "parameters": report["parameters"],
         "parameter_id": report["parameter_id"],
     }
+
+
+def _symbol_event_sets(
+    contract: Mapping[str, Any],
+    symbol: str,
+    grid: Sequence[Mapping[str, Any]],
+    parameter_ids: Sequence[str],
+    market_loader: Callable[[str], tuple[Sequence[ShortlineCandle], Sequence[FundingPoint]]],
+    *,
+    tier_at: Callable[[str, int], str | None],
+    diagnostics_at: Callable[[str, int], Mapping[str, str] | None] | None,
+    evaluation_start_ms: int,
+    evaluation_end_ms: int,
+    costs: Mapping[str, float],
+    checkpoint_dir: Path | None,
+    checkpoint_identity: str | None,
+) -> list[list[dict[str, Any]]]:
+    checkpoint = checkpoint_dir / f"{symbol}.json" if checkpoint_dir else None
+    if checkpoint and checkpoint.exists():
+        payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+        if (
+            payload.get("identity") != checkpoint_identity
+            or payload.get("parameter_ids") != list(parameter_ids)
+            or payload.get("symbol") != symbol
+        ):
+            raise R0ScreenError(f"R-0 checkpoint contract mismatch: {symbol}")
+        event_sets = payload.get("event_sets")
+        if not isinstance(event_sets, list) or len(event_sets) != len(grid):
+            raise R0ScreenError(f"R-0 checkpoint is invalid: {symbol}")
+        for events in event_sets:
+            _validate_event_diagnostics(contract, events)
+        return event_sets
+    candles, funding = market_loader(symbol)
+    result: list[list[dict[str, Any]]] = []
+    for item in grid:
+        generated = simulate_symbol_events(
+            symbol,
+            candles,
+            funding,
+            str(item["definition_id"]),
+            item["parameters"],
+            tier_at=tier_at,
+            diagnostics_at=diagnostics_at,
+            evaluation_start_ms=evaluation_start_ms,
+            evaluation_end_ms=evaluation_end_ms,
+            round_trip_cost_pct_by_tier=costs,
+            atr_period=int(contract["execution"]["stop_atr_period"]),
+            atr_multiple=float(contract["execution"]["stop_atr_multiple"]),
+        )
+        _validate_event_diagnostics(contract, generated)
+        result.append(generated)
+    if checkpoint:
+        temporary = checkpoint.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps({
+            "identity": checkpoint_identity,
+            "symbol": symbol,
+            "parameter_ids": list(parameter_ids),
+            "event_sets": result,
+        }, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        replace_with_retry(temporary, checkpoint)
+    return result
 
 
 def _validate_event_diagnostics(

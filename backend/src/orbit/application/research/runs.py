@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -15,6 +16,7 @@ from uuid import uuid4
 
 from orbit.application.research.protocols import build_candidate, protocol_templates
 from orbit.application.research.candidates import canonical_json
+from orbit.application.r0_shortline_screen import validate_training_report, verify_frozen_context
 from orbit.infrastructure.persistence.dataset_job_lock import DatasetJobLock
 
 
@@ -28,6 +30,32 @@ class ResearchRunCancelled(RuntimeError):
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def process_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        process = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not process:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            readable = ctypes.windll.kernel32.GetExitCodeProcess(
+                process, ctypes.byref(exit_code)
+            )
+            return bool(readable) and exit_code.value == 259
+        finally:
+            ctypes.windll.kernel32.CloseHandle(process)
+    try:
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False
 
 
 class CachedToolEvaluator:
@@ -47,6 +75,8 @@ class CachedToolEvaluator:
         self.calibration_dir = calibration_dir
         self.tools_dir = project_root / "backend" / "tools"
         self.shortline_root = calibration_dir / "shortline-data-v1"
+        self.research_dir = project_root / "var" / "research"
+        self.r0_spec = project_root / "config" / "research" / "r0_shortline_screen.v2.json"
         self.shortline_enabled = shortline_enabled
         self.shortline_min_free_bytes = int(shortline_min_free_gb * 1024 ** 3)
         self.shortline_verify_sample_symbols = shortline_verify_sample_symbols
@@ -56,6 +86,186 @@ class CachedToolEvaluator:
         self._active_run_id: str | None = None
         self._dataset_lock: DatasetJobLock | None = None
         self._cancelled_runs: set[str] = set()
+
+    def r0_status(self) -> dict[str, Any]:
+        context = verify_frozen_context(self.r0_spec, self.shortline_root)
+        training_path, training = self._latest_valid_training(context)
+        external_training = self._active_external_training() if training is None else None
+        marker = self.research_dir / "r0_lockbox_opened.json"
+        lockbox_paths = sorted(self.research_dir.glob("r0_lockbox*v2*.json"))
+        lockbox_report = self._read_json(lockbox_paths[-1]) if lockbox_paths else None
+        return {
+            "protocol": context["contract"]["protocol"],
+            "contract_sha256": context["contract_sha256"],
+            "dataset_fingerprint": context["manifest"]["dataset_fingerprint"],
+            "training_report_path": str(training_path) if training_path else None,
+            "training_report": training,
+            "training_complete": training is not None,
+            "training_passed": bool(training and training.get("lockbox_authorized_families")),
+            "training_active": external_training is not None,
+            "external_training": external_training,
+            "lockbox_opened": marker.exists(),
+            "lockbox_report": lockbox_report,
+            "lockbox_confirmation_phrase": "打开一次性锁箱",
+        }
+
+    def reserve_r0(self, run_id: str) -> dict[str, Any]:
+        context = verify_frozen_context(self.r0_spec, self.shortline_root)
+        if self._active_external_training() is not None:
+            raise RuntimeError("R-0 training is already running outside the page")
+        with self._process_lock:
+            if self._dataset_lock is not None or self._active_process is not None:
+                raise RuntimeError("another data or research task is already active")
+            lock = DatasetJobLock(self.shortline_root, owner="orbit-ui-r0", run_id=run_id)
+            holder = lock.acquire()
+            self._dataset_lock = lock
+            self._active_run_id = run_id
+        return {
+            "contract_sha256": context["contract_sha256"],
+            "dataset_fingerprint": context["manifest"]["dataset_fingerprint"],
+            "lock_holder": {key: holder.get(key) for key in ("owner", "run_id", "pid", "started_at")},
+        }
+
+    def run_r0(
+        self,
+        phase: str,
+        run_id: str,
+        on_progress: Callable[[dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        normalized = phase.lower()
+        if normalized not in {"training", "lockbox"}:
+            raise ValueError("unsupported R-0 phase")
+        with self._process_lock:
+            if self._dataset_lock is None or self._active_run_id != run_id:
+                raise RuntimeError("R-0 task does not hold the dataset lock")
+            token = self._dataset_lock.token
+        self.research_dir.mkdir(parents=True, exist_ok=True)
+        progress_path = self.research_dir / f"r0_ui_{run_id}_progress.json"
+        checkpoint_dir = self.research_dir / "r0-ui-checkpoints" / normalized
+        output = self.research_dir / f"r0_{normalized}_ui_v2.json"
+        command = [
+            sys.executable,
+            str(self.tools_dir / "screen_r0_shortline.py"),
+            "--root", str(self.shortline_root),
+            "--spec", str(self.r0_spec),
+            "--lock-owner-token", token,
+            "train" if normalized == "training" else "lockbox",
+        ]
+        if normalized == "training":
+            command.extend(["--out", str(output)])
+        else:
+            context = verify_frozen_context(self.r0_spec, self.shortline_root)
+            training_path, training = self._latest_valid_training(context)
+            if not training_path or not training or not training.get("lockbox_authorized_families"):
+                raise RuntimeError("training did not authorize opening the lockbox")
+            command.extend([
+                "--training-report", str(training_path),
+                "--out", str(output),
+                "--confirm-open-lockbox",
+            ])
+        command.extend(["--progress-state", str(progress_path), "--checkpoint-dir", str(checkpoint_dir)])
+        try:
+            self._run_r0_process(command, run_id, progress_path, on_progress)
+            report = self._read_json(output)
+            if not report:
+                raise RuntimeError("R-0 task completed without a report")
+            return {
+                "report_path": str(output),
+                "research_verdict": report.get("verdict"),
+            }
+        finally:
+            with self._process_lock:
+                self._cancelled_runs.discard(run_id)
+                self._active_process = None
+                self._active_run_id = None
+                if self._dataset_lock is not None:
+                    self._dataset_lock.release()
+                    self._dataset_lock = None
+
+    def cancel_r0(self, run_id: str) -> None:
+        with self._process_lock:
+            self._cancelled_runs.add(run_id)
+            if self._active_run_id == run_id and self._active_process is not None:
+                self._active_process.terminate()
+
+    def _run_r0_process(
+        self,
+        command: list[str],
+        run_id: str,
+        progress_path: Path,
+        on_progress: Callable[[dict[str, Any]], None],
+    ) -> None:
+        with self._process_lock:
+            process = subprocess.Popen(
+                command, cwd=self.project_root, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True,
+            )
+            self._active_process = process
+        last_progress = ""
+        while process.poll() is None:
+            with self._process_lock:
+                cancelled = run_id in self._cancelled_runs
+            if cancelled:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                raise ResearchRunCancelled("R-0 training was cancelled; checkpoints were retained")
+            try:
+                raw = progress_path.read_text(encoding="utf-8")
+                if raw != last_progress:
+                    on_progress(json.loads(raw))
+                    last_progress = raw
+            except (OSError, json.JSONDecodeError):
+                pass
+            time.sleep(0.75)
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            raise RuntimeError((stderr or stdout or "R-0 task failed").strip()[-2000:])
+        try:
+            on_progress(json.loads(progress_path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    def _latest_valid_training(self, context: dict[str, Any]):
+        for path in reversed(sorted(self.research_dir.glob("r0_training*v2*.json"))):
+            payload = self._read_json(path)
+            if not payload:
+                continue
+            try:
+                validate_training_report(context, payload)
+            except RuntimeError:
+                continue
+            return path, payload
+        return None, None
+
+    def _active_external_training(self) -> dict[str, Any] | None:
+        marker = self._read_json(self.research_dir / "r0_external_training.json")
+        if not marker:
+            return None
+        try:
+            pid = int(marker.get("worker_pid") or marker.get("pid") or 0)
+        except (TypeError, ValueError):
+            return None
+        if pid <= 0:
+            return None
+        if not process_alive(pid):
+            return None
+        return {
+            "pid": pid,
+            "started_at": marker.get("started_at"),
+            "source": "cli",
+            "progress_available": False,
+        }
+
+    @staticmethod
+    def _read_json(path: Path) -> dict[str, Any] | None:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
 
     def reserve_shortline_dataset(self, run_id: str) -> dict[str, Any]:
         if not self.shortline_enabled:
@@ -547,21 +757,74 @@ class ResearchWorkflowService:
                 raise
             return self.run_ledger.get(run_id) or event
 
+    def r0_status(self) -> dict[str, Any]:
+        status = self.evaluator.r0_status()
+        runs = [item for item in self.run_ledger.runs() if item.get("job_type") in {"r0_training", "r0_lockbox"}]
+        return {**status, "runs": runs, "latest_run": runs[0] if runs else None}
+
+    def create_r0_run(self, phase: str, confirmation: str = "") -> dict[str, Any]:
+        normalized = str(phase).strip().lower()
+        if normalized not in {"training", "lockbox"}:
+            raise ValueError("R-0 phase must be training or lockbox")
+        with self._lock:
+            active = [item for item in self.run_ledger.runs() if item["status"] in ACTIVE_RUN_STATUSES]
+            if active:
+                raise RuntimeError("another research run is already active")
+            status = self.evaluator.r0_status()
+            if normalized == "training" and status.get("training_active"):
+                raise RuntimeError("R-0 training is already running outside the page")
+            if normalized == "training" and status["training_complete"]:
+                raise RuntimeError("R-0 training report already exists")
+            if normalized == "lockbox":
+                if confirmation != status["lockbox_confirmation_phrase"]:
+                    raise ValueError("lockbox confirmation phrase does not match")
+                if not status["training_passed"]:
+                    raise RuntimeError("training did not authorize opening the lockbox")
+                if status["lockbox_opened"]:
+                    raise RuntimeError("R-0 lockbox has already been opened")
+            run_id = f"run_{uuid4().hex[:16]}"
+            reservation = self.evaluator.reserve_r0(run_id)
+            created_at = now_iso()
+            event = {
+                "id": run_id,
+                "job_type": f"r0_{normalized}",
+                "candidate_id": "R0-V2",
+                "candidate_hash": reservation["contract_sha256"],
+                "protocol": "ORBIT_R0_SHORTLINE_SCREEN_V2",
+                "status": "queued",
+                "phase": "queued",
+                "progress": 0,
+                "created_at": created_at,
+                "updated_at": created_at,
+                "lockbox_opened_at": created_at if normalized == "lockbox" else None,
+                **reservation,
+            }
+            try:
+                self.run_ledger.append(event)
+                self._submitter(lambda: self._execute(run_id))
+            except Exception:
+                self.evaluator.cancel_r0(run_id)
+                raise
+            return self.run_ledger.get(run_id) or event
+
     def cancel_run(self, run_id: str) -> dict[str, Any]:
         with self._lock:
             run = self.run_ledger.get(run_id)
             if not run:
                 raise ValueError("research run not found")
-            if run.get("job_type") != "shortline_dataset":
-                raise ValueError("only DATA-1R download tasks can be cancelled")
+            if run.get("job_type") not in {"shortline_dataset", "r0_training"}:
+                raise ValueError("only data updates or R-0 training can be cancelled")
             if run["status"] not in ACTIVE_RUN_STATUSES:
                 raise RuntimeError("DATA-1R download task is not active")
-            self.evaluator.cancel_shortline_dataset(run_id)
+            if run.get("job_type") == "shortline_dataset":
+                self.evaluator.cancel_shortline_dataset(run_id)
+            else:
+                self.evaluator.cancel_r0(run_id)
             cancelled_at = now_iso()
             self.run_ledger.append({
                 **self._identity(run),
                 "status": "cancelling",
-                "message": "正在安全停止；已完成文件会保留并在下次继续校验",
+                "message": "正在安全停止；已完成进度会保留，下次按原契约继续",
                 "updated_at": cancelled_at,
             })
             return self.run_ledger.get(run_id) or run
@@ -613,6 +876,23 @@ class ResearchWorkflowService:
                     "phase": "complete",
                     "progress": 100,
                     "message": "DATA-1R 全市场研究数据集已完成",
+                    "completed_at": completed_at,
+                    "updated_at": completed_at,
+                })
+                return
+            if run.get("job_type") in {"r0_training", "r0_lockbox"}:
+                phase = "training" if run["job_type"] == "r0_training" else "lockbox"
+                result = self.evaluator.run_r0(
+                    phase, run_id, lambda detail: self._record_progress(run, detail),
+                )
+                completed_at = now_iso()
+                self.run_ledger.append({
+                    **self._identity(run),
+                    **result,
+                    "status": "succeeded",
+                    "phase": "complete",
+                    "progress": 100,
+                    "message": "R-0 训练完成" if phase == "training" else "R-0 锁箱评估完成",
                     "completed_at": completed_at,
                     "updated_at": completed_at,
                 })
@@ -682,7 +962,7 @@ class ResearchWorkflowService:
                 "status": "failed",
                 "phase": "interrupted",
                 "progress": int(run.get("progress") or 0),
-                "resumable": run.get("job_type") == "shortline_dataset",
+                "resumable": run.get("job_type") in {"shortline_dataset", "r0_training"},
                 "message": "服务重启中断了任务；已完成文件保留，可重新启动续校",
                 "error": "research process restarted before the task completed",
                 "completed_at": recovered_at,
@@ -691,10 +971,19 @@ class ResearchWorkflowService:
 
     def _record_progress(self, run: dict[str, Any], detail: dict[str, Any]) -> None:
         timestamp = now_iso()
+        accumulated: dict[str, Any] = {}
+        latest = detail.get("latest_parameter_report")
+        if isinstance(latest, dict):
+            current = self.run_ledger.get(run["id"]) or {}
+            reports = list(current.get("parameter_reports_progress") or [])
+            reports = [item for item in reports if item.get("parameter_id") != latest.get("parameter_id")]
+            reports.append(latest)
+            accumulated["parameter_reports_progress"] = reports
         self.run_ledger.append({
             **self._identity(run),
             "status": "running",
             "updated_at": timestamp,
+            **accumulated,
             **detail,
         })
 
