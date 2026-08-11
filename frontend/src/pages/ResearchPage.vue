@@ -107,7 +107,7 @@
         <div class="summary-item">
           <span>得到支持</span>
           <strong class="positive">{{ supportedTopicCandidates }}</strong>
-          <small>研究 verdict，不是任务状态</small>
+          <small>研究结论，不是任务运行状态</small>
         </div>
         <div class="summary-item">
           <span>未支持 / 证据不足</span>
