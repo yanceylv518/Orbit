@@ -40,7 +40,7 @@ from screen_r0_shortline import claim_lockbox_once
 
 ROOT = BACKEND_ROOT.parent
 CONTRACT = json.loads(
-    (ROOT / "config" / "research" / "r0_shortline_screen.v1.json").read_text(
+    (ROOT / "config" / "research" / "r0_shortline_screen.v2.json").read_text(
         encoding="utf-8"
     )
 )
@@ -168,60 +168,53 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
 
         self.assertEqual(result, [])
 
-    def test_historical_universe_includes_before_delisting_and_excludes_after(self):
-        listed = 0
-        delisted = 40 * DAY_MS
-        contracts = [{
-            "symbol": "OLDUSDT", "listed_at_ms": listed, "first_open_time_ms": listed,
-            "last_close_time_ms": delisted - 1, "delisted_at_ms": delisted,
-            "status": "DELISTED", "status_method": "TEST", "history_complete": True,
-        }]
-        liquidity = {"OLDUSDT": [
-            {
-                "day_open_time_ms": day * DAY_MS,
-                "day_close_time_ms": (day + 1) * DAY_MS - 1,
-                "status": "COMPLETE", "quote_volume": "10000000",
-            }
-            for day in range(40)
-        ]}
-        resolver = HistoricalUniverseResolver(
-            contracts, liquidity, min_history_days=30, liquidity_lookback_days=7,
-            minimum_volume="5000000", limit=120,
-            tiers=[{"id": "HIGH", "rank_start": 1, "rank_end": 40}],
-        )
+    def test_v2_universe_uses_all_qualified_contracts_and_dynamic_thirds(self):
+        symbols = ["AUSDT", "BUSDT", "CUSDT", "DUSDT", "EUSDT"]
+        contracts = [self._contract(symbol, listed_at_ms=0) for symbol in symbols]
+        daily_values = {
+            "AUSDT": [10, 60, 70, 80],
+            "BUSDT": [10, 50, 50, 60],
+            "CUSDT": [10, 40, 35, 31],
+            "DUSDT": [10, 32, 31, 30],
+            "EUSDT": [10, 30, 30, 30],
+        }
+        liquidity = {
+            symbol: self._liquidity_rows(values) for symbol, values in daily_values.items()
+        }
+        resolver = self._v2_resolver(contracts, liquidity)
+        signal_time = 4 * DAY_MS
 
-        self.assertEqual(resolver.tier_at("OLDUSDT", 35 * DAY_MS), "HIGH")
-        self.assertIsNone(resolver.tier_at("OLDUSDT", delisted))
-
-        liquidity["OLDUSDT"][33]["status"] = "INCOMPLETE"
-        strict = HistoricalUniverseResolver(
-            contracts, liquidity, min_history_days=30, liquidity_lookback_days=7,
-            minimum_volume="5000000", limit=120,
-            tiers=[{"id": "HIGH", "rank_start": 1, "rank_end": 40}],
-        )
-        self.assertIsNone(strict.tier_at("OLDUSDT", 35 * DAY_MS))
-
-    def test_universe_cache_respects_midday_history_eligibility_boundary(self):
-        listed = DAY_MS // 2
-        contracts = [{
-            "symbol": "NEWUSDT", "listed_at_ms": listed, "first_open_time_ms": listed,
-            "last_close_time_ms": 40 * DAY_MS, "delisted_at_ms": None,
-            "status": "TRADING", "status_method": "TEST", "history_complete": True,
-        }]
-        liquidity = {"NEWUSDT": [{
-            "day_close_time_ms": (day + 1) * DAY_MS - 1,
-            "status": "COMPLETE", "quote_volume": "10000000",
-        } for day in range(31)]}
-        resolver = HistoricalUniverseResolver(
-            contracts, liquidity, min_history_days=30, liquidity_lookback_days=7,
-            minimum_volume="5000000", limit=120,
-            tiers=[{"id": "HIGH", "rank_start": 1, "rank_end": 40}],
-        )
-
-        self.assertIsNone(resolver.tier_at("NEWUSDT", 30 * DAY_MS + DAY_MS // 4))
+        self.assertEqual([resolver.tier_at(symbol, signal_time) for symbol in symbols], [
+            "HIGH", "HIGH", "MEDIUM", "MEDIUM", "LOW",
+        ])
         self.assertEqual(
-            resolver.tier_at("NEWUSDT", 30 * DAY_MS + 3 * DAY_MS // 4), "HIGH",
+            resolver.diagnostics_at("AUSDT", signal_time),
+            {"volume_trend_3d": "STRICTLY_INCREASING", "listing_age": "LE_30_DAYS"},
         )
+        self.assertEqual(
+            resolver.diagnostics_at("BUSDT", signal_time)["volume_trend_3d"],
+            "NOT_STRICTLY_INCREASING",
+        )
+
+    def test_v2_universe_excludes_entire_snapshot_when_fewer_than_three_qualify(self):
+        symbols = ["AUSDT", "BUSDT"]
+        contracts = [self._contract(symbol, listed_at_ms=0) for symbol in symbols]
+        liquidity = {symbol: self._liquidity_rows([10, 40, 50, 60]) for symbol in symbols}
+        resolver = self._v2_resolver(contracts, liquidity)
+
+        self.assertIsNone(resolver.tier_at("AUSDT", 4 * DAY_MS))
+        self.assertIsNone(resolver.tier_at("BUSDT", 4 * DAY_MS))
+
+    def test_v2_universe_has_no_30_day_listing_filter_and_honors_delisting(self):
+        symbols = ["NEWUSDT", "BUSDT", "CUSDT"]
+        contracts = [self._contract(symbol, listed_at_ms=0) for symbol in symbols]
+        contracts[0]["delisted_at_ms"] = 5 * DAY_MS
+        contracts[0]["status"] = "DELISTED"
+        liquidity = {symbol: self._liquidity_rows([10, 40, 50, 60, 70]) for symbol in symbols}
+        resolver = self._v2_resolver(contracts, liquidity)
+
+        self.assertIsNotNone(resolver.tier_at("NEWUSDT", 4 * DAY_MS))
+        self.assertIsNone(resolver.tier_at("NEWUSDT", 5 * DAY_MS))
 
     def test_funding_boundaries_signs_and_tier_costs(self):
         rows = self._oversold_fixture(exit_open=103.0)
@@ -337,7 +330,7 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
             root = Path(temp)
             spec = root / "spec.json"
             spec.write_bytes(
-                (ROOT / "config" / "research" / "r0_shortline_screen.v1.json").read_bytes()
+                (ROOT / "config" / "research" / "r0_shortline_screen.v2.json").read_bytes()
             )
             dataset = root / "dataset"
             dataset.mkdir()
@@ -371,6 +364,10 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
             ["TESTUSDT"],
             lambda _: (rows, []),
             tier_at=lambda *_: "HIGH",
+            diagnostics_at=lambda *_: {
+                "volume_trend_3d": "NOT_STRICTLY_INCREASING",
+                "listing_age": "LE_30_DAYS",
+            },
             bootstrap_samples=10,
         )
 
@@ -382,6 +379,8 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
             self.assertIn("by_tier", item["summary"])
             self.assertIn("by_year", item["summary"])
             self.assertIn("by_symbol", item["summary"])
+            self.assertIn("by_volume_trend_3d", item["summary"])
+            self.assertIn("by_listing_age", item["summary"])
 
     def test_tampered_training_selection_is_rejected(self):
         report = self._failed_training_report()
@@ -402,6 +401,43 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
                 claim_lockbox_once(marker, {"dataset_fingerprint": "frozen"})
 
     @staticmethod
+    def _contract(symbol, *, listed_at_ms):
+        return {
+            "symbol": symbol,
+            "listed_at_ms": listed_at_ms,
+            "first_open_time_ms": listed_at_ms,
+            "last_close_time_ms": 100 * DAY_MS,
+            "delisted_at_ms": None,
+            "status": "TRADING",
+            "status_method": "TEST",
+            "history_complete": True,
+        }
+
+    @staticmethod
+    def _liquidity_rows(values):
+        return [{
+            "day_open_time_ms": day * DAY_MS,
+            "day_close_time_ms": (day + 1) * DAY_MS - 1,
+            "status": "COMPLETE",
+            "quote_volume": str(value * 1_000_000),
+        } for day, value in enumerate(values)]
+
+    @staticmethod
+    def _v2_resolver(contracts, liquidity):
+        return HistoricalUniverseResolver(
+            contracts,
+            liquidity,
+            min_history_days=0,
+            liquidity_lookback_days=3,
+            minimum_volume="30000000",
+            limit=None,
+            tiering={
+                "ordered_tiers": ["HIGH", "MEDIUM", "LOW"],
+                "minimum_qualified_contracts": 3,
+            },
+        )
+
+    @staticmethod
     def _context():
         return {
             "contract": CONTRACT,
@@ -418,7 +454,7 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
             "gate": {"passed": False},
         }
         return {
-            "protocol": "ORBIT_R0_SHORTLINE_SCREEN_V1", "phase": "TRAINING",
+            "protocol": "ORBIT_R0_SHORTLINE_SCREEN_V2", "phase": "TRAINING",
             "contract_sha256": "contract", "dataset_fingerprint": "dataset",
             "parameter_reports": [failed],
             "selected_candidates": {"OVERSOLD_REBOUND": None},

@@ -1,0 +1,183 @@
+{
+  "protocol": "ORBIT_R0_SHORTLINE_SCREEN_V2",
+  "status": "FROZEN_BEFORE_SIGNAL_EVALUATION",
+  "frozen_at": "2026-08-12",
+  "dataset": {
+    "protocol": "ORBIT_SHORTLINE_DATASET_V1",
+    "root": "var/calibration/shortline-data-v1",
+    "manifest_fingerprint": "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
+    "quality_report_sha256": "f5885005ebd245e79cfd1a2a7afb13837be5048b952c9bae02b9682c6638710f",
+    "dataset_cutoff_ms": 1785542399999,
+    "raw_interval": "15m",
+    "required_state": "COMPLETE",
+    "required_unverified_missing_15m_candles": 0,
+    "required_duplicate_15m_candles": 0
+  },
+  "sample_split": {
+    "training_start_rule": "FIRST_ELIGIBLE_SIGNAL_PER_SYMBOL",
+    "training_end_ms": 1735689599999,
+    "lockbox_start_ms": 1735689600000,
+    "lockbox_end_ms": 1785542399999,
+    "cross_boundary_events": "DISCARD"
+  },
+  "universe": {
+    "snapshot_timing": "AT_SIGNAL_CLOSE",
+    "min_history_days": 0,
+    "liquidity_lookback_days": 3,
+    "liquidity_window_requires_consecutive_complete_utc_days": true,
+    "min_median_daily_quote_volume_usdt": "30000000",
+    "selection": "ALL_QUALIFIED_CONTRACTS",
+    "limit": null,
+    "liquidity_rank_tie_breaker": "SYMBOL_ASC",
+    "tiering": {
+      "method": "DYNAMIC_EQUAL_THIRDS_BY_LIQUIDITY_RANK",
+      "ordered_tiers": ["HIGH", "MEDIUM", "LOW"],
+      "remainder_allocation": "HIGH_THEN_MEDIUM",
+      "minimum_qualified_contracts": 3,
+      "insufficient_qualified_contracts_policy": "EXCLUDE_ENTIRE_SNAPSHOT"
+    },
+    "include_historically_tradable_delisted_contracts": true,
+    "incomplete_history_policy": "EXCLUDE",
+    "missing_liquidity_history_policy": "EXCLUDE"
+  },
+  "diagnostics": {
+    "selection_or_gate_effect": "NONE",
+    "three_day_volume_trend": {
+      "field": "volume_trend_3d",
+      "groups": ["STRICTLY_INCREASING", "NOT_STRICTLY_INCREASING"],
+      "definition": "OLDEST_COMPLETE_DAY_LT_MIDDLE_COMPLETE_DAY_LT_NEWEST_COMPLETE_DAY"
+    },
+    "listing_age": {
+      "field": "listing_age",
+      "groups": ["LE_30_DAYS", "GT_30_DAYS"],
+      "boundary_ms": 2592000000,
+      "definition": "SIGNAL_CLOSE_MINUS_LISTED_AT_LE_30_DAYS"
+    },
+    "required_summary_dimensions": ["volume_trend_3d", "listing_age"]
+  },
+  "execution": {
+    "signal_interval": "15m",
+    "entry": "NEXT_CANDLE_OPEN",
+    "time_exit": "OPEN_AFTER_H_COMPLETE_CANDLES",
+    "stop_atr_period": 14,
+    "stop_atr_multiple": "2.0",
+    "stop_gap_policy": "WORSE_OF_STOP_OR_CANDLE_OPEN",
+    "funding_window": "ENTRY_TIME_EXCLUSIVE_EXIT_TIME_INCLUSIVE",
+    "overlapping_events_per_symbol": "DISCARD_WHILE_POSITION_OPEN",
+    "entry_or_exit_data_gap": "DISCARD_EVENT",
+    "costs_pct_per_side_by_tier": [
+      {
+        "tier": "HIGH",
+        "taker_fee": "0.05",
+        "half_spread_allowance": "0.01",
+        "impact_buffer": "0.02",
+        "total_per_side": "0.08",
+        "round_trip": "0.16"
+      },
+      {
+        "tier": "MEDIUM",
+        "taker_fee": "0.05",
+        "half_spread_allowance": "0.025",
+        "impact_buffer": "0.05",
+        "total_per_side": "0.125",
+        "round_trip": "0.25"
+      },
+      {
+        "tier": "LOW",
+        "taker_fee": "0.05",
+        "half_spread_allowance": "0.05",
+        "impact_buffer": "0.10",
+        "total_per_side": "0.20",
+        "round_trip": "0.40"
+      }
+    ]
+  },
+  "families": [
+    {
+      "id": "BREAKOUT_MOMENTUM",
+      "definitions": [
+        {
+          "id": "B1_DONCHIAN_VOLUME",
+          "direction": "LONG_AND_SHORT_SYMMETRIC",
+          "volume_lookback_candles": 96,
+          "channel_lookback_candles": [32, 96],
+          "minimum_relative_quote_volume": ["1.5", "2.0"],
+          "holding_candles": [16, 32],
+          "grid_size": 8
+        }
+      ]
+    },
+    {
+      "id": "OVERSOLD_REBOUND",
+      "definitions": [
+        {
+          "id": "S1_DROP_STABILIZATION",
+          "direction": "LONG_ONLY",
+          "return_lookback_candles": [16, 32],
+          "minimum_drop_fraction": ["0.05", "0.10"],
+          "stabilization": "CLOSE_ABOVE_PREVIOUS_CLOSE_AND_NOT_BELOW_OPEN",
+          "holding_candles": [8, 16],
+          "grid_size": 8
+        }
+      ]
+    }
+  ],
+  "statistics": {
+    "return_unit": "PERCENT_OF_ENTRY_NOTIONAL",
+    "bootstrap_method": "UTC_ENTRY_DAY_BLOCK_BOOTSTRAP",
+    "bootstrap_samples": 10000,
+    "bootstrap_seed": 20260811,
+    "confidence_level": "0.95",
+    "training_gates": {
+      "minimum_events_total": 500,
+      "minimum_events_per_tier": 100,
+      "minimum_distinct_symbols": 30,
+      "minimum_calendar_years_with_100_events": 3,
+      "mean_net_return_gt_pct": "0",
+      "bootstrap_mean_lower_bound_gt_pct": "0",
+      "minimum_positive_tier_means": 2,
+      "leave_one_tier_out_mean_gt_pct": "0",
+      "leave_one_year_out_mean_gt_pct": "0"
+    },
+    "candidate_order": [
+      "BOOTSTRAP_MEAN_LOWER_BOUND_DESC",
+      "MEAN_NET_RETURN_DESC",
+      "EVENT_COUNT_DESC",
+      "DEFINITION_ID_ASC",
+      "PARAMETERS_LEXICOGRAPHIC_ASC"
+    ],
+    "lockbox_gates": {
+      "minimum_events_total": 200,
+      "minimum_events_per_tier": 40,
+      "minimum_distinct_symbols": 20,
+      "minimum_events_per_calendar_year": 50,
+      "mean_net_return_gt_pct": "0",
+      "bootstrap_mean_lower_bound_gt_pct": "0",
+      "minimum_positive_tier_means": 2,
+      "leave_one_tier_out_mean_gt_pct": "0",
+      "leave_one_year_out_mean_gt_pct": "0"
+    }
+  },
+  "verdict": {
+    "family_training_failure": "TRAINING_FAIL",
+    "family_lockbox_failure": "LOCKBOX_FAIL",
+    "family_pass": "R0_FAMILY_PASS",
+    "overall_pass_rule": "AT_LEAST_ONE_FAMILY_PASS",
+    "overall_pass": "R0_PASS",
+    "overall_failure": "R0_FAIL",
+    "pass_effect": "UNLOCK_ARCHITECTURE_STAGE_2_RESEARCH_ONLY",
+    "failure_effect": "FREEZE_SHORTLINE_PLATFORM_BUILD"
+  },
+  "prohibitions": [
+    "NO_SIGNAL_OR_RETURN_READ_BEFORE_THIS_PROTOCOL_IS_COMMITTED",
+    "NO_PARAMETER_CHANGE_AFTER_TRAINING_OR_LOCKBOX_RESULTS",
+    "NO_MAKER_FEE_OPTIMISM",
+    "NO_SURVIVOR_ONLY_UNIVERSE",
+    "NO_OVERLAPPING_EVENTS_PER_SYMBOL",
+    "NO_LOCKBOX_OPEN_IF_TRAINING_FAILS",
+    "NO_LIVE_PAPER_OR_TESTNET_AUTHORIZATION",
+    "NO_FIXED_TOP_N_UNIVERSE_LIMIT",
+    "NO_LISTING_AGE_ELIGIBILITY_FILTER",
+    "NO_DIAGNOSTIC_SLICE_IN_SELECTION_OR_GATES"
+  ]
+}

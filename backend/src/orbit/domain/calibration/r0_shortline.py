@@ -29,6 +29,14 @@ class ShortlineCandle:
     quote_volume: float
 
 
+@dataclass(frozen=True)
+class UniverseMembership:
+    tier: str
+    median_daily_quote_volume: Decimal
+    volume_trend_3d: str
+    listing_age: str
+
+
 def true_range(candle: ShortlineCandle, previous_close: float) -> float:
     return max(
         candle.high - candle.low,
@@ -139,6 +147,7 @@ def simulate_symbol_events(
     evaluation_start_ms: int,
     evaluation_end_ms: int,
     round_trip_cost_pct_by_tier: Mapping[str, float],
+    diagnostics_at: Callable[[str, int], Mapping[str, str] | None] | None = None,
     atr_period: int = 14,
     atr_multiple: float = 2.0,
 ) -> list[dict[str, Any]]:
@@ -197,6 +206,7 @@ def simulate_symbol_events(
         tier = tier_at(symbol, candle.close_time_ms)
         if tier not in round_trip_cost_pct_by_tier:
             continue
+        diagnostics = diagnostics_at(symbol, candle.close_time_ms) if diagnostics_at else None
         atr = simple_atr(ordered, index, atr_period)
         entry_price = entry.open
         stop_price = entry_price - direction * atr_multiple * atr
@@ -219,7 +229,7 @@ def simulate_symbol_events(
         funding_return = -direction * funding_rate
         cost_pct = float(round_trip_cost_pct_by_tier[tier])
         net_return_pct = 100 * (price_return + funding_return) - cost_pct
-        events.append({
+        event = {
             "symbol": symbol,
             "definition_id": definition_id,
             "parameters": dict(parameters),
@@ -241,7 +251,10 @@ def simulate_symbol_events(
             "funding_return_pct": funding_return * 100,
             "cost_pct": cost_pct,
             "net_return_pct": net_return_pct,
-        })
+        }
+        if diagnostics:
+            event.update(diagnostics)
+        events.append(event)
         next_signal_index = time_exit_index
     return events
 
@@ -283,12 +296,19 @@ def summarize_events(
 ) -> dict[str, Any]:
     rows = list(events)
     overall = _group_summary(rows, bootstrap_samples, bootstrap_seed)
-    return {
+    result = {
         **overall,
         "by_tier": _dimension_summary(rows, "tier", bootstrap_samples, bootstrap_seed),
         "by_year": _dimension_summary(rows, "entry_year_utc", bootstrap_samples, bootstrap_seed),
         "by_symbol": _dimension_summary(rows, "symbol", bootstrap_samples, bootstrap_seed),
     }
+    result["by_volume_trend_3d"] = _optional_dimension_summary(
+        rows, "volume_trend_3d", bootstrap_samples, bootstrap_seed,
+    )
+    result["by_listing_age"] = _optional_dimension_summary(
+        rows, "listing_age", bootstrap_samples, bootstrap_seed,
+    )
+    return result
 
 
 def apply_gates(summary: Mapping[str, Any], gates: Mapping[str, Any]) -> dict[str, Any]:
@@ -362,8 +382,9 @@ class HistoricalUniverseResolver:
         min_history_days: int,
         liquidity_lookback_days: int,
         minimum_volume: str,
-        limit: int,
-        tiers: Sequence[Mapping[str, Any]],
+        limit: int | None,
+        tiers: Sequence[Mapping[str, Any]] | None = None,
+        tiering: Mapping[str, Any] | None = None,
         cache_size: int = 4096,
     ):
         self.contracts = [
@@ -379,29 +400,44 @@ class HistoricalUniverseResolver:
         self.minimum_volume = minimum_volume
         self.minimum_volume_decimal = Decimal(minimum_volume)
         self.limit = limit
-        self.tiers = list(tiers)
+        self.tiers = list(tiers or [])
+        self.tiering = dict(tiering or {})
         self.cache_size = cache_size
-        self._cache: OrderedDict[int, dict[str, str]] = OrderedDict()
+        self._cache: OrderedDict[int, dict[str, UniverseMembership]] = OrderedDict()
         self._eligibility_boundary_days = {
             boundary // DAY_MS * DAY_MS
             for contract in self.contracts
             for boundary in (
                 contract.listed_at_ms + self.min_history_days * DAY_MS,
+                contract.listed_at_ms + 30 * DAY_MS,
                 contract.delisted_at_ms,
             )
             if boundary is not None
         }
 
     def tier_at(self, symbol: str, timestamp_ms: int) -> str | None:
+        membership = self.membership_at(symbol, timestamp_ms)
+        return membership.tier if membership else None
+
+    def diagnostics_at(self, symbol: str, timestamp_ms: int) -> dict[str, str] | None:
+        membership = self.membership_at(symbol, timestamp_ms)
+        if membership is None:
+            return None
+        return {
+            "volume_trend_3d": membership.volume_trend_3d,
+            "listing_age": membership.listing_age,
+        }
+
+    def membership_at(self, symbol: str, timestamp_ms: int) -> UniverseMembership | None:
         day_open = timestamp_ms // DAY_MS * DAY_MS
         cache_key = timestamp_ms if day_open in self._eligibility_boundary_days else day_open
-        tiers = self._cache.get(cache_key)
-        if tiers is None:
+        memberships = self._cache.get(cache_key)
+        if memberships is None:
             eligibility_time = timestamp_ms if cache_key == timestamp_ms else day_open
             required_closes = [
                 day_open - offset * DAY_MS - 1 for offset in range(self.lookback)
             ]
-            scored = []
+            scored: list[tuple[Decimal, str, list[Decimal], ContractMetadata]] = []
             for contract in self.contracts:
                 if not contract.history_complete:
                     continue
@@ -413,7 +449,10 @@ class HistoricalUniverseResolver:
                 window = [rows.get(close_time) for close_time in required_closes]
                 if any(row is None or row.get("status") != "COMPLETE" for row in window):
                     continue
-                values = sorted(Decimal(str(row["quote_volume"])) for row in window if row)
+                chronological_values = [
+                    Decimal(str(row["quote_volume"])) for row in reversed(window) if row
+                ]
+                values = sorted(chronological_values)
                 middle = len(values) // 2
                 score = (
                     values[middle]
@@ -421,21 +460,54 @@ class HistoricalUniverseResolver:
                     else (values[middle - 1] + values[middle]) / Decimal("2")
                 )
                 if score >= self.minimum_volume_decimal:
-                    scored.append((score, contract.symbol))
+                    scored.append((score, contract.symbol, chronological_values, contract))
             scored.sort(key=lambda item: (-item[0], item[1]))
-            ranked = [symbol for _, symbol in scored[:self.limit]]
-            tiers = {}
-            for rank, item in enumerate(ranked, 1):
-                for tier in self.tiers:
-                    if int(tier["rank_start"]) <= rank <= int(tier["rank_end"]):
-                        tiers[item] = str(tier["id"])
-                        break
-            self._cache[cache_key] = tiers
+            ranked = scored if self.limit is None else scored[:self.limit]
+            assigned_tiers = self._assign_tiers(len(ranked))
+            memberships = {}
+            for item, tier in zip(ranked, assigned_tiers):
+                score, ranked_symbol, daily_values, contract = item
+                memberships[ranked_symbol] = UniverseMembership(
+                    tier=tier,
+                    median_daily_quote_volume=score,
+                    volume_trend_3d=(
+                        "STRICTLY_INCREASING"
+                        if len(daily_values) == 3
+                        and daily_values[0] < daily_values[1] < daily_values[2]
+                        else "NOT_STRICTLY_INCREASING"
+                    ),
+                    listing_age=(
+                        "LE_30_DAYS"
+                        if timestamp_ms - contract.listed_at_ms <= 30 * DAY_MS
+                        else "GT_30_DAYS"
+                    ),
+                )
+            self._cache[cache_key] = memberships
             if len(self._cache) > self.cache_size:
                 self._cache.popitem(last=False)
         else:
             self._cache.move_to_end(cache_key)
-        return tiers.get(symbol)
+        return memberships.get(symbol)
+
+    def _assign_tiers(self, count: int) -> list[str]:
+        if self.tiering:
+            minimum = int(self.tiering["minimum_qualified_contracts"])
+            if count < minimum:
+                return []
+            ordered = [str(item) for item in self.tiering["ordered_tiers"]]
+            if ordered != ["HIGH", "MEDIUM", "LOW"]:
+                raise ValueError("dynamic tier order must be HIGH, MEDIUM, LOW")
+            base, remainder = divmod(count, 3)
+            sizes = [base + (remainder >= 1), base + (remainder >= 2), base]
+            return [tier for tier, size in zip(ordered, sizes) for _ in range(size)]
+        assigned = []
+        for rank in range(1, count + 1):
+            tier_id = next((
+                str(tier["id"]) for tier in self.tiers
+                if int(tier["rank_start"]) <= rank <= int(tier["rank_end"])
+            ), "")
+            assigned.append(tier_id)
+        return assigned
 
 
 def _is_contiguous(candles: Sequence[ShortlineCandle]) -> bool:
@@ -471,6 +543,15 @@ def _dimension_summary(
         name: _group_summary(values, samples, seed)
         for name, values in sorted(groups.items())
     }
+
+
+def _optional_dimension_summary(
+    rows: Sequence[Mapping[str, Any]], key: str, samples: int, seed: int,
+) -> dict[str, Any]:
+    present = [row for row in rows if key in row]
+    if len(present) != len(rows):
+        return {}
+    return _dimension_summary(present, key, samples, seed)
 
 
 def _mean_without(summary: Mapping[str, Any], dimension: str, excluded: Any) -> float:

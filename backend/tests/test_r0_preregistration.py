@@ -5,7 +5,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC_PATH = ROOT / "config" / "research" / "r0_shortline_screen.v1.json"
+SPEC_PATH = ROOT / "config" / "research" / "r0_shortline_screen.v2.json"
 DOC_PATH = ROOT / "docs" / "design" / "R0_SHORTLINE_SCREEN.md"
 FORMAL_MANIFEST_PATH = ROOT / "var" / "calibration" / "shortline-data-v1" / "manifest.json"
 
@@ -17,7 +17,7 @@ class R0PreregistrationTests(unittest.TestCase):
         cls.spec = json.loads(cls.raw.decode("utf-8"))
 
     def test_protocol_is_frozen_before_signal_evaluation(self):
-        self.assertEqual(self.spec["protocol"], "ORBIT_R0_SHORTLINE_SCREEN_V1")
+        self.assertEqual(self.spec["protocol"], "ORBIT_R0_SHORTLINE_SCREEN_V2")
         self.assertEqual(self.spec["status"], "FROZEN_BEFORE_SIGNAL_EVALUATION")
         self.assertIn(
             "NO_SIGNAL_OR_RETURN_READ_BEFORE_THIS_PROTOCOL_IS_COMMITTED",
@@ -64,16 +64,34 @@ class R0PreregistrationTests(unittest.TestCase):
             self.assertEqual(gates["leave_one_tier_out_mean_gt_pct"], "0")
             self.assertEqual(gates["leave_one_year_out_mean_gt_pct"], "0")
 
+    def test_v2_universe_and_diagnostics_are_exact(self):
+        universe = self.spec["universe"]
+        self.assertEqual(universe["min_history_days"], 0)
+        self.assertEqual(universe["liquidity_lookback_days"], 3)
+        self.assertEqual(universe["min_median_daily_quote_volume_usdt"], "30000000")
+        self.assertIsNone(universe["limit"])
+        self.assertEqual(universe["selection"], "ALL_QUALIFIED_CONTRACTS")
+        self.assertEqual(
+            universe["tiering"]["insufficient_qualified_contracts_policy"],
+            "EXCLUDE_ENTIRE_SNAPSHOT",
+        )
+        diagnostics = self.spec["diagnostics"]
+        self.assertEqual(diagnostics["selection_or_gate_effect"], "NONE")
+        self.assertEqual(
+            diagnostics["required_summary_dimensions"],
+            ["volume_trend_3d", "listing_age"],
+        )
+
     def test_document_points_to_the_exact_machine_contract(self):
         document = DOC_PATH.read_text(encoding="utf-8")
         spec_sha256 = hashlib.sha256(self.raw).hexdigest()
-        self.assertIn("r0_shortline_screen.v1.json", document)
+        self.assertIn("r0_shortline_screen.v2.json", document)
         self.assertIn(self.spec["dataset"]["manifest_fingerprint"], document)
         self.assertIn(self.spec["dataset"]["quality_report_sha256"], document)
         self.assertIn("FROZEN_BEFORE_SIGNAL_EVALUATION", document)
         self.assertEqual(
             spec_sha256,
-            "1e6574850cc13a7cde217ec292c953a36c52a7a24455f3101d13f634faacc8be",
+            "a9a7abd45a69fd96e492549de2617a8ce472dce7cf56a80653060ed2f78a9799",
         )
         self.assertIn(spec_sha256, document)
 

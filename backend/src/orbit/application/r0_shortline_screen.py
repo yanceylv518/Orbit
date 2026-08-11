@@ -16,8 +16,8 @@ from orbit.domain.calibration.r0_shortline import (
 )
 
 
-R0_CONTRACT_SHA256 = "1e6574850cc13a7cde217ec292c953a36c52a7a24455f3101d13f634faacc8be"
-R0_PROTOCOL = "ORBIT_R0_SHORTLINE_SCREEN_V1"
+R0_CONTRACT_SHA256 = "a9a7abd45a69fd96e492549de2617a8ce472dce7cf56a80653060ed2f78a9799"
+R0_PROTOCOL = "ORBIT_R0_SHORTLINE_SCREEN_V2"
 
 
 class R0ScreenError(RuntimeError):
@@ -98,9 +98,12 @@ def evaluate_grid(
     evaluation_start_ms: int,
     evaluation_end_ms: int,
     gates: Mapping[str, Any],
+    diagnostics_at: Callable[[str, int], Mapping[str, str] | None] | None = None,
     selected_grid: Sequence[Mapping[str, Any]] | None = None,
     bootstrap_samples: int | None = None,
 ) -> list[dict[str, Any]]:
+    if contract.get("diagnostics", {}).get("required_summary_dimensions") and diagnostics_at is None:
+        raise R0ScreenError("R-0 V2 diagnostic resolver is required")
     grid = list(selected_grid or frozen_parameter_grid(contract))
     event_sets: list[list[dict[str, Any]]] = [[] for _ in grid]
     costs = {
@@ -117,6 +120,7 @@ def evaluate_grid(
                 str(item["definition_id"]),
                 item["parameters"],
                 tier_at=tier_at,
+                diagnostics_at=diagnostics_at,
                 evaluation_start_ms=evaluation_start_ms,
                 evaluation_end_ms=evaluation_end_ms,
                 round_trip_cost_pct_by_tier=costs,
@@ -144,6 +148,7 @@ def training_report(
     market_loader: Callable[[str], tuple[Sequence[ShortlineCandle], Sequence[FundingPoint]]],
     *,
     tier_at: Callable[[str, int], str | None],
+    diagnostics_at: Callable[[str, int], Mapping[str, str] | None] | None = None,
     bootstrap_samples: int | None = None,
 ) -> dict[str, Any]:
     contract = context["contract"]
@@ -151,6 +156,7 @@ def training_report(
     reports = evaluate_grid(
         contract, symbols, market_loader,
         tier_at=tier_at,
+        diagnostics_at=diagnostics_at,
         evaluation_start_ms=0,
         evaluation_end_ms=int(split["training_end_ms"]),
         gates=contract["statistics"]["training_gates"],
@@ -191,6 +197,7 @@ def lockbox_report(
     market_loader: Callable[[str], tuple[Sequence[ShortlineCandle], Sequence[FundingPoint]]],
     *,
     tier_at: Callable[[str, int], str | None],
+    diagnostics_at: Callable[[str, int], Mapping[str, str] | None] | None = None,
     bootstrap_samples: int | None = None,
 ) -> dict[str, Any]:
     validate_training_report(context, training)
@@ -204,6 +211,7 @@ def lockbox_report(
     reports = evaluate_grid(
         contract, symbols, market_loader,
         tier_at=tier_at,
+        diagnostics_at=diagnostics_at,
         evaluation_start_ms=int(split["lockbox_start_ms"]),
         evaluation_end_ms=int(split["lockbox_end_ms"]),
         gates=contract["statistics"]["lockbox_gates"],

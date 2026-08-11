@@ -35,7 +35,7 @@ from orbit.infrastructure.market_data.binance_public_archive import (  # noqa: E
 )
 
 
-DEFAULT_SPEC = PROJECT_ROOT / "config" / "research" / "r0_shortline_screen.v1.json"
+DEFAULT_SPEC = PROJECT_ROOT / "config" / "research" / "r0_shortline_screen.v2.json"
 DEFAULT_ROOT = PROJECT_ROOT / "var" / "calibration" / "shortline-data-v1"
 MONTH_IN_NAME = re.compile(r"-(\d{4}-\d{2})(?:\.zip|\.jsonl\.gz)$")
 
@@ -70,6 +70,7 @@ def main() -> None:
             symbols,
             _market_loader(root, minimum_time_ms=None, maximum_time_ms=end_ms),
             tier_at=resolver.tier_at,
+            diagnostics_at=resolver.diagnostics_at,
         )
         _write_exclusive(Path(args.out), report)
     else:
@@ -83,7 +84,7 @@ def main() -> None:
             raise R0ScreenError("training failed; lockbox remains unopened")
         marker = Path(args.marker).resolve()
         claim_lockbox_once(marker, {
-            "protocol": "ORBIT_R0_LOCKBOX_OPEN_V1",
+            "protocol": "ORBIT_R0_LOCKBOX_OPEN_V2",
             "contract_sha256": context["contract_sha256"],
             "dataset_fingerprint": context["manifest"]["dataset_fingerprint"],
             "training_report_sha256": _sha256(training_path),
@@ -102,6 +103,7 @@ def main() -> None:
                 maximum_time_ms=int(split["lockbox_end_ms"]),
             ),
             tier_at=resolver.tier_at,
+            diagnostics_at=resolver.diagnostics_at,
         )
         _write_exclusive(Path(args.out), report)
     print(json.dumps({
@@ -128,8 +130,11 @@ def _prepare_universe(root: Path, contract: dict[str, Any], *, maximum_time_ms: 
         min_history_days=int(contract["universe"]["min_history_days"]),
         liquidity_lookback_days=int(contract["universe"]["liquidity_lookback_days"]),
         minimum_volume=str(contract["universe"]["min_median_daily_quote_volume_usdt"]),
-        limit=int(contract["universe"]["limit"]),
-        tiers=contract["universe"]["tiers_by_liquidity_rank"],
+        limit=(
+            int(contract["universe"]["limit"])
+            if contract["universe"].get("limit") is not None else None
+        ),
+        tiering=contract["universe"]["tiering"],
     )
     return [str(item["symbol"]) for item in contracts], resolver
 
