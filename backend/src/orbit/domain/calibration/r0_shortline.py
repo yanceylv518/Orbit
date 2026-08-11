@@ -402,6 +402,16 @@ class HistoricalUniverseResolver:
         self.limit = limit
         self.tiers = list(tiers or [])
         self.tiering = dict(tiering or {})
+        if self.tiering:
+            expected = {
+                "method": "DYNAMIC_EQUAL_THIRDS_BY_LIQUIDITY_RANK",
+                "remainder_allocation": "HIGH_THEN_MEDIUM",
+                "insufficient_qualified_contracts_policy": "EXCLUDE_ENTIRE_SNAPSHOT",
+            }
+            if any(self.tiering.get(key) != value for key, value in expected.items()):
+                raise ValueError("unsupported dynamic tiering contract")
+            if self.limit is not None or self.lookback != 3:
+                raise ValueError("V2 dynamic tiers require no limit and a three-day window")
         self.cache_size = cache_size
         self._cache: OrderedDict[int, dict[str, UniverseMembership]] = OrderedDict()
         self._eligibility_boundary_days = {

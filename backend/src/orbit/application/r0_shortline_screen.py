@@ -113,7 +113,7 @@ def evaluate_grid(
     for symbol in sorted(symbols):
         candles, funding = market_loader(symbol)
         for index, item in enumerate(grid):
-            event_sets[index].extend(simulate_symbol_events(
+            generated = simulate_symbol_events(
                 symbol,
                 candles,
                 funding,
@@ -126,7 +126,9 @@ def evaluate_grid(
                 round_trip_cost_pct_by_tier=costs,
                 atr_period=int(contract["execution"]["stop_atr_period"]),
                 atr_multiple=float(contract["execution"]["stop_atr_multiple"]),
-            ))
+            )
+            _validate_event_diagnostics(contract, generated)
+            event_sets[index].extend(generated)
     statistics_contract = contract["statistics"]
     samples = int(bootstrap_samples or statistics_contract["bootstrap_samples"])
     seed = int(statistics_contract["bootstrap_seed"])
@@ -268,6 +270,27 @@ def _compact_candidate(report: Mapping[str, Any]) -> dict[str, Any]:
         "parameters": report["parameters"],
         "parameter_id": report["parameter_id"],
     }
+
+
+def _validate_event_diagnostics(
+    contract: Mapping[str, Any], events: Sequence[Mapping[str, Any]],
+) -> None:
+    diagnostics = contract.get("diagnostics") or {}
+    definitions = {
+        str(value["field"]): value
+        for value in diagnostics.values()
+        if isinstance(value, Mapping) and value.get("field")
+    }
+    for dimension in diagnostics.get("required_summary_dimensions") or []:
+        definition = definitions.get(str(dimension)) or {}
+        allowed = {str(item) for item in definition.get("groups") or []}
+        if not allowed:
+            raise R0ScreenError(f"R-0 V2 diagnostic contract is invalid: {dimension}")
+        for event in events:
+            if str(event.get(str(dimension), "")) not in allowed:
+                raise R0ScreenError(
+                    f"R-0 V2 event diagnostic is missing or invalid: {dimension}"
+                )
 
 
 def _parameter_id(item: Mapping[str, Any]) -> str:

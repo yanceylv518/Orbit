@@ -382,6 +382,21 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
             self.assertIn("by_volume_trend_3d", item["summary"])
             self.assertIn("by_listing_age", item["summary"])
 
+    def test_v2_missing_event_diagnostics_fail_closed(self):
+        context = self._context()
+        rows = self._oversold_fixture(exit_open=103.0)
+        rows += candles([103.0] * 20, start=len(rows) * RAW_INTERVAL_MS)
+
+        with self.assertRaisesRegex(R0ScreenError, "diagnostic is missing or invalid"):
+            training_report(
+                context,
+                ["TESTUSDT"],
+                lambda _: (rows, []),
+                tier_at=lambda *_: "HIGH",
+                diagnostics_at=lambda *_: None,
+                bootstrap_samples=10,
+            )
+
     def test_tampered_training_selection_is_rejected(self):
         report = self._failed_training_report()
         report["selected_candidates"]["OVERSOLD_REBOUND"] = {
@@ -432,8 +447,11 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
             minimum_volume="30000000",
             limit=None,
             tiering={
+                "method": "DYNAMIC_EQUAL_THIRDS_BY_LIQUIDITY_RANK",
                 "ordered_tiers": ["HIGH", "MEDIUM", "LOW"],
+                "remainder_allocation": "HIGH_THEN_MEDIUM",
                 "minimum_qualified_contracts": 3,
+                "insufficient_qualified_contracts_policy": "EXCLUDE_ENTIRE_SNAPSHOT",
             },
         )
 
