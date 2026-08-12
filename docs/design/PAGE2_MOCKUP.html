@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orbit 页面设计样稿</title>
+<style>
+  :root{
+    --bg:#0B1220; --panel:#111B2E; --panel2:#0E1728; --edge:#1B2A44; --edge-soft:#16233A;
+    --text:#E6EDF7; --muted:#8FA1BC; --faint:#5E7191;
+    --blue:#3987E5; --up:#19A862; --down:#AD3B48; --warn:#C9862B;
+    --chip:#12203A;
+    font-size:16px;
+  }
+  *{box-sizing:border-box}
+  html,body{background:var(--bg);color:var(--text);margin:0;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+    line-height:1.55;}
+  .num{font-variant-numeric:tabular-nums;font-family:ui-monospace,"SF Mono",Consolas,Menlo,monospace}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 20px 80px}
+  header.top{position:sticky;top:0;z-index:9;background:linear-gradient(180deg,rgba(11,18,32,.97),rgba(11,18,32,.88));
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--edge);margin-bottom:28px}
+  .top-inner{max-width:1120px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.08em}
+  .brand .ring{width:18px;height:18px;border:2.5px solid var(--blue);border-radius:50%;position:relative}
+  .brand .ring::after{content:"";position:absolute;width:5px;height:5px;background:var(--up);border-radius:50%;top:-3px;left:9px}
+  .brand small{color:var(--faint);font-weight:400;letter-spacing:0}
+  nav.views{display:flex;gap:6px;flex-wrap:wrap}
+  nav.views button{background:transparent;border:1px solid var(--edge);color:var(--muted);
+    padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.88rem;font-family:inherit}
+  nav.views button:hover{color:var(--text);border-color:var(--blue)}
+  nav.views button.active{background:var(--chip);color:var(--text);border-color:var(--blue)}
+  nav.views button:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+  .view{display:none}
+  .view.active{display:block}
+
+  .pagehead{margin:6px 0 18px}
+  .eyebrow{font-size:.72rem;letter-spacing:.18em;color:var(--faint);text-transform:uppercase}
+  h1{font-size:1.5rem;margin:.2rem 0 .1rem;text-wrap:balance}
+  .answer{font-size:1.35rem;font-weight:700;margin:10px 0 2px}
+  .answer.ok{color:var(--up)} .answer.bad{color:var(--down)}
+  .scope-note{color:var(--faint);font-size:.82rem}
+
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}
+  .kpi{background:var(--panel);border:1px solid var(--edge-soft);border-radius:10px;padding:12px 14px}
+  .kpi span{display:block;font-size:.78rem;color:var(--muted)}
+  .kpi strong{font-size:1.12rem}
+  .kpi small{display:block;color:var(--faint);font-size:.74rem;margin-top:2px}
+  .ok-dot{color:var(--up)} .warn-dot{color:var(--warn)} .bad-dot{color:var(--down)}
+
+  .cols{display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:stretch}
+  .panel{background:var(--panel);border:1px solid var(--edge-soft);border-radius:12px;padding:16px 18px}
+  .panel h3{margin:0 0 4px;font-size:1.02rem}
+  .panel .sub{color:var(--muted);font-size:.83rem;margin:0 0 12px}
+  .side{background:var(--panel2)}
+
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  th{color:var(--faint);font-weight:500;text-align:left;font-size:.78rem;letter-spacing:.04em;
+     border-bottom:1px solid var(--edge);padding:6px 8px}
+  td{padding:9px 8px;border-bottom:1px solid var(--edge-soft)}
+  tr:last-child td{border-bottom:none}
+  .pill{display:inline-block;padding:2px 10px;border-radius:20px;font-size:.76rem;border:1px solid var(--edge)}
+  .pill.g{color:var(--up);border-color:rgba(25,168,98,.4);background:rgba(25,168,98,.08)}
+  .pill.r{color:#E08A96;border-color:rgba(173,59,72,.5);background:rgba(173,59,72,.12)}
+  .pill.b{color:#7FB3F2;border-color:rgba(57,135,229,.4);background:rgba(57,135,229,.1)}
+  .pill.o{color:#E2B26B;border-color:rgba(201,134,43,.45);background:rgba(201,134,43,.1)}
+  .long{color:var(--up)} .short{color:var(--down)} .flat{color:var(--faint)}
+
+  .btn{background:var(--chip);border:1px solid var(--blue);color:var(--text);border-radius:8px;
+    padding:8px 16px;cursor:pointer;font-size:.88rem;font-family:inherit}
+  .btn.danger{border-color:var(--down);color:#E08A96;background:rgba(173,59,72,.08)}
+  .btn.ghost{border-color:var(--edge);color:var(--muted)}
+
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--edge);margin-top:20px}
+  .tabs span{padding:8px 16px;font-size:.86rem;color:var(--muted);border:1px solid transparent;border-bottom:none;
+    border-radius:8px 8px 0 0;cursor:default}
+  .tabs span.on{background:var(--panel);border-color:var(--edge);color:var(--text)}
+  .tabnote{color:var(--faint);font-size:.8rem;padding:10px 4px}
+
+  .alert{background:rgba(173,59,72,.12);border:1px solid rgba(173,59,72,.55);border-radius:10px;
+    padding:12px 16px;margin:14px 0;display:none}
+  .alert strong{color:#E08A96}
+  .alert .next{color:var(--text);font-size:.88rem;margin-top:4px}
+  body.demo-bad .alert{display:block}
+  body.demo-bad .row-live td{background:rgba(173,59,72,.06)}
+  .evidence{display:none;background:var(--panel2);border:1px dashed rgba(173,59,72,.5);border-radius:8px;
+    padding:10px 14px;margin-top:10px;font-size:.85rem}
+  body.demo-bad .evidence{display:block}
+  body.demo-bad .answer.ok{display:none}
+  .answer.bad{display:none}
+  body.demo-bad .answer.bad{display:block}
+
+  .disc{display:inline-block;border:1px dashed var(--warn);color:#E2B26B;border-radius:6px;
+    padding:1px 8px;font-size:.72rem;margin-left:8px;vertical-align:middle}
+
+  .steps{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:16px 0 6px}
+  .step{background:var(--panel2);border:1px solid var(--edge-soft);border-radius:10px;padding:12px;position:relative}
+  .step b{display:block;font-size:.9rem;margin-bottom:4px}
+  .step i{font-style:normal;color:var(--muted);font-size:.8rem;display:block}
+  .step .idx{position:absolute;top:-9px;left:12px;background:var(--blue);color:#fff;border-radius:10px;
+    font-size:.7rem;padding:0 8px}
+  .step:not(:last-child)::after{content:"→";position:absolute;right:-13px;top:42%;color:var(--faint);z-index:2}
+
+  details.audit{margin-top:16px;border:1px solid var(--edge-soft);border-radius:10px;background:var(--panel2)}
+  details.audit summary{padding:10px 16px;color:var(--faint);cursor:pointer;font-size:.84rem}
+  details.audit div{padding:4px 16px 14px;color:var(--muted);font-size:.82rem}
+
+  .drawer{max-width:460px;margin:10px auto;background:var(--panel);border:1px solid var(--edge);
+    border-radius:14px;padding:24px 26px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:5px}
+  .field .ctrl{background:var(--panel2);border:1px solid var(--edge);border-radius:8px;padding:9px 12px;
+    display:flex;justify-content:space-between;color:var(--text)}
+  .hint{font-size:.78rem;color:var(--faint);margin:-8px 0 14px}
+  .hint.warn{color:#E2B26B}
+  .drawer .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+
+  .qgrid{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+  .qcard{background:var(--panel2);border:1px solid var(--edge-soft);border-radius:10px;padding:12px 14px}
+  .qcard h4{margin:0 0 6px;font-size:.86rem;color:var(--muted);font-weight:500}
+  .qcard .big{font-size:1.05rem;font-weight:700}
+  .full{grid-column:1 / -1}
+  .healthline{display:flex;gap:18px;flex-wrap:wrap;font-size:.86rem}
+  .healthline span::before{content:"● ";font-size:.7rem}
+  .healthline .h-ok::before{color:var(--up)} .healthline .h-warn::before{color:var(--warn)}
+
+  .bar{height:10px;background:var(--panel);border:1px solid var(--edge);border-radius:6px;overflow:hidden;margin:6px 0 2px}
+  .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--up),#7CC77B);width:14%}
+  .bar.risk i{background:linear-gradient(90deg,var(--warn),var(--down));width:19%}
+
+  footer.note{margin-top:48px;border-top:1px solid var(--edge);padding-top:16px;color:var(--faint);font-size:.82rem}
+  @media (max-width:760px){
+    .kpis{grid-template-columns:1fr 1fr}
+    .cols,.qgrid{grid-template-columns:1fr}
+    .steps{grid-template-columns:1fr}
+    .step:not(:last-child)::after{content:"↓";right:auto;left:14px;top:auto;bottom:-16px}
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .view.active{animation:fade .18s ease}
+    @keyframes fade{from{opacity:.4}to{opacity:1}}
+  }
+</style>
+
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <div class="brand"><span class="ring"></span>ORBIT <small>页面设计样稿 · 假数据 · 供讨论</small></div>
+    <nav class="views" id="nav">
+      <button data-v="live" class="active">实盘（一级）</button>
+      <button data-v="inst">实例详情</button>
+      <button data-v="strat">策略详情</button>
+      <button data-v="data">数据</button>
+      <button data-v="wizard">启用向导</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- ═══════════ 实盘一级页 ═══════════ -->
+<section class="view active" id="v-live">
+  <div class="pagehead">
+    <span class="eyebrow">实盘</span>
+    <h1>实盘现在正常吗？</h1>
+    <p class="answer ok">✅ 全部正常，本周无需处理</p>
+    <p class="answer bad">⚠ 有 1 件事需要处理</p>
+    <span class="scope-note">只看运行状态与待办；策略原理在「策略」页，历史复盘在「复盘」页
+      <button class="btn ghost" style="margin-left:14px;padding:3px 10px;font-size:.76rem" onclick="document.body.classList.toggle('demo-bad')">⇄ 切换正常 / 异常演示</button>
+    </span>
+  </div>
+
+  <div class="alert">
+    <strong>持仓核对发现 1 处与计划不符</strong>
+    <div class="next">SOL 实际持仓比计划多 0.4 张——可能是手动操作残留。请在实例详情内确认差异，或手动平掉多余仓位。</div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>模拟前向</span><strong class="ok-dot">计时中</strong><small>已运行 3 天 · 数据按时到达</small></div>
+    <div class="kpi"><span>自动执行</span><strong class="ok-dot">已启用</strong><small>本周按计划调仓完成</small></div>
+    <div class="kpi"><span>持仓核对</span><strong class="ok-dot" id="kpi-recon">一致</strong><small>最近核对 2 小时前</small></div>
+    <div class="kpi"><span>账户同步</span><strong class="ok-dot">正常</strong><small>3 分钟前</small></div>
+  </div>
+
+  <div class="panel">
+    <h3>运行实例 <span class="disc">讨论点①：每行右侧要不要直接显示本周盈亏？</span></h3>
+    <p class="sub">每个策略×账户是一行；点「详情」看它的完整状态</p>
+    <table>
+      <thead><tr><th>策略</th><th>账户</th><th>状态</th><th>本周</th><th></th></tr></thead>
+      <tbody>
+        <tr class="row-live">
+          <td><strong>趋势策略</strong> <span class="pill b">真钱 ×3</span></td>
+          <td>币安主账户</td>
+          <td><span class="pill g">运行中</span></td>
+          <td>已按计划调仓 · 核对一致</td>
+          <td style="text-align:right"><button class="btn ghost">详情</button> <button class="btn danger">急停</button></td>
+        </tr>
+        <tr>
+          <td><strong>趋势策略</strong> <span class="pill b">模拟</span></td>
+          <td>纸面账户</td>
+          <td><span class="pill g">计时中</span></td>
+          <td>无需操作</td>
+          <td style="text-align:right"><button class="btn ghost">详情</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="evidence num">核对差异：SOLUSDT 计划 -1.2 张 / 实际 -1.6 张（差 0.4）· 其余 11 个市场一致 → <u>去实例详情处理</u></div>
+  </div>
+
+  <div style="margin-top:14px;text-align:right"><button class="btn">＋ 启用新实盘</button></div>
+</section>
+
+<!-- ═══════════ 实例详情 ═══════════ -->
+<section class="view" id="v-inst">
+  <div class="pagehead">
+    <span class="eyebrow">实盘 / 实例详情</span>
+    <h1>趋势策略 · 币安主账户 <span class="pill b">真钱 ×3</span></h1>
+    <p class="answer ok">✅ 正常运行，本周无需处理</p>
+    <span class="scope-note">正常状态只回答五个问题；出问题时对应块自动展开细节</span>
+  </div>
+
+  <div class="qgrid">
+    <div class="qcard">
+      <h4>① 现在持有什么 / 为什么</h4>
+      <table>
+        <thead><tr><th>币</th><th>方向</th><th>仓位</th><th>为什么</th></tr></thead>
+        <tbody>
+          <tr><td class="num">BTC</td><td class="long">做多</td><td class="num">31%</td><td>5 个时间尺度里 4 个在涨</td></tr>
+          <tr><td class="num">ETH</td><td class="long">做多</td><td class="num">22%</td><td>5 个尺度里 3 个在涨，波动偏大所以仓位打了折</td></tr>
+          <tr><td class="num">SOL</td><td class="short">做空</td><td class="num">18%</td><td>5 个尺度里 4 个在跌</td></tr>
+          <tr><td class="num">DOGE</td><td class="flat">空仓</td><td class="num">—</td><td>金额低于交易所最低限制，按规则不下单</td></tr>
+        </tbody>
+      </table>
+      <div class="tabnote">…共 12 个币，此处示例 4 行 <span class="disc">讨论点②：全部 12 行直接展示,还是默认只展示有仓位的？</span></div>
+    </div>
+    <div class="qcard">
+      <h4>③ 赚亏多少</h4>
+      <div class="big num" style="color:var(--up)">+38.2 USDT</div>
+      <small style="color:var(--faint)">真钱账户累计 · 本金 500</small>
+      <div style="margin-top:10px;font-size:.83rem" class="num">
+        本周 <span class="long">+12.6</span><br>
+        模拟基准(未放大) +4.1%<br>
+        <span style="color:var(--faint)">偏差在可解释范围内</span>
+      </div>
+    </div>
+    <div class="qcard">
+      <h4>② 本周执行对了吗</h4>
+      <div class="big">对——10 笔计划单，10 笔按计划成交</div>
+      <small style="color:var(--faint)">平均成交偏差 0.04%，费用 0.9 USDT · 周二 08:00</small>
+    </div>
+    <div class="qcard">
+      <h4>④ 离停止线多远</h4>
+      <div class="bar risk"><i></i></div>
+      <div class="num" style="font-size:.85rem">当前回撤 5.7% ／ 停止线 30%</div>
+      <small style="color:var(--faint)">触线后停新单、不自动平仓</small>
+    </div>
+    <div class="qcard full">
+      <h4>⑤ 系统健康</h4>
+      <div class="healthline">
+        <span class="h-ok">行情按时到达</span>
+        <span class="h-ok">账户 3 分钟前同步</span>
+        <span class="h-ok">交易规则 5 天前更新</span>
+        <span class="h-ok">记录完整</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <span class="on">持仓</span><span>执行记录</span><span>收益曲线</span><span>风险</span><span>审计明细</span>
+  </div>
+  <div class="tabnote">逐单回执、批次编号、校验码等全部收在「审计明细」里,默认不展示</div>
+</section>
+
+<!-- ═══════════ 策略详情 ═══════════ -->
+<section class="view" id="v-strat">
+  <div class="pagehead">
+    <span class="eyebrow">策略 / 详情</span>
+    <h1>趋势策略</h1>
+    <p class="answer" style="color:var(--text)">跟随多个时间尺度的共同方向，每周按风险重新分配仓位</p>
+    <span class="scope-note">本页只读——看它怎么运转、凭什么被允许、最坏会怎样；启停在「实盘」页</span>
+  </div>
+
+  <div class="panel">
+    <h3>它是怎么运转的</h3>
+    <div class="steps">
+      <div class="step"><span class="idx">1</span><b>每 4 小时收一次盘</b><i>只用已经走完的 K 线,不偷看未来</i></div>
+      <div class="step"><span class="idx">2</span><b>五个时间尺度投票</b><i>从两周到半年,各自回答"在涨还是在跌"</i></div>
+      <div class="step"><span class="idx">3</span><b>按波动分配仓位</b><i>波动大的币少拿,波动小的多拿</i></div>
+      <div class="step"><span class="idx">4</span><b>每 7 天调一次仓</b><i>平时不动,到点按计算结果自动调整</i></div>
+      <div class="step"><span class="idx">5</span><b>亏到警戒线停止</b><i>组合回撤 30% 自动停新单</i></div>
+    </div>
+    <div class="tabnote"><span class="disc">讨论点③：这五步说明放策略页,实例详情页里要不要放一个缩略版？</span></div>
+  </div>
+
+  <div class="cols" style="margin-top:14px">
+    <div class="panel">
+      <h3>凭什么被允许</h3>
+      <p class="sub">证据按阶段排列,每个阶段可点开看详情</p>
+      <table>
+        <tbody>
+          <tr><td>五年历史考试</td><td><span class="pill g">通过</span></td><td class="num" style="color:var(--faint)">年化 +15.6% · 最大回撤 15%</td></tr>
+          <tr><td>参数稳健性检查</td><td><span class="pill g">通过</span></td><td style="color:var(--faint)">不依赖某个幸运参数</td></tr>
+          <tr><td>模拟盘前向验证</td><td><span class="pill b">进行中</span></td><td style="color:var(--faint)">需 12 个月,已 3 天</td></tr>
+          <tr><td>真钱试点</td><td><span class="pill b">运行中</span></td><td style="color:var(--faint)">500 USDT · ×3</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel side">
+      <h3>最坏会怎样</h3>
+      <p class="sub">已知风险,永远可见</p>
+      <ul style="margin:0;padding-left:18px;font-size:.86rem;color:var(--muted)">
+        <li>历史赚钱不保证未来赚钱</li>
+        <li>震荡行情里会持续小亏</li>
+        <li>×3 后正常回撤也可能触发 30% 停止</li>
+        <li>停止只停新单,已有仓位仍有风险</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <span class="on">运转说明</span><span>证据</span><span>风险与版本</span><span>审计明细</span>
+  </div>
+</section>
+
+<!-- ═══════════ 数据页 ═══════════ -->
+<section class="view" id="v-data">
+  <div class="pagehead">
+    <span class="eyebrow">数据</span>
+    <h1>研究数据够新、够全吗？</h1>
+    <p class="answer ok">✅ 完整——更新到 7 月 31 日，829 个合约</p>
+    <span class="scope-note">这里只管历史研究数据；它出任何问题都不影响实盘运行</span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>覆盖合约</span><strong class="num">829 个</strong><small>371 在交易 · 458 已退市</small></div>
+    <div class="kpi"><span>更新到</span><strong>7 月 31 日</strong><small>全部合约共同覆盖至此</small></div>
+    <div class="kpi"><span>数据缺失</span><strong class="ok-dot">无未解释缺口</strong><small>12 个已核实的交易暂停时段</small></div>
+    <div class="kpi"><span>时间尺度</span><strong>15分 / 1时 / 4时</strong><small>1时和4时由15分统一生成</small></div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <h3>数据更新</h3>
+      <p class="sub">每月归档发布后,点一下增量更新;更新中不影响已就绪的数据</p>
+      <button class="btn">检查并更新数据</button>
+      <span style="color:var(--faint);font-size:.8rem;margin-left:10px">上次更新:8 月 10 日 · 用时 4 小时</span>
+    </div>
+    <div class="panel side">
+      <h3>历史证据封存 <span class="pill o">只读</span></h3>
+      <p class="sub" style="margin-bottom:0">旧研究用过的数据快照,仅用于复验历史结论,不参与新研究</p>
+      <details class="audit" style="margin-top:10px"><summary>展开查看（2 组封存快照）</summary>
+        <div>趋势策略研究数据（12 币 · 4小时 · 2026-07 封存）<br>早期双网格研究数据（BTC/ETH · 2026-07 封存）</div>
+      </details>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <span class="on">概览</span><span>合约明细</span><span>质量与停牌</span><span>任务历史</span><span>审计明细</span>
+  </div>
+  <div class="tabnote"><span class="disc">讨论点④：数据页你实际会来做什么？如果只有"更新"一个动作,四个 Tab 是否还嫌多？</span></div>
+</section>
+
+<!-- ═══════════ 启用向导 ═══════════ -->
+<section class="view" id="v-wizard">
+  <div class="pagehead">
+    <span class="eyebrow">实盘 / 启用新实盘</span>
+    <h1>三步启动,检查交给系统</h1>
+    <span class="scope-note">从实盘页右上角「＋启用新实盘」弹出,不常驻页面</span>
+  </div>
+
+  <div class="drawer">
+    <div class="field"><label>策略（只列已通过考试的）</label>
+      <div class="ctrl"><span>趋势策略</span><span style="color:var(--faint)">▾</span></div></div>
+    <div class="field"><label>账户（只列已连接可用的）</label>
+      <div class="ctrl"><span>币安主账户</span><span style="color:var(--faint)">▾</span></div></div>
+    <div class="field"><label>金额</label>
+      <div class="ctrl"><span class="num">2,000</span><span style="color:var(--faint)">USDT</span></div></div>
+    <p class="hint">建议最低 1,800 USDT——低于此金额部分小仓位将无法下单,只能执行部分组合（不禁止,但如实提示）</p>
+    <div class="field"><label>输入确认语以启动</label>
+      <div class="ctrl"><span style="color:var(--faint)">启动趋势策略真钱交易</span></div></div>
+    <p class="hint warn">点击后系统自动完成:基准建立 → 规则刷新 → 账户模式与杠杆设置 → 12 项安全检查。任何一项不通过都会用人话告诉你原因,不会带病启动。</p>
+    <div class="drawer actions"><button class="btn ghost">取消</button><button class="btn">确认启动</button></div>
+  </div>
+  <div class="tabnote" style="text-align:center"><span class="disc">讨论点⑤：确认语用固定短语,还是要求手输金额数字（如"启动 2000"）？</span></div>
+</section>
+
+<footer class="note">
+  样稿说明：全部数据为演示假数据；布局遵循已冻结的设计图纸（首屏一句答案 / 一屏五问 / 审计信息默认折叠 / 异常驱动展开）。
+  五个「讨论点」是需要你拍板的地方——直接回复编号即可。
+</footer>
+</div>
+
+<script>
+  const nav=document.getElementById('nav');
+  nav.addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    nav.querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('v-'+b.dataset.v).classList.add('active');
+    window.scrollTo({top:0});
+  });
+</script>
+
+</body>
+</html>
