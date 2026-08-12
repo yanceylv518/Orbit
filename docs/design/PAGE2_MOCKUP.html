@@ -152,6 +152,8 @@
       <button data-v="strat">策略详情</button>
       <button data-v="data">数据</button>
       <button data-v="wizard">启用向导</button>
+      <button data-v="desk">信号台（动量）</button>
+      <button data-v="rev">复盘·三账对比</button>
     </nav>
   </div>
 </header>
@@ -382,6 +384,113 @@
     <div class="drawer actions"><button class="btn ghost">取消</button><button class="btn">确认启动</button></div>
   </div>
   <div class="tabnote" style="text-align:center"><span class="disc">讨论点⑤：确认语用固定短语,还是要求手输金额数字（如"启动 2000"）？</span></div>
+</section>
+
+<!-- ═══════════ 信号台（动量形态实例详情） ═══════════ -->
+<section class="view" id="v-desk">
+  <div class="pagehead">
+    <span class="eyebrow">实盘 / 动量形态 v1 · 信号模式</span>
+    <h1>今天有值得出手的信号吗？</h1>
+    <p class="answer ok">今天 2 个信号：1 个可做，1 个冷却中</p>
+    <span class="scope-note">每个信号无论你做不做,系统都已自动记为模拟单;你只决定"做/放弃"</span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>今日信号</span><strong class="num">2 个</strong><small>过滤后 · 全市场扫描 118 次触发前筛掉 116</small></div>
+    <div class="kpi"><span>本周出手</span><strong class="num">1 / 4</strong><small>做了 1 个,放弃 3 个</small></div>
+    <div class="kpi"><span>当日熔断</span><strong class="ok-dot">正常 0/3</strong><small>连续止损 3 次今日停止接单</small></div>
+    <div class="kpi"><span>冷却中</span><strong class="num">1 个标的</strong><small>AVAX 做多冷却至 14:30</small></div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <h3>信号卡 <span class="disc">讨论点⑥：15分钟级信号,页面之外要不要接手机推送？</span></h3>
+      <div class="qcard" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><strong class="num">SOL</strong> <span class="pill g">做多</span>
+            <span style="color:var(--muted);font-size:.85rem">突破 24 小时高点 · 放量 2.3× · 强度排名 #2</span></div>
+          <span class="pill o num">有效期 23 分钟</span>
+        </div>
+        <div class="num" style="margin:10px 0 8px;font-size:.88rem">
+          参考进场 <strong>10.42</strong> · 建议止损 <strong>9.98</strong>（−4.2%,2×波幅）·
+          1R 10.86 / 2R 11.30 / 3R 11.74
+        </div>
+        <div style="display:flex;gap:10px"><button class="btn">我做了</button><button class="btn ghost">放弃</button></div>
+      </div>
+      <div class="qcard" style="opacity:.6">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><strong class="num">AVAX</strong> <span class="pill g">做多</span>
+            <span style="color:var(--muted);font-size:.85rem">突破 8 小时高点 · 放量 1.7× · 强度排名 #5</span></div>
+          <span class="pill r">冷却中 · 14:30 解禁</span>
+        </div>
+        <div style="color:var(--faint);font-size:.83rem;margin-top:8px">上一笔 AVAX 做多 11:05 止损出局——同标的同方向冷却期内,本信号只记模拟单,不可手动跟进</div>
+      </div>
+    </div>
+    <div class="panel side">
+      <h3>今日纪律</h3>
+      <p class="sub">四条硬约束的实时状态</p>
+      <table>
+        <tbody>
+          <tr><td>止损随单</td><td><span class="pill g">强制</span></td></tr>
+          <tr><td>亏损加仓</td><td><span class="pill g">已禁用</span></td></tr>
+          <tr><td>冷却清单</td><td class="num">AVAX 多</td></tr>
+          <tr><td>计划外交易</td><td class="num">本周 0 笔</td></tr>
+        </tbody>
+      </table>
+      <div class="tabnote"><span class="disc">讨论点⑦：放弃信号要不要选个原因（没盯盘/不喜欢形态/环境不好）,为减法积累标签？</span></div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <span class="on">今日</span><span>历史信号</span><span>观察池</span><span>审计明细</span>
+  </div>
+</section>
+
+<!-- ═══════════ 复盘 · 三账对比 ═══════════ -->
+<section class="view" id="v-rev">
+  <div class="pagehead">
+    <span class="eyebrow">复盘 / 动量形态 v1</span>
+    <h1>你的操作在加分还是减分？</h1>
+    <p class="answer ok">在加分：选择 +1.2%，管理 +1.6%（近 90 天）</p>
+    <span class="scope-note">三本账逐层对比,把"人的价值"拆成两个可测的数字</span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>信号模拟账</span><strong class="num">+8.4%</strong><small>全部 47 个信号 · 机械执行</small></div>
+    <div class="kpi"><span>你选的信号(机械)</span><strong class="num">+9.6%</strong><small>你做的 12 个若机械执行 → 选择增益 +1.2%</small></div>
+    <div class="kpi"><span>你的实际</span><strong class="num long">+11.2%</strong><small>实际进出 → 管理增益 +1.6%</small></div>
+    <div class="kpi"><span>计划外交易</span><strong class="bad-dot num">−3.1%</strong><small>2 笔,未配对任何信号</small></div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <h3>切片体检（减法的原料）</h3>
+      <p class="sub">同一形态按条件切开看,哪块持续失血一目了然</p>
+      <table>
+        <thead><tr><th>切片</th><th>样本</th><th>均值</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr><td>3日量递增组</td><td class="num">21 笔</td><td class="num long">+0.41%</td><td><span class="pill g">健康</span></td></tr>
+          <tr><td>量走平/递减组</td><td class="num">26 笔</td><td class="num">+0.07%</td><td><span class="pill o">观察</span></td></tr>
+          <tr><td>凌晨时段(0-6时)</td><td class="num">9 笔</td><td class="num short">−0.33%</td><td><span class="pill o">样本不足,continue 观察</span></td></tr>
+          <tr><td>上市&lt;30天新币</td><td class="num">6 笔</td><td class="num short">−0.51%</td><td><span class="pill o">样本不足</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel side">
+      <h3>季度减法工作台</h3>
+      <p class="sub">下次评审:10 月 1 日</p>
+      <div style="font-size:.86rem;color:var(--muted)">
+        评审时只允许砍<strong style="color:var(--text)">样本 ≥50 且持续为负</strong>的切片;
+        砍完发布形态 v2,旧版本封存可查。<br><br>
+        <span class="pill b">当前无可砍切片</span>
+      </div>
+      <div class="tabnote"><span class="disc">讨论点⑧：减法评审的样本门槛 50 笔/刀,你觉得该更严还是更松？</span></div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <span class="on">三账对比</span><span>浮盈浮亏分布</span><span>违规记录</span><span>版本史</span><span>审计明细</span>
+  </div>
 </section>
 
 <footer class="note">
