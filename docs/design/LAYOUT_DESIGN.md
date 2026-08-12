@@ -1,6 +1,6 @@
 # Orbit 七页布局与视觉层级设计（PAGE-2）
 
-状态：`DRAFT_FOR_REVIEW`（未经 Claude 冻结不得实施页面）  
+状态：`ACCEPTED`（2026-08-12 Claude 评审冻结。§15 六项决策：1/2/4/5/6 照案通过;**第 3 项附保护条款**——编排接口交付前,新入口显示「即将开放」,但旧启用流程保留不显眼的「传统流程」兜底入口,直至新编排验收通过才移除:急停后的重新启用路径在任何过渡期都不得出现真空。授权按 §13 批次实施）  
 日期：2026-08-12  
 上位设计：`PAGE_DESIGN.md`（ACCEPTED）  
 适用路由：`#data`、`#research`、`#strategy`、`#strategy/{definition_id}`、`#forward`、`#forward/{instance_id}`、`#review`、`#risk`、`#accounts`
