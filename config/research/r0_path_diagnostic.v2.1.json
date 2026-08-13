@@ -1,0 +1,45 @@
+{
+  "protocol": "ORBIT_R0_PATH_DIAGNOSTIC_CONTRACT_V2_1",
+  "status": "FROZEN_AFTER_TRAINING_BEFORE_DIAGNOSTIC_MEASUREMENT",
+  "frozen_at": "2026-08-13",
+  "base_contract_sha256": "a9a7abd45a69fd96e492549de2617a8ce472dce7cf56a80653060ed2f78a9799",
+  "base_training_report_git_sha256": "8d5c9681a7877777bcfc93725e7220ba32c747a7d6a536c97fa837c11c4cfec6",
+  "base_verdict_required": "TRAINING_FAIL",
+  "lockbox_access": "PROHIBITED",
+  "selection_or_gate_effect": "NONE",
+  "focus": {
+    "family_id": "OVERSOLD_REBOUND",
+    "definition_id": "S1_DROP_STABILIZATION",
+    "minimum_drop_fraction": "0.10",
+    "required_parameter_ids": [
+      "S1_DROP_STABILIZATION:b5b337dfcf2d",
+      "S1_DROP_STABILIZATION:32b74c44f05b",
+      "S1_DROP_STABILIZATION:3bcc4091c77b"
+    ],
+    "excluded_parameter_id": "S1_DROP_STABILIZATION:f48a63c80597",
+    "focus_reason": "EXECUTION_ORDER_NAMES_THREE_POSITIVE_MEAN_10_PERCENT_DROP_COMBINATIONS"
+  },
+  "measurements": {
+    "horizons": ["EXECUTED", "H", "2H"],
+    "excursions": ["MFE_PCT", "MAE_PCT", "MFE_ATR", "MAE_ATR"],
+    "arrival": ["MFE_BAR", "MAE_BAR"],
+    "stop_diagnostic": "STOP_THEN_STRICTLY_LATER_NEW_MFE",
+    "stop_bar_ambiguity": "EXECUTED_PATH_USES_STOP_BAR_OPEN_ONLY",
+    "extended_horizon_boundary": "NULL_IF_2H_CROSSES_TRAINING_END_OR_HAS_GAP"
+  },
+  "required_answers": [
+    "MFE_VS_ACTUAL_RETURN",
+    "MAE_BEFORE_PROFITABLE_EXIT",
+    "MFE_ARRIVAL_TIME",
+    "STOP_THEN_NEW_HIGH_SHARE",
+    "MFE_MAE_BY_YEAR"
+  ],
+  "prohibitions": [
+    "NO_GATE_CHANGE",
+    "NO_PARAMETER_CHANGE",
+    "NO_CANDIDATE_RESELECTION",
+    "NO_LOCKBOX_READ",
+    "NO_TRADING_AUTHORIZATION",
+    "NO_R0_VERDICT_REVISION"
+  ]
+}

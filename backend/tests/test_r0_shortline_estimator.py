@@ -20,6 +20,7 @@ from orbit.domain.calibration.r0_shortline import (
     daily_block_bootstrap_interval,
     frozen_parameter_grid,
     oversold_direction,
+    measure_event_path,
     select_training_candidates,
     simple_atr,
     simulate_symbol_events,
@@ -138,6 +139,83 @@ class R0ShortlineEstimatorTests(unittest.TestCase):
         self.assertGreater(simple_atr(rows, 17), 0)
         self.assertEqual(result[0]["exit_reason"], "STOP_GAP")
         self.assertEqual(result[0]["exit_price"], 80.0)
+
+    def test_path_diagnostic_measures_h_and_2h_without_changing_event_return(self):
+        rows = self._oversold_fixture(exit_open=103.0)
+        rows += candles(
+            [106.0, 108.0, 104.0, 102.0],
+            start=len(rows) * RAW_INTERVAL_MS,
+            opens=[103.0, 106.0, 108.0, 104.0],
+            highs=[107.0, 110.0, 109.0, 105.0],
+            lows=[102.0, 105.0, 103.0, 101.0],
+        )
+        args = dict(
+            tier_at=lambda *_: "HIGH", evaluation_start_ms=0,
+            evaluation_end_ms=rows[-1].close_time_ms,
+            round_trip_cost_pct_by_tier={"HIGH": 0.16},
+        )
+        plain = simulate_symbol_events(
+            "TESTUSDT", rows, [], "S1_DROP_STABILIZATION",
+            {"return_lookback_candles": 16, "minimum_drop_fraction": "0.05", "holding_candles": 2},
+            **args,
+        )[0]
+        diagnosed = simulate_symbol_events(
+            "TESTUSDT", rows, [], "S1_DROP_STABILIZATION",
+            {"return_lookback_candles": 16, "minimum_drop_fraction": "0.05", "holding_candles": 2},
+            include_path_diagnostics=True, **args,
+        )[0]
+
+        self.assertEqual(
+            {key: value for key, value in diagnosed.items() if key != "path_diagnostics"},
+            plain,
+        )
+        self.assertGreater(
+            diagnosed["path_diagnostics"]["holding_2h"]["mfe_pct"],
+            diagnosed["path_diagnostics"]["holding_h"]["mfe_pct"],
+        )
+        self.assertEqual(diagnosed["path_diagnostics"]["holding_2h"]["mfe_bar"], 4)
+
+    def test_stop_path_is_truncated_but_counterfactual_detects_later_new_high(self):
+        rows = candles(
+            [100.0, 98.0, 90.0, 112.0],
+            opens=[100.0, 100.0, 90.0, 91.0],
+            highs=[101.0, 101.0, 92.0, 115.0],
+            lows=[99.0, 97.0, 85.0, 90.0],
+        )
+        result = measure_event_path(
+            rows,
+            entry_index=0,
+            holding_candles=2,
+            direction=1,
+            entry_price=100.0,
+            atr=5.0,
+            stop_price=90.0,
+            exit_reason="STOP_GAP",
+            exit_time_ms=rows[1].open_time_ms,
+            evaluation_end_ms=rows[-1].close_time_ms,
+        )
+
+        self.assertEqual(result["stop_bar"], 2)
+        self.assertLess(result["executed"]["mfe_pct"], result["holding_2h"]["mfe_pct"])
+        self.assertTrue(result["stop_then_new_mfe_2h"])
+
+    def test_2h_path_is_null_when_observation_crosses_available_boundary(self):
+        rows = candles([100.0, 101.0, 102.0])
+        result = measure_event_path(
+            rows,
+            entry_index=0,
+            holding_candles=2,
+            direction=1,
+            entry_price=100.0,
+            atr=1.0,
+            stop_price=98.0,
+            exit_reason="TIME",
+            exit_time_ms=rows[2].open_time_ms,
+            evaluation_end_ms=rows[-1].close_time_ms,
+        )
+
+        self.assertIsNotNone(result["holding_h"])
+        self.assertIsNone(result["holding_2h"])
 
     def test_same_symbol_events_do_not_overlap(self):
         rows = self._oversold_fixture(exit_open=100.0) + self._oversold_fixture(

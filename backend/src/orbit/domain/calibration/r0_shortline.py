@@ -150,6 +150,7 @@ def simulate_symbol_events(
     diagnostics_at: Callable[[str, int], Mapping[str, str] | None] | None = None,
     atr_period: int = 14,
     atr_multiple: float = 2.0,
+    include_path_diagnostics: bool = False,
 ) -> list[dict[str, Any]]:
     ordered = list(candles)
     if any(
@@ -252,11 +253,99 @@ def simulate_symbol_events(
             "cost_pct": cost_pct,
             "net_return_pct": net_return_pct,
         }
+        if include_path_diagnostics:
+            event["path_diagnostics"] = measure_event_path(
+                ordered,
+                entry_index=entry_index,
+                holding_candles=holding,
+                direction=direction,
+                entry_price=entry_price,
+                atr=atr,
+                stop_price=stop_price,
+                exit_reason=exit_reason,
+                exit_time_ms=exit_time_ms,
+                evaluation_end_ms=evaluation_end_ms,
+            )
         if diagnostics:
             event.update(diagnostics)
         events.append(event)
         next_signal_index = time_exit_index
     return events
+
+
+def measure_event_path(
+    candles: Sequence[ShortlineCandle],
+    *,
+    entry_index: int,
+    holding_candles: int,
+    direction: int,
+    entry_price: float,
+    atr: float,
+    stop_price: float,
+    exit_reason: str,
+    exit_time_ms: int,
+    evaluation_end_ms: int,
+) -> dict[str, Any]:
+    """Measure excursions without changing entry, exit, selection, or gates.
+
+    Horizon measurements deliberately continue observing after an executed stop.
+    The separate ``executed`` measurement is truncated at the actual exit. On a
+    stop candle, OHLC cannot reveal whether its favorable extreme happened
+    before or after the stop, so executed MFE uses only the candle open while
+    the counterfactual H/2H horizons retain the full candle range.
+    """
+    if direction not in {-1, 1} or holding_candles < 1 or entry_price <= 0 or atr <= 0:
+        raise ValueError("invalid R-0 path diagnostic input")
+
+    def horizon(length: int) -> dict[str, Any] | None:
+        end_index = entry_index + length
+        if end_index > len(candles):
+            return None
+        observed = list(candles[entry_index:end_index])
+        if not observed or observed[-1].close_time_ms > evaluation_end_ms or not _is_contiguous(observed):
+            return None
+        return _excursion_summary(observed, direction, entry_price, atr)
+
+    h_path = horizon(holding_candles)
+    double_h_path = horizon(holding_candles * 2)
+    executed_rows = []
+    stopped = exit_reason in {"STOP", "STOP_GAP"}
+    for candle in candles[entry_index:entry_index + holding_candles]:
+        if candle.open_time_ms > exit_time_ms:
+            break
+        if stopped and candle.open_time_ms == exit_time_ms:
+            executed_rows.append(ShortlineCandle(
+                candle.open_time_ms,
+                candle.close_time_ms,
+                candle.open,
+                candle.open,
+                candle.open,
+                candle.open,
+                candle.quote_volume,
+            ))
+            break
+        executed_rows.append(candle)
+    executed = _excursion_summary(executed_rows, direction, entry_price, atr)
+    stop_bar = (
+        next((
+            index + 1 for index, candle in enumerate(
+                candles[entry_index:entry_index + holding_candles]
+            ) if candle.open_time_ms == exit_time_ms
+        ), None)
+        if stopped else None
+    )
+
+    return {
+        "protocol": "ORBIT_R0_EVENT_PATH_DIAGNOSTIC_V1",
+        "executed": executed,
+        "holding_h": h_path,
+        "holding_2h": double_h_path,
+        "stop_bar": stop_bar,
+        "stopped": stopped,
+        "stop_then_new_mfe_h": _stop_preceded_new_mfe(stop_bar, executed, h_path),
+        "stop_then_new_mfe_2h": _stop_preceded_new_mfe(stop_bar, executed, double_h_path),
+        "stop_price_distance_atr": abs(entry_price - stop_price) / atr,
+    }
 
 
 def daily_block_bootstrap_interval(
@@ -524,6 +613,49 @@ def _is_contiguous(candles: Sequence[ShortlineCandle]) -> bool:
     return all(
         right.open_time_ms - left.open_time_ms == RAW_INTERVAL_MS
         for left, right in zip(candles, candles[1:])
+    )
+
+
+def _excursion_summary(
+    candles: Sequence[ShortlineCandle], direction: int, entry_price: float, atr: float,
+) -> dict[str, Any]:
+    if not candles:
+        return {
+            "mfe_pct": 0.0, "mae_pct": 0.0,
+            "mfe_atr": 0.0, "mae_atr": 0.0,
+            "mfe_bar": 0, "mae_bar": 0,
+        }
+    favorable = []
+    adverse = []
+    for candle in candles:
+        if direction > 0:
+            favorable.append(max(0.0, candle.high - entry_price))
+            adverse.append(max(0.0, entry_price - candle.low))
+        else:
+            favorable.append(max(0.0, entry_price - candle.low))
+            adverse.append(max(0.0, candle.high - entry_price))
+    mfe = max(favorable)
+    mae = max(adverse)
+    return {
+        "mfe_pct": mfe / entry_price * 100,
+        "mae_pct": mae / entry_price * 100,
+        "mfe_atr": mfe / atr,
+        "mae_atr": mae / atr,
+        "mfe_bar": favorable.index(mfe) + 1,
+        "mae_bar": adverse.index(mae) + 1,
+    }
+
+
+def _stop_preceded_new_mfe(
+    stop_bar: int | None,
+    executed: Mapping[str, Any],
+    horizon: Mapping[str, Any] | None,
+) -> bool | None:
+    if stop_bar is None or horizon is None:
+        return False if stop_bar is None else None
+    return (
+        int(horizon["mfe_bar"]) > stop_bar
+        and float(horizon["mfe_pct"]) > float(executed["mfe_pct"]) + 1e-12
     )
 
 
