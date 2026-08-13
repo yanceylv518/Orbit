@@ -105,6 +105,13 @@
   details.audit summary{padding:10px 16px;color:var(--faint);cursor:pointer;font-size:.84rem}
   details.audit div{padding:4px 16px 14px;color:var(--muted);font-size:.82rem}
 
+  .overlay{position:fixed;inset:0;background:rgba(5,10,20,.72);backdrop-filter:blur(3px);
+    display:none;align-items:center;justify-content:center;z-index:30;padding:20px}
+  .overlay.open{display:flex}
+  .overlay .drawer{margin:0;max-height:88vh;overflow:auto}
+  .drawer .dhead{display:flex;justify-content:space-between;align-items:baseline;margin:-4px 0 16px}
+  .drawer .dhead h3{margin:0;font-size:1.05rem}
+  .drawer .dhead button{background:none;border:none;color:var(--faint);font-size:1.2rem;cursor:pointer;line-height:1}
   .drawer{max-width:460px;margin:10px auto;background:var(--panel);border:1px solid var(--edge);
     border-radius:14px;padding:24px 26px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
   .field{margin-bottom:14px}
@@ -165,7 +172,6 @@
       <button data-v="qrev">量化·复盘</button>
       <button data-v="desk">信号·信号台</button>
       <button data-v="rev">信号·复盘</button>
-      <button data-v="wizard">启用向导</button>
     </nav>
   </div>
 </header>
@@ -221,7 +227,8 @@
     <div class="evidence num">核对差异：SOLUSDT 计划 -1.2 张 / 实际 -1.6 张（差 0.4）· 其余 11 个市场一致 → <u>去实例详情处理</u></div>
   </div>
 
-  <div style="margin-top:14px;text-align:right"><button class="btn">＋ 启用新实盘</button></div>
+  <div style="margin-top:14px;text-align:right"><button class="btn" id="open-wiz">＋ 启用新实盘</button></div>
+  <div class="tabnote" style="text-align:right">启用是「量化·运行」页里的一个动作,不是独立页面——点上面按钮弹出抽屉试试</div>
 </section>
 
 <!-- ═══════════ 实例详情 ═══════════ -->
@@ -374,15 +381,10 @@
   <div class="tabnote"><span class="disc">讨论点④：数据页你实际会来做什么？如果只有"更新"一个动作,四个 Tab 是否还嫌多？</span></div>
 </section>
 
-<!-- ═══════════ 启用向导 ═══════════ -->
-<section class="view" id="v-wizard">
-  <div class="pagehead">
-    <span class="eyebrow">实盘 / 启用新实盘</span>
-    <h1>三步启动,检查交给系统</h1>
-    <span class="scope-note">从实盘页右上角「＋启用新实盘」弹出,不常驻页面</span>
-  </div>
-
-  <div class="drawer">
+<!-- ═══════════ 启用向导（量化·运行页内的抽屉,非独立页面） ═══════════ -->
+<div class="overlay" id="wiz-overlay">
+  <div class="drawer" role="dialog" aria-modal="true" aria-label="启用新实盘">
+    <div class="dhead"><h3>启用新实盘</h3><button id="close-wiz" aria-label="关闭">✕</button></div>
     <div class="field"><label>策略（只列已通过考试的）</label>
       <div class="ctrl"><span>趋势策略</span><span style="color:var(--faint)">▾</span></div></div>
     <div class="field"><label>账户（只列已连接可用的）</label>
@@ -393,10 +395,10 @@
     <div class="field"><label>输入确认语以启动</label>
       <div class="ctrl"><span style="color:var(--faint)">启动趋势策略真钱交易</span></div></div>
     <p class="hint warn">点击后系统自动完成:基准建立 → 规则刷新 → 账户模式与杠杆设置 → 12 项安全检查。任何一项不通过都会用人话告诉你原因,不会带病启动。</p>
-    <div class="drawer actions"><button class="btn ghost">取消</button><button class="btn">确认启动</button></div>
+    <p class="hint" style="text-align:center"><span class="disc">讨论点⑤：确认语用固定短语,还是要求手输金额（如"启动 2000"）？</span></p>
+    <div class="drawer actions"><button class="btn ghost" id="cancel-wiz">取消</button><button class="btn">确认启动</button></div>
   </div>
-  <div class="tabnote" style="text-align:center"><span class="disc">讨论点⑤：确认语用固定短语,还是要求手输金额数字（如"启动 2000"）？</span></div>
-</section>
+</div>
 
 <!-- ═══════════ 量化 · 复盘 ═══════════ -->
 <section class="view" id="v-qrev">
@@ -673,6 +675,14 @@
     document.getElementById('v-'+b.dataset.v).classList.add('active');
     window.scrollTo({top:0});
   });
+  const wiz=document.getElementById('wiz-overlay');
+  const openWiz=()=>wiz.classList.add('open');
+  const closeWiz=()=>wiz.classList.remove('open');
+  document.getElementById('open-wiz').addEventListener('click',openWiz);
+  document.getElementById('close-wiz').addEventListener('click',closeWiz);
+  document.getElementById('cancel-wiz').addEventListener('click',closeWiz);
+  wiz.addEventListener('click',e=>{if(e.target===wiz)closeWiz()});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeWiz()});
 </script>
 
 </body>
