@@ -1,10 +1,10 @@
 export const PAGE_META = {
-  strategy: ["策略", "我们交易什么？", "先看正式策略为什么这样做，再看下一批候选怎么验证。"],
+  strategy: ["策略与研究", "我们为什么相信这套方法？", "查看正式策略、研究证据和从想法到上线的完整过程。"],
   dashboard: ["概览", "现在有什么要处理？", "从账户同步到计划确认，按顺序检查每个环节。"],
   accounts: ["账户", "钱和交易权限接在哪里？", "管理用户、交易账户、API 凭证和连接状态。"],
   data: ["数据", "研究数据准备好了吗？", "检查历史覆盖、数据质量和构建任务；这里不控制实盘行情。"],
   research: ["研究", "量价关系真的存在吗？", "先验证关系是否稳定成立，再讨论具体入场信号和策略组合。"],
-  forward: ["实盘", "系统现在正常吗？", "看这周是否按计划调仓、成交并完成持仓核对。"],
+  forward: ["量化", "系统现在正常吗？", "先看运行结论，再进入实例或复盘核对细节。"],
   plans: ["计划", "这次准备怎么调仓？", "先看动作和风险检查，再决定是否确认。"],
   symbol: ["市场", "每个币现在是什么状态？", "查看仓位方向、价格变化和历史动作。"],
   review: ["复盘", "过去执行得怎么样？", "比较实盘和模拟结果，找出费用、成交和计划偏差。"],
@@ -18,10 +18,12 @@ export const LEGACY_PAGE_ALIASES = {
   dashboard: "forward",
   plans: "forward",
   symbol: "strategy",
-  reports: "review",
-  "strategy/research": "research",
+  reports: "forward/review",
+  research: "strategy/research",
   events: "forward",
-  logs: "review",
+  review: "forward/review",
+  risk: "forward/live-small",
+  logs: "forward/review",
 };
 
 const ENUM_LABELS = {

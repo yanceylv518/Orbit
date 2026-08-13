@@ -126,9 +126,7 @@ import GlossaryModal from "./components/GlossaryModal.vue";
 import AccountsPage from "./pages/AccountsPage.vue";
 import DataPage from "./pages/DataPage.vue";
 import ForwardPage from "./pages/ForwardPage.vue";
-import ResearchPage from "./pages/ResearchPage.vue";
-import ReviewPage from "./pages/ReviewPage.vue";
-import RiskPage from "./pages/RiskPage.vue";
+import QuantPage from "./pages/QuantPage.vue";
 import StrategyPage from "./pages/StrategyPage.vue";
 import {
   currentUser,
@@ -156,11 +154,8 @@ const navGroups = [
     label: "",
     items: [
       { id: "data", label: "数据" },
-      { id: "research", label: "研究" },
-      { id: "strategy", label: "策略" },
-      { id: "forward", label: "实盘" },
-      { id: "review", label: "复盘" },
-      { id: "risk", label: "风控" },
+      { id: "strategy", label: "策略与研究" },
+      { id: "forward", label: "量化" },
       { id: "accounts", label: "账户" },
     ],
   },
@@ -172,14 +167,15 @@ const riskStatusText = computed(() => statusLabel(store.state?.strategy?.risk_st
 const riskStatusClass = computed(() => (store.state?.strategy?.risk_status === "normal" ? "ok" : "warn"));
 const pageComponents = {
   data: DataPage,
-  research: ResearchPage,
   strategy: StrategyPage,
   accounts: AccountsPage,
-  forward: ForwardPage,
-  review: ReviewPage,
-  risk: RiskPage,
+  forward: QuantPage,
 };
-const activeComponent = computed(() => pageComponents[store.activePage] || ForwardPage);
+const activeComponent = computed(() => (
+  store.activeRoute === "forward/legacy"
+    ? ForwardPage
+    : (pageComponents[store.activePage] || QuantPage)
+));
 
 async function submitLogin() {
   const ok = await login(loginId.value, password.value);

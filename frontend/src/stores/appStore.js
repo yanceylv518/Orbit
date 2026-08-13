@@ -30,6 +30,7 @@ import { LEGACY_PAGE_ALIASES } from "../domain/labels.js";
 export const store = reactive({
   state: null,
   activePage: (location.hash.replace("#", "") || "forward").split("/")[0],
+  activeRoute: location.hash.replace("#", "") || "forward",
   selectedSymbol: "",
   selectedPlanAccount: "",
   loginBusy: false,
@@ -170,6 +171,7 @@ export function setActivePage(page) {
   const route = LEGACY_PAGE_ALIASES[requested] || requested;
   const [base] = route.split("/");
   store.activePage = base;
+  store.activeRoute = route;
   if (location.hash !== `#${route}`) {
     history.replaceState(null, "", `#${route}`);
   }
