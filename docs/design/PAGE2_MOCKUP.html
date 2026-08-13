@@ -433,8 +433,15 @@
   </div>
 
   <article class="panel">
-    <h3>信号图墙 <span class="disc">讨论点⑩：缩略图上还想看到什么？（成交量柱 / 均线 / 大盘同期走势）</span></h3>
-    <p class="sub">蓝线是价格，圆点是信号触发点，虚线是止损位；左边缘颜色表示这笔最终赚还是亏</p>
+    <h3>信号图墙</h3>
+    <p class="sub">
+      <span style="color:#3987E5">━</span> 价格 ·
+      <span style="color:#8FA1BC">━</span> 均线 ·
+      <span style="color:#5E7191">╌</span> 同期大盘 ·
+      <span style="color:#C9862B">▮</span> 信号那根放量 ·
+      <span style="color:#8FA1BC">╌</span> 进场价 ·
+      <span style="color:#AD3B48">╌</span> 止损位；左边缘绿/红＝这笔最终赚/亏
+    </p>
 
     <div class="gal-controls">
       <div class="seg" id="gal-filter">
@@ -561,13 +568,26 @@
           <span class="pill o num">有效期 23 分钟</span>
         </div>
         <div class="sigbody" style="margin:10px 0">
-          <svg class="chart" viewBox="0 0 300 100" width="100%" height="100" role="img" aria-label="SOL 当前信号图：突破前高,标注进场与止损位">
+          <svg class="chart" viewBox="0 0 300 122" width="100%" height="122" role="img" aria-label="SOL 当前信号图：突破前高,标注进场、止损与成交量放大">
+            <polyline points="0,70 20,69 40,70 60,68 80,66 100,64 120,62 140,61 160,59 180,58 200,56 220,53 240,51 260,47 280,42 300,37" fill="none" stroke="#8FA1BC" stroke-width="1.1" opacity=".75"/>
             <polyline points="0,72 20,68 40,74 60,66 80,60 100,64 120,58 140,62 160,54 180,58 200,50 220,46 240,52 260,40 280,32 300,28" fill="none" stroke="#3987E5" stroke-width="1.8"/>
             <line x1="0" y1="44" x2="300" y2="44" stroke="#8FA1BC" stroke-dasharray="4 3" stroke-width=".9"/>
             <line x1="0" y1="28" x2="300" y2="28" stroke="#19A862" stroke-dasharray="2 2" stroke-width=".8"/>
             <line x1="0" y1="66" x2="300" y2="66" stroke="#AD3B48" stroke-dasharray="3 3" stroke-width=".9"/>
             <circle cx="300" cy="28" r="3.5" fill="#19A862"/>
-            <text x="4" y="41">24小时高点</text><text x="4" y="63">建议止损</text><text x="252" y="24">现价·信号</text>
+            <text x="4" y="41">24小时高点</text><text x="4" y="63">建议止损</text><text x="246" y="24">现价·信号</text>
+            <line x1="0" y1="86" x2="300" y2="86" stroke="#1B2A44" stroke-width="1"/>
+            <g fill="#3D5170" opacity=".6">
+              <rect x="2" y="112" width="12" height="8"/><rect x="22" y="110" width="12" height="10"/>
+              <rect x="42" y="114" width="12" height="6"/><rect x="62" y="109" width="12" height="11"/>
+              <rect x="82" y="112" width="12" height="8"/><rect x="102" y="108" width="12" height="12"/>
+              <rect x="122" y="113" width="12" height="7"/><rect x="142" y="110" width="12" height="10"/>
+              <rect x="162" y="106" width="12" height="14"/><rect x="182" y="111" width="12" height="9"/>
+              <rect x="202" y="104" width="12" height="16"/><rect x="222" y="108" width="12" height="12"/>
+              <rect x="242" y="112" width="12" height="8"/><rect x="262" y="102" width="12" height="18"/>
+            </g>
+            <rect x="282" y="92" width="14" height="28" fill="#C9862B" opacity=".95"/>
+            <text x="228" y="99">放量 2.3×</text>
           </svg>
           <div class="num" style="font-size:.86rem;line-height:1.9">
             参考进场 <strong>10.42</strong><br>
@@ -772,20 +792,29 @@
   /* ── 信号图库：确定性生成演示用价格路径 ── */
   const SYMS=['SOL','LINK','AVAX','DOT','BCH','LTC','ADA','XRP','DOGE','BNB','ETH','BTC'];
   function lcg(seed){let s=seed;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296}}
+  const N=28, X=k=>k*(280/N)+6;
   function makeSignal(i){
-    const r=lcg(9973+i*7919), win=r()<0.42;
-    const drift=win?-(0.9+r()*1.6):(0.5+r()*1.4);      // SVG y 轴向下,负 drift = 上涨
-    const pts=[]; let y=62, entryIdx=8;
-    for(let k=0;k<=28;k++){
-      if(k>entryIdx) y+=drift+(r()-0.5)*5.2; else y+=(r()-0.5)*4.4;
-      y=Math.max(10,Math.min(88,y)); pts.push([k*(280/28)+6, y]);
+    const r=lcg(9973+i*7919), win=r()<0.42, entryIdx=8;
+    const drift=win?-(0.7+r()*1.2):(0.4+r()*1.1);      // SVG y 轴向下,负 drift = 上涨
+    const pts=[], vols=[], mkt=[]; let y=48, m=40;
+    for(let k=0;k<=N;k++){
+      if(k>entryIdx) y+=drift+(r()-0.5)*4.0; else y+=(r()-0.5)*3.4;
+      y=Math.max(8,Math.min(64,y)); pts.push([X(k), y]);
+      m+=(r()-0.5)*2.6+(win?-0.25:0.1); mkt.push([X(k), Math.max(8,Math.min(64,m))]);
+      // 成交量:平时低,信号那根放量
+      vols.push(k===entryIdx ? 0.82+r()*0.18 : (k===entryIdx-1?0.4+r()*0.2:0.14+r()*0.34));
     }
-    const entry=pts[entryIdx], last=pts[pts.length-1];
-    const ret=((entry[1]-last[1])/62*10);              // 演示用收益
-    return {sym:SYMS[i%12], win, pts, entry, ret,
+    const ma=pts.map((p,k)=>{
+      const s=Math.max(0,k-4), seg=pts.slice(s,k+1);
+      return [p[0], seg.reduce((a,q)=>a+q[1],0)/seg.length];
+    });
+    const entry=pts[entryIdx], last=pts[N];
+    const ret=((entry[1]-last[1])/48*8);               // 演示用收益
+    return {sym:SYMS[i%12], win, pts, ma, mkt, vols, entry, ret,
       date:`${2022+(i%5)}-${String(1+(i*3)%12).padStart(2,'0')}`,
       tag:['量递增','高流动性','亚洲时段','欧美时段','量走平'][i%5]};
   }
+  const poly=a=>a.map(p=>`${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
   const SIGNALS=Array.from({length:24},(_,i)=>makeSignal(i));
   const wall=document.getElementById('wall');
   let fState='all', sState='ret';
@@ -794,15 +823,23 @@
     list.sort((a,b)=>sState==='ret'?b.ret-a.ret:a.date.localeCompare(b.date));
     list=list.slice(0,12);
     wall.innerHTML=list.map(s=>{
-      const pl=s.pts.map(p=>`${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-      const stopY=Math.min(92,s.entry[1]+14);
+      const stopY=Math.min(70,s.entry[1]+12), bw=280/(N+1)*0.62;
+      const bars=s.vols.map((v,k)=>{
+        const h=Math.max(1.5,v*20);
+        return `<rect x="${(X(k)-bw/2).toFixed(1)}" y="${(98-h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}"
+          fill="${k===8?'#C9862B':'#3D5170'}" opacity="${k===8?'.95':'.6'}"/>`;
+      }).join('');
       return `<div class="thumb ${s.win?'win':'loss'}">
         <div class="tmeta"><b>${s.sym}</b><span class="${s.win?'r-win':'r-loss'}">${s.ret>0?'+':''}${s.ret.toFixed(1)}%</span></div>
-        <svg viewBox="0 0 292 100" width="100%" height="72" role="img" aria-label="${s.sym} 信号走势,结果${s.win?'盈利':'亏损'}">
-          <polyline points="${pl}" fill="none" stroke="#3987E5" stroke-width="1.6"/>
+        <svg viewBox="0 0 292 104" width="100%" height="82" role="img" aria-label="${s.sym} 信号走势与成交量,结果${s.win?'盈利':'亏损'}">
+          <polyline points="${poly(s.mkt)}" fill="none" stroke="#5E7191" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>
+          <polyline points="${poly(s.ma)}" fill="none" stroke="#8FA1BC" stroke-width="1.1" opacity=".75"/>
+          <polyline points="${poly(s.pts)}" fill="none" stroke="#3987E5" stroke-width="1.7"/>
           <line x1="0" y1="${s.entry[1].toFixed(1)}" x2="292" y2="${s.entry[1].toFixed(1)}" stroke="#8FA1BC" stroke-dasharray="3 3" stroke-width=".7"/>
           <line x1="0" y1="${stopY.toFixed(1)}" x2="292" y2="${stopY.toFixed(1)}" stroke="#AD3B48" stroke-dasharray="2 3" stroke-width=".7"/>
           <circle cx="${s.entry[0].toFixed(1)}" cy="${s.entry[1].toFixed(1)}" r="3.2" fill="${s.win?'#19A862':'#C9862B'}"/>
+          <line x1="0" y1="74" x2="292" y2="74" stroke="#1B2A44" stroke-width="1"/>
+          ${bars}
         </svg>
         <div class="tags">${s.date} · ${s.tag}</div>
       </div>`;
