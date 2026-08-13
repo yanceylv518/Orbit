@@ -1,0 +1,110 @@
+{
+  "protocol": "ORBIT_RB1_OVERSOLD_V1",
+  "status": "FROZEN_BEFORE_TRAINING_EVALUATION",
+  "frozen_at": "2026-08-14",
+  "inherits_from": {
+    "protocol": "ORBIT_R0_SHORTLINE_SCREEN_V2",
+    "contract_sha256": "a9a7abd45a69fd96e492549de2617a8ce472dce7cf56a80653060ed2f78a9799"
+  },
+  "dataset": {
+    "protocol": "ORBIT_SHORTLINE_DATASET_V1",
+    "root": "var/calibration/shortline-data-v1",
+    "manifest_fingerprint": "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
+    "quality_report_sha256": "f5885005ebd245e79cfd1a2a7afb13837be5048b952c9bae02b9682c6638710f",
+    "dataset_cutoff_ms": 1785542399999,
+    "raw_interval": "15m",
+    "required_state": "COMPLETE",
+    "required_unverified_missing_15m_candles": 0,
+    "required_duplicate_15m_candles": 0
+  },
+  "sample_split": {
+    "training_start_rule": "FIRST_ELIGIBLE_SIGNAL_PER_SYMBOL",
+    "training_end_ms": 1735689599999,
+    "lockbox_start_ms": 1735689600000,
+    "lockbox_end_ms": 1785542399999,
+    "cross_boundary_events": "DISCARD"
+  },
+  "universe": {
+    "snapshot_timing": "AT_SIGNAL_CLOSE",
+    "min_history_days": 0,
+    "liquidity_lookback_days": 3,
+    "liquidity_window_requires_consecutive_complete_utc_days": true,
+    "min_median_daily_quote_volume_usdt": "30000000",
+    "selection": "ALL_QUALIFIED_CONTRACTS",
+    "limit": null,
+    "liquidity_rank_tie_breaker": "SYMBOL_ASC",
+    "tiering": {
+      "method": "DYNAMIC_EQUAL_THIRDS_BY_LIQUIDITY_RANK",
+      "ordered_tiers": ["HIGH", "MEDIUM", "LOW"],
+      "remainder_allocation": "HIGH_THEN_MEDIUM",
+      "minimum_qualified_contracts": 3,
+      "insufficient_qualified_contracts_policy": "EXCLUDE_ENTIRE_SNAPSHOT"
+    },
+    "include_historically_tradable_delisted_contracts": true,
+    "incomplete_history_policy": "EXCLUDE",
+    "missing_liquidity_history_policy": "EXCLUDE"
+  },
+  "signal": {
+    "definition_id": "S1_DROP_STABILIZATION",
+    "direction": "LONG_ONLY",
+    "return_lookback_candles": 16,
+    "minimum_drop_fraction": "0.10",
+    "stabilization": "CLOSE_ABOVE_PREVIOUS_CLOSE_AND_NOT_BELOW_OPEN",
+    "entry": "NEXT_CANDLE_OPEN",
+    "maximum_holding_candles": 32,
+    "overlapping_events_per_symbol": "DISCARD_FOR_FIXED_32_CANDLE_WINDOW"
+  },
+  "execution": {
+    "atr_period": 14,
+    "stop_gap_policy": "WORSE_OF_STOP_OR_CANDLE_OPEN",
+    "stop_precedes_time_exit_on_same_candle": true,
+    "trailing_update": "AT_CANDLE_CLOSE_EFFECTIVE_NEXT_CANDLE_ONLY_MOVE_UP",
+    "funding_window": "ENTRY_TIME_EXCLUSIVE_EXIT_TIME_INCLUSIVE",
+    "time_exit": "OPEN_AFTER_32_COMPLETE_CANDLES",
+    "costs_pct_per_side_by_tier": [
+      {"tier": "HIGH", "total_per_side": "0.08", "round_trip": "0.16"},
+      {"tier": "MEDIUM", "total_per_side": "0.125", "round_trip": "0.25"},
+      {"tier": "LOW", "total_per_side": "0.20", "round_trip": "0.40"}
+    ]
+  },
+  "candidates": [
+    {"id": "ST-A__EX-A", "stop": "ENTRY_MINUS_3_ATR14", "exit": "ONE_R_BREAKEVEN_THEN_2_ATR14_TRAIL"},
+    {"id": "ST-A__EX-B", "stop": "ENTRY_MINUS_3_ATR14", "exit": "ONE_POINT_FIVE_R_HALF_THEN_2_ATR14_TRAIL"},
+    {"id": "ST-B__EX-A", "stop": "SIGNAL_CANDLE_LOW_MINUS_0_POINT_5_ATR14", "exit": "ONE_R_BREAKEVEN_THEN_2_ATR14_TRAIL"},
+    {"id": "ST-B__EX-B", "stop": "SIGNAL_CANDLE_LOW_MINUS_0_POINT_5_ATR14", "exit": "ONE_POINT_FIVE_R_HALF_THEN_2_ATR14_TRAIL"}
+  ],
+  "statistics": {
+    "return_unit": "PERCENT_OF_ENTRY_NOTIONAL",
+    "bootstrap_method": "UTC_ENTRY_DAY_BLOCK_BOOTSTRAP",
+    "bootstrap_samples": 10000,
+    "bootstrap_seed": 20260811,
+    "confidence_level": "0.95",
+    "step1_ranking": [
+      "BOOTSTRAP_MEAN_LOWER_BOUND_DESC",
+      "MEAN_NET_RETURN_DESC",
+      "WORST_CALENDAR_YEAR_MEAN_DESC",
+      "EVENT_COUNT_DESC",
+      "CANDIDATE_ID_ASC"
+    ],
+    "step2": {
+      "comparison": ["ALL", "SEQ_3_PLUS"],
+      "maximum_gap_candles_inclusive": 96,
+      "include_filter_only_if": "SEQ_3_PLUS_MEAN_AND_BOOTSTRAP_LOWER_BOUND_BOTH_GREATER_THAN_ALL"
+    }
+  },
+  "lockbox_gates": {
+    "minimum_events_total": 200,
+    "mean_net_return_gt_pct": "0",
+    "bootstrap_mean_lower_bound_gt_pct": "0",
+    "minimum_positive_tier_means": 2,
+    "leave_one_lockbox_year_out_mean_gt_pct": "0",
+    "profit_factor_gte": "1.5"
+  },
+  "discipline": {
+    "lockbox_access": "PROHIBITED",
+    "grid_size_max": 4,
+    "step3_requires_claude_confirmed_frozen_commit": true,
+    "selection_or_gate_effect_outside_step2": "NONE",
+    "live_or_automatic_trading_authorized": false
+  }
+}
