@@ -33,7 +33,9 @@
 ## 正式训练结果（2026-08-12）
 
 正式训练已经在冻结的 V2 契约和正式全市场数据上完成。完整机器报告保存于
-`docs/evidence/r0/r0_training_v2_20260812.json`，SHA-256 为
+`docs/evidence/r0/r0_training_v2_20260812.json`。Git 归档统一为 LF 换行，归档文件
+SHA-256 为 `8d5c9681a7877777bcfc93725e7220ba32c747a7d6a536c97fa837c11c4cfec6`；
+原始 Windows 运行产物仅换行不同，SHA-256 为
 `733b864d30d2cde517b4773dd593c8c6136e32b24e232a5ec1cb31ab724f2738`。
 
 - 总结论：`TRAINING_FAIL`。
