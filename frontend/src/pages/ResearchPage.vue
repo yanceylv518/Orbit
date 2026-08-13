@@ -144,7 +144,7 @@
 
       <div v-if="r0ParameterReports.length" class="table-wrap r0-results-table">
         <table>
-          <thead><tr><th>策略现象 / 固定组合</th><th>事件数</th><th>成本后均值</th><th>置信下界</th><th>九项门槛</th><th>研究任务结论</th></tr></thead>
+          <thead><tr><th>策略现象 / 固定组合</th><th>事件数</th><th>成本后均值</th><th>置信下界</th><th>九项门槛</th><th>研究任务结论</th><th>信号图</th></tr></thead>
           <tbody>
             <tr v-for="row in r0ParameterReports" :key="row.parameter_id">
               <td><strong>{{ r0FamilyLabel(row.family_id) }}</strong><div class="mono muted">{{ r0ParameterLabel(row) }}</div></td>
@@ -153,10 +153,47 @@
               <td class="mono" :class="numberClass(row.summary?.bootstrap_mean_ci_low)">{{ percentValue(row.summary?.bootstrap_mean_ci_low) }}</td>
               <td><span class="r0-gate-count">{{ r0PassedGateCount(row) }} / {{ Object.keys(row.gate?.checks || {}).length }}</span></td>
               <td><StatusBadge :text="row.gate?.passed ? '达到训练门槛' : '未达到训练门槛'" :color="row.gate?.passed ? 'green' : 'red'" /></td>
+              <td><button class="button ghost compact" @click="openSignalGallery(row.parameter_id)">看样本</button></td>
             </tr>
           </tbody>
         </table>
       </div>
+
+      <section v-if="galleryOpen" class="r0-gallery">
+        <div class="panel-head research-panel-head">
+          <div>
+            <span class="eyebrow">训练期信号图库</span>
+            <h3>{{ galleryParameterTitle }}</h3>
+            <p class="muted">看图产生假设，数据裁决假设。本页只读，不能修改参数或重跑旧协议。</p>
+          </div>
+          <button class="button ghost compact" @click="closeSignalGallery">关闭图库</button>
+        </div>
+        <div class="r0-gallery-toolbar">
+          <div class="research-segments">
+            <button v-for="item in galleryCohorts" :key="item.value" :class="{ active: galleryFilters.cohort === item.value }" @click="setGalleryFilter('cohort', item.value)">{{ item.label }}</button>
+          </div>
+          <select v-model="galleryFilters.year" @change="reloadSignalGallery"><option value="">全部年份</option><option v-for="year in galleryYears" :key="year" :value="year">{{ year }} 年</option></select>
+          <select v-model="galleryFilters.tier" @change="reloadSignalGallery"><option value="">全部流动性</option><option value="HIGH">高流动性</option><option value="MEDIUM">中流动性</option><option value="LOW">低流动性</option></select>
+          <select v-model="galleryFilters.volume_trend" @change="reloadSignalGallery"><option value="">全部成交量形态</option><option value="STRICTLY_INCREASING">连续三日放量</option><option value="NOT_STRICTLY_INCREASING">未连续三日放量</option></select>
+          <select v-model="galleryFilters.listing_age" @change="reloadSignalGallery"><option value="">全部上市阶段</option><option value="LE_30_DAYS">上市不超过30天</option><option value="GT_30_DAYS">上市超过30天</option></select>
+        </div>
+        <div v-if="galleryCompareMode" class="r0-gallery-compare-head">
+          <strong>并排比较</strong>
+          <select v-model="galleryCompareId" @change="reloadGalleryCompare"><option value="">选择第二组固定组合</option><option v-for="item in galleryCompareOptions" :key="item.parameter_id" :value="item.parameter_id">{{ r0FamilyLabel(item.family_id) }} · {{ galleryShortParameter(item) }}</option></select>
+          <button class="button ghost compact" @click="galleryCompareMode = false">退出比较</button>
+        </div>
+        <button v-else class="button ghost compact" @click="galleryCompareMode = true">并排比较另一组</button>
+        <p class="muted">每组仅展示冻结的确定性样本；筛选后匹配 {{ galleryPrimary?.matching_count || 0 }} 个，页面最多加载 24 个。</p>
+        <div :class="['r0-gallery-columns', { compare: galleryCompareMode && galleryCompareId }]">
+          <div class="r0-gallery-wall">
+            <SignalWindowCard v-for="item in galleryPrimary?.items || []" :key="item.event_id" :event="item" @open="galleryFocus = item" />
+            <div v-if="!store.r0GalleryBusy && !galleryPrimary?.items?.length" class="structured-empty-state compact"><strong>当前筛选没有样本</strong><p>可切换年份或分组；系统不会为凑数量读取锁箱数据。</p></div>
+          </div>
+          <div v-if="galleryCompareMode && galleryCompareId" class="r0-gallery-wall">
+            <SignalWindowCard v-for="item in galleryCompare?.items || []" :key="item.event_id" :event="item" @open="galleryFocus = item" />
+          </div>
+        </div>
+      </section>
 
       <div v-if="r0SelectedReports.length" class="r0-diagnostics">
         <h4>只观察、不参与通过判定的对比</h4>
@@ -177,6 +214,10 @@
         <button class="button danger" :disabled="r0LockboxPhrase !== r0Status.lockbox_confirmation_phrase || r0Active" @click="startR0Lockbox">打开一次性检验</button>
       </section>
     </article>
+
+    <div v-if="galleryFocus" class="r0-gallery-modal" @click.self="galleryFocus = null">
+      <div class="r0-gallery-modal-card"><button class="button ghost compact" @click="galleryFocus = null">关闭</button><SignalWindowCard :event="galleryFocus" :expanded="true" /></div>
+    </div>
 
     <template v-if="isResearchMode">
       <div class="summary-grid research-summary">
@@ -741,6 +782,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import HelpTip from "../components/HelpTip.vue";
+import SignalWindowCard from "../components/SignalWindowCard.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { candidateCopy, enumLabel } from "../domain/labels.js";
 import {
@@ -750,6 +792,8 @@ import {
   loadDataCatalog,
   loadDataQuality,
   loadResearchCatalog,
+  loadR0Gallery,
+  loadR0GallerySamples,
   refreshR0Status,
   refreshResearchRun,
   selectResearchCandidate,
@@ -771,6 +815,13 @@ const showCreate = ref(false);
 const showFetch = ref(false);
 const openLockbox = ref(false);
 const r0LockboxPhrase = ref("");
+const galleryOpen = ref(false);
+const galleryParameterId = ref("");
+const galleryCompareMode = ref(false);
+const galleryCompareId = ref("");
+const galleryFocus = ref(null);
+const galleryFilters = reactive({ cohort: "ALL", year: "", tier: "", volume_trend: "", listing_age: "", limit: 24 });
+const galleryCompare = ref(null);
 const catalogReady = ref(false);
 const draft = reactive({ protocol: "M0", id: "", name: "", datasetIds: [], confirmed: false });
 const fetchDraft = reactive({ symbol: "BTCUSDT", kind: "ohlc", interval: "15m", days: 180 });
@@ -837,6 +888,15 @@ const r0SelectedReports = computed(() => {
   const ids = new Set(selected.map((item) => item.parameter_id));
   return r0ParameterReports.value.filter((item) => ids.has(item.parameter_id));
 });
+const galleryPrimary = computed(() => store.r0GallerySamples[galleryParameterId.value] || null);
+const galleryDescriptor = computed(() => store.r0Gallery?.parameter_reports?.find((item) => item.parameter_id === galleryParameterId.value));
+const galleryParameterTitle = computed(() => galleryDescriptor.value ? `${r0FamilyLabel(galleryDescriptor.value.family_id)} · ${r0ParameterLabel(galleryDescriptor.value)}` : "信号样本");
+const galleryYears = computed(() => galleryDescriptor.value?.years || []);
+const galleryCompareOptions = computed(() => (store.r0Gallery?.parameter_reports || []).filter((item) => item.parameter_id !== galleryParameterId.value));
+const galleryCohorts = [
+  { value: "ALL", label: "全部" }, { value: "PROFITABLE", label: "只看赚的" },
+  { value: "UNPROFITABLE", label: "只看亏的" }, { value: "STOP_THEN_RECOVERED", label: "止损后又回来" },
+];
 const compatibleDatasets = computed(() => {
   const mode = selectedTemplate.value?.dataset_rule?.mode;
   if (mode === "funding") return store.researchDatasets.filter((item) => item.kind === "funding");
@@ -905,6 +965,20 @@ async function refreshCatalog(force = false) {
   if (loaded && !draft.datasetIds.length) applySuggestedDatasets();
   if (loaded && (hasActiveRun.value || r0Status.value?.training_active)) startRunPolling();
 }
+
+async function openSignalGallery(parameterId) {
+  if (!store.r0Gallery) await loadR0Gallery();
+  if (!store.r0Gallery) return;
+  galleryParameterId.value = parameterId;
+  galleryOpen.value = true;
+  await reloadSignalGallery();
+}
+
+function closeSignalGallery() { galleryOpen.value = false; galleryFocus.value = null; }
+async function reloadSignalGallery() { await loadR0GallerySamples(galleryParameterId.value, { ...galleryFilters }); }
+async function setGalleryFilter(key, value) { galleryFilters[key] = value; await reloadSignalGallery(); if (galleryCompareId.value) await reloadGalleryCompare(); }
+async function reloadGalleryCompare() { galleryCompare.value = galleryCompareId.value ? await loadR0GallerySamples(galleryCompareId.value, { ...galleryFilters }) : null; }
+function galleryShortParameter(item) { return r0ParameterLabel(item); }
 
 async function openQuality(kind, page = 1) {
   qualityKind.value = kind;

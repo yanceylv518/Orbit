@@ -17,6 +17,7 @@ from uuid import uuid4
 from orbit.application.research.protocols import build_candidate, protocol_templates
 from orbit.application.research.candidates import canonical_json
 from orbit.application.r0_shortline_screen import validate_training_report, verify_frozen_context
+from orbit.application.r0_signal_gallery import R0SignalGalleryStore
 from orbit.infrastructure.persistence.dataset_job_lock import DatasetJobLock
 
 
@@ -77,6 +78,7 @@ class CachedToolEvaluator:
         self.shortline_root = calibration_dir / "shortline-data-v1"
         self.research_dir = project_root / "var" / "research"
         self.r0_spec = project_root / "config" / "research" / "r0_shortline_screen.v2.json"
+        self.r0_gallery = R0SignalGalleryStore(project_root)
         self.shortline_enabled = shortline_enabled
         self.shortline_min_free_bytes = int(shortline_min_free_gb * 1024 ** 3)
         self.shortline_verify_sample_symbols = shortline_verify_sample_symbols
@@ -108,6 +110,15 @@ class CachedToolEvaluator:
             "lockbox_report": lockbox_report,
             "lockbox_confirmation_phrase": "打开一次性锁箱",
         }
+
+    def r0_gallery_catalog(self) -> dict[str, Any]:
+        return self.r0_gallery.catalog()
+
+    def r0_gallery_samples(self, parameter_id: str, filters: dict[str, Any]) -> dict[str, Any]:
+        return self.r0_gallery.samples(parameter_id, filters)
+
+    def r0_gallery_event(self, parameter_id: str, event_id: str) -> dict[str, Any]:
+        return self.r0_gallery.event(parameter_id, event_id)
 
     def reserve_r0(self, run_id: str) -> dict[str, Any]:
         context = verify_frozen_context(self.r0_spec, self.shortline_root)
@@ -653,6 +664,15 @@ class ResearchWorkflowService:
 
     def templates(self) -> list[dict[str, Any]]:
         return protocol_templates()
+
+    def r0_gallery_catalog(self) -> dict[str, Any]:
+        return self.evaluator.r0_gallery_catalog()
+
+    def r0_gallery_samples(self, parameter_id: str, filters: dict[str, Any]) -> dict[str, Any]:
+        return self.evaluator.r0_gallery_samples(parameter_id, filters)
+
+    def r0_gallery_event(self, parameter_id: str, event_id: str) -> dict[str, Any]:
+        return self.evaluator.r0_gallery_event(parameter_id, event_id)
 
     def create_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
         dataset_ids = payload.get("dataset_ids")

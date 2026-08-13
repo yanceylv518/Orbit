@@ -15,6 +15,8 @@ import {
   fetchResearchResult,
   fetchResearchRun,
   fetchR0Status,
+  fetchR0Gallery,
+  fetchR0GallerySamples,
   fetchResearchRuns,
   fetchResearchTemplates,
   fetchStrategies,
@@ -45,6 +47,9 @@ export const store = reactive({
   researchTemplates: [],
   researchRuns: [],
   r0Status: null,
+  r0Gallery: null,
+  r0GallerySamples: {},
+  r0GalleryBusy: false,
   researchBusy: false,
   dataBusy: false,
   dataCatalogLoadedAt: "",
@@ -483,6 +488,34 @@ export async function refreshR0Status() {
   }
   store.r0Status = data;
   return data;
+}
+
+export async function loadR0Gallery() {
+  const { response, data } = await fetchR0Gallery();
+  if (!response.ok || data.error) {
+    store.researchError = researchErrorMessage(response, data, "读取信号图库失败");
+    return null;
+  }
+  store.r0Gallery = data;
+  return data;
+}
+
+export async function loadR0GallerySamples(parameterId, filters = {}) {
+  if (store.r0GalleryBusy) return null;
+  store.r0GalleryBusy = true;
+  try {
+    const { response, data } = await fetchR0GallerySamples(parameterId, filters);
+    if (!response.ok || data.error) {
+      throw new Error(researchErrorMessage(response, data, "读取信号样本失败"));
+    }
+    store.r0GallerySamples[parameterId] = data;
+    return data;
+  } catch (error) {
+    store.researchError = error instanceof Error ? error.message : "读取信号样本失败。";
+    return null;
+  } finally {
+    store.r0GalleryBusy = false;
+  }
 }
 
 export async function startResearchDatasetFetch(payload) {

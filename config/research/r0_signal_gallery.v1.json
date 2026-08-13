@@ -1,0 +1,27 @@
+{
+  "protocol": "ORBIT_R0_SIGNAL_GALLERY_V1",
+  "status": "FROZEN_AFTER_TRAINING_FOR_READ_ONLY_VISUALIZATION",
+  "base_contract_sha256": "a9a7abd45a69fd96e492549de2617a8ce472dce7cf56a80653060ed2f78a9799",
+  "dataset_fingerprint": "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
+  "training_report_git_sha256": "8d5c9681a7877777bcfc93725e7220ba32c747a7d6a536c97fa837c11c4cfec6",
+  "training_end_ms": 1735689599999,
+  "lockbox_start_ms": 1735689600000,
+  "lockbox_access": "PROHIBITED",
+  "selection_or_gate_effect": "NONE",
+  "window": {
+    "candles_before_signal": 32,
+    "observation_holding_multiple": 2
+  },
+  "sampling": {
+    "seed": 20260813,
+    "per_stratum": 24,
+    "strata": ["TOP_NET_RETURN", "BOTTOM_NET_RETURN", "DETERMINISTIC_RANDOM"],
+    "random_pool_excludes_top_and_bottom": true
+  },
+  "prohibitions": [
+    "NO_LOCKBOX_EVENT_OR_CANDLE_READ",
+    "NO_PARAMETER_EDIT_OR_RERUN_ENTRY",
+    "NO_CHANGE_TO_R0_SELECTION_OR_GATES",
+    "NO_REQUEST_TIME_FULL_EVENT_SCAN"
+  ]
+}

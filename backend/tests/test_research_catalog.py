@@ -327,7 +327,9 @@ class ResearchCatalogTests(unittest.TestCase):
 
         self.assertEqual(panel.count("<input"), 1)
         self.assertIn('v-model="r0LockboxPhrase"', panel)
-        self.assertNotIn("<select", panel)
+        self.assertNotIn('v-model="row.parameters', panel)
+        self.assertNotIn('v-model="r0Parameter', panel)
+        self.assertIn('v-model="galleryFilters.year"', panel)
         self.assertNotIn('type="number"', panel)
 
     def test_paired_protocol_rejects_mixed_candle_interval(self):

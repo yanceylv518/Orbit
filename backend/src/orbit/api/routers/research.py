@@ -115,6 +115,50 @@ def r0_status(request: Request, _user: dict[str, Any] = Depends(require_admin)) 
         raise workflow_error(exc) from exc
 
 
+@router.get("/r0/gallery")
+def r0_gallery(request: Request, _user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return app_state(request).research_workflow.r0_gallery_catalog()
+    except (ValueError, RuntimeError) as exc:
+        raise workflow_error(exc) from exc
+
+
+@router.get("/r0/gallery/{parameter_id}/samples")
+def r0_gallery_samples(
+    parameter_id: str,
+    request: Request,
+    cohort: Literal["ALL", "PROFITABLE", "UNPROFITABLE", "STOP_THEN_RECOVERED"] = "ALL",
+    year: int | None = None,
+    tier: Literal["HIGH", "MEDIUM", "LOW"] | None = None,
+    volume_trend: Literal["STRICTLY_INCREASING", "NOT_STRICTLY_INCREASING"] | None = None,
+    listing_age: Literal["LE_30_DAYS", "GT_30_DAYS"] | None = None,
+    limit: int = 24,
+    _user: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    try:
+        return app_state(request).research_workflow.r0_gallery_samples(parameter_id, {
+            "cohort": cohort, "year": year, "tier": tier,
+            "volume_trend": volume_trend, "listing_age": listing_age, "limit": limit,
+        })
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="signal gallery parameter not found") from exc
+    except (ValueError, RuntimeError) as exc:
+        raise workflow_error(exc) from exc
+
+
+@router.get("/r0/gallery/{parameter_id}/events/{event_id}")
+def r0_gallery_event(
+    parameter_id: str, event_id: str, request: Request,
+    _user: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    try:
+        return app_state(request).research_workflow.r0_gallery_event(parameter_id, event_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="signal gallery event not found") from exc
+    except (ValueError, RuntimeError) as exc:
+        raise workflow_error(exc) from exc
+
+
 @router.post("/r0/runs", status_code=202)
 def create_r0_run(
     payload: R0RunRequest,

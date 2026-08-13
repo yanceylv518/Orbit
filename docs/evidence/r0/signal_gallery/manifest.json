@@ -1,0 +1,345 @@
+{
+  "dataset_fingerprint": "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
+  "gallery_contract_sha256": "62b3f8f5eb104ab0e2ae1806f67eba6656307f855207fee8cf13096f165508f3",
+  "lockbox_opened": false,
+  "parameter_reports": [
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "file": "B1_DONCHIAN_VOLUME_92c8385df5b0.json",
+      "parameter_id": "B1_DONCHIAN_VOLUME:92c8385df5b0",
+      "parameters": {
+        "channel_lookback_candles": 32,
+        "holding_candles": 16,
+        "minimum_relative_quote_volume": "1.5"
+      },
+      "population_event_count": 297575,
+      "sample_count": 72,
+      "sha256": "e46c56b0b05e3829dcb2b41b8809212d208cc0453afbd6d6e6e9f67486de985b",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "file": "B1_DONCHIAN_VOLUME_730fa337219e.json",
+      "parameter_id": "B1_DONCHIAN_VOLUME:730fa337219e",
+      "parameters": {
+        "channel_lookback_candles": 32,
+        "holding_candles": 32,
+        "minimum_relative_quote_volume": "1.5"
+      },
+      "population_event_count": 225235,
+      "sample_count": 72,
+      "sha256": "a5278f87016e253fa28285b40f7fd0ef61b072cb826fb6eac7b165fda6fd9738",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "file": "B1_DONCHIAN_VOLUME_e9282323a93d.json",
+      "parameter_id": "B1_DONCHIAN_VOLUME:e9282323a93d",
+      "parameters": {
+        "channel_lookback_candles": 32,
+        "holding_candles": 16,
+        "minimum_relative_quote_volume": "2.0"
+      },
+      "population_event_count": 249824,
+      "sample_count": 72,
+      "sha256": "1301f9725139ea18c0de7acef053d376c3518d55ec8fceaee4cb5d71b4cbb808",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "file": "B1_DONCHIAN_VOLUME_a0ebe43e0431.json",
+      "parameter_id": "B1_DONCHIAN_VOLUME:a0ebe43e0431",
+      "parameters": {
+        "channel_lookback_candles": 32,
+        "holding_candles": 32,
+        "minimum_relative_quote_volume": "2.0"
+      },
+      "population_event_count": 195964,
+      "sample_count": 72,
+      "sha256": "cf78907dd7270478c687c63f1391d5c6069087f6d0b0166c9d46d2f4279a38da",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "file": "B1_DONCHIAN_VOLUME_6984b2aca695.json",
+      "parameter_id": "B1_DONCHIAN_VOLUME:6984b2aca695",
+      "parameters": {
+        "channel_lookback_candles": 96,
+        "holding_candles": 16,
+        "minimum_relative_quote_volume": "1.5"
+      },
+      "population_event_count": 177580,
+      "sample_count": 72,
+      "sha256": "43809f766912a51d8065c948dd0b5bf2050922f713bc857976876e58aa59226f",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "file": "B1_DONCHIAN_VOLUME_b6b0f94b2d46.json",
+      "parameter_id": "B1_DONCHIAN_VOLUME:b6b0f94b2d46",
+      "parameters": {
+        "channel_lookback_candles": 96,
+        "holding_candles": 32,
+        "minimum_relative_quote_volume": "1.5"
+      },
+      "population_event_count": 145571,
+      "sample_count": 72,
+      "sha256": "b4f1c9c32b1197817b86ab167860d095ebe11723bc40730648408c5f807fcc7d",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "file": "B1_DONCHIAN_VOLUME_9b5809c7e9a0.json",
+      "parameter_id": "B1_DONCHIAN_VOLUME:9b5809c7e9a0",
+      "parameters": {
+        "channel_lookback_candles": 96,
+        "holding_candles": 16,
+        "minimum_relative_quote_volume": "2.0"
+      },
+      "population_event_count": 159429,
+      "sample_count": 72,
+      "sha256": "3aebf4678582d7fafb7f9973726b8bbe35700e1ad1efb5cd6e6151d5fc6bca89",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "file": "B1_DONCHIAN_VOLUME_2672db054d08.json",
+      "parameter_id": "B1_DONCHIAN_VOLUME:2672db054d08",
+      "parameters": {
+        "channel_lookback_candles": 96,
+        "holding_candles": 32,
+        "minimum_relative_quote_volume": "2.0"
+      },
+      "population_event_count": 132712,
+      "sample_count": 72,
+      "sha256": "da033f1355faa995ebc5b8dae959708518f05f6d9d81fc9a4dc580de8bc88a64",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "file": "S1_DROP_STABILIZATION_df631a837b7e.json",
+      "parameter_id": "S1_DROP_STABILIZATION:df631a837b7e",
+      "parameters": {
+        "holding_candles": 8,
+        "minimum_drop_fraction": "0.05",
+        "return_lookback_candles": 16
+      },
+      "population_event_count": 64331,
+      "sample_count": 72,
+      "sha256": "1ce7451ee792df25b1004769640ac787f262c703cc9052801e0179ab05217e08",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "file": "S1_DROP_STABILIZATION_142f84aeb94b.json",
+      "parameter_id": "S1_DROP_STABILIZATION:142f84aeb94b",
+      "parameters": {
+        "holding_candles": 16,
+        "minimum_drop_fraction": "0.05",
+        "return_lookback_candles": 16
+      },
+      "population_event_count": 50051,
+      "sample_count": 72,
+      "sha256": "0fc3d1b79700cf9d967a1c68ec388c24baa32de6951043cc98e0031d6911695d",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "file": "S1_DROP_STABILIZATION_b5b337dfcf2d.json",
+      "parameter_id": "S1_DROP_STABILIZATION:b5b337dfcf2d",
+      "parameters": {
+        "holding_candles": 8,
+        "minimum_drop_fraction": "0.10",
+        "return_lookback_candles": 16
+      },
+      "population_event_count": 8767,
+      "sample_count": 72,
+      "sha256": "a0525fe94abf31a8114e8e64eaaaa6d2469dc8fc32d7549e502a722523e4aa78",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "file": "S1_DROP_STABILIZATION_32b74c44f05b.json",
+      "parameter_id": "S1_DROP_STABILIZATION:32b74c44f05b",
+      "parameters": {
+        "holding_candles": 16,
+        "minimum_drop_fraction": "0.10",
+        "return_lookback_candles": 16
+      },
+      "population_event_count": 7051,
+      "sample_count": 72,
+      "sha256": "5fe38c9d2149d036202ba564a594658006d1b17d09000d4396659ac2192da0ab",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "file": "S1_DROP_STABILIZATION_05f2dd1fbd0a.json",
+      "parameter_id": "S1_DROP_STABILIZATION:05f2dd1fbd0a",
+      "parameters": {
+        "holding_candles": 8,
+        "minimum_drop_fraction": "0.05",
+        "return_lookback_candles": 32
+      },
+      "population_event_count": 117473,
+      "sample_count": 72,
+      "sha256": "7768ddd9d4516eaee9ba205a918dbc0eeeca5686b5cec68a49c895e948ac3ec0",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "file": "S1_DROP_STABILIZATION_371d2efd1537.json",
+      "parameter_id": "S1_DROP_STABILIZATION:371d2efd1537",
+      "parameters": {
+        "holding_candles": 16,
+        "minimum_drop_fraction": "0.05",
+        "return_lookback_candles": 32
+      },
+      "population_event_count": 83483,
+      "sample_count": 72,
+      "sha256": "b905970153927af6628479567b6c5a5ada7adaabd73b2ace2fde7a01fb74c476",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "file": "S1_DROP_STABILIZATION_f48a63c80597.json",
+      "parameter_id": "S1_DROP_STABILIZATION:f48a63c80597",
+      "parameters": {
+        "holding_candles": 8,
+        "minimum_drop_fraction": "0.10",
+        "return_lookback_candles": 32
+      },
+      "population_event_count": 21656,
+      "sample_count": 72,
+      "sha256": "ea161d579387f17781281919c78d8c7ee01b6705cd7624743b6d226281cf60bd",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "file": "S1_DROP_STABILIZATION_3bcc4091c77b.json",
+      "parameter_id": "S1_DROP_STABILIZATION:3bcc4091c77b",
+      "parameters": {
+        "holding_candles": 16,
+        "minimum_drop_fraction": "0.10",
+        "return_lookback_candles": 32
+      },
+      "population_event_count": 15987,
+      "sample_count": 72,
+      "sha256": "e54fa777fca67bfc4f2ea682c99dbe3bfa4b1b7663ef36f2fc94589842443240",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    }
+  ],
+  "protocol": "ORBIT_R0_SIGNAL_GALLERY_REPORT_V1",
+  "training_report_sha256": "8d5c9681a7877777bcfc93725e7220ba32c747a7d6a536c97fa837c11c4cfec6"
+}

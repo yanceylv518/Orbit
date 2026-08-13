@@ -67,6 +67,18 @@ export function fetchR0Status() {
   return getJson("/api/research/r0");
 }
 
+export function fetchR0Gallery() {
+  return getJson("/api/research/r0/gallery");
+}
+
+export function fetchR0GallerySamples(parameterId, filters = {}) {
+  const query = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== "" && value !== null && value !== undefined) query.set(key, value);
+  });
+  return getJson(`/api/research/r0/gallery/${encodeURIComponent(parameterId)}/samples?${query}`);
+}
+
 export function fetchDataSummary() {
   return getJson("/api/data/summary");
 }
