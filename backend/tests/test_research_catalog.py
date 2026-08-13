@@ -338,8 +338,10 @@ class ResearchCatalogTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn('class="signal-event-summary"', component)
-        self.assertIn('class="signal-event-arrow"', component)
-        self.assertIn("markerArrowPath", component)
+        self.assertIn("signal-trade-marker", component)
+        self.assertIn("tradePointerPath", component)
+        self.assertIn('"买" : "卖"', component)
+        self.assertIn('"买入" : "卖出"', component)
         self.assertIn('class="signal-volume-pane"', component)
         self.assertIn('class="signal-benchmark-pane"', component)
         self.assertIn("candleReturn", component)
