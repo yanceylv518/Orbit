@@ -1,414 +1,189 @@
 <template>
-  <section class="page active">
-    <div class="page-toolbar">
+  <section class="quant-review">
+    <div class="page-toolbar quant-toolbar">
       <div>
-        <h2>{{ activeTab === "execution" ? "实盘执行复盘" : "历史日报" }}</h2>
-        <p>
-          {{ activeTab === "execution"
-            ? "逐笔比较 TB4 原始目标、3x 实盘目标、真实成交与持仓，并核对真实交易成本。"
-            : "查看旧网格与平台运行期间生成的日报和事件日志。" }}
-        </p>
+        <button class="text-link back-link" @click="setActivePage('forward')">← 返回量化运行</button>
+        <h2>量化复盘</h2>
+        <p>只回答两个问题：执行有没有忠实遵循计划，收益和损耗由什么构成。</p>
       </div>
-      <div class="action-row" role="tablist" aria-label="复盘工作区">
-        <button class="tab" :class="{ active: activeTab === 'execution' }" @click="activeTab = 'execution'">
-          执行复盘
-        </button>
-        <button class="tab" :class="{ active: activeTab === 'daily' }" @click="activeTab = 'daily'">
-          历史日报
-        </button>
-      </div>
+      <button v-if="isAdmin" class="button ghost" :disabled="store.liveExecutionReportsBusy" @click="loadReports">
+        {{ store.liveExecutionReportsBusy ? "刷新中" : "刷新复盘" }}
+      </button>
     </div>
 
-    <ReportsPage v-if="activeTab === 'daily'" />
+    <div class="review-answer-strip">
+      <div><span>执行结论</span><strong :class="executionConclusionClass">{{ executionConclusion }}</strong></div>
+      <div><span>收益结论</span><strong>{{ returnConclusion }}</strong></div>
+      <div><span>已复盘调仓</span><strong>{{ reports.length }} 次</strong></div>
+      <div><span>最近观测</span><strong>{{ latestObservation }}</strong></div>
+    </div>
 
-    <template v-else>
-      <div class="metric-grid">
-        <MetricCard
-          label="实盘与模拟累计差距"
-          help="纸面前向"
-          :value="metricPercent(equity.cumulative_deviation_pct)"
-          note="3x 逐仓实盘涨跌幅减去未放大的 TB4 模拟盘涨跌幅；风险倍数不同，不能直接归因为执行误差"
-          :value-class="deviationClass(equity.cumulative_deviation_pct)"
-        />
-        <MetricCard
-          label="最近逐周偏差"
-          :value="metricPercent(equity.latest_weekly_deviation_pct)"
-          note="3x 逐仓实盘收益减去未放大的模拟盘收益，仅用于监控"
-          :value-class="deviationClass(equity.latest_weekly_deviation_pct)"
-        />
-        <MetricCard
-          label="计划可执行比例"
-          :value="equity.structural_tracking_ratio == null ? '-' : percent(Number(equity.structural_tracking_ratio) * 100)"
-          note="扣除最低下单额和数量取整后，实际能表达多少目标仓位"
-        />
-        <MetricCard
-          label="权益观测"
-          :value="equity.points?.length || 0"
-          note="来自只追加的实盘权益账本"
-        />
+    <article class="panel review-main-panel">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow">问题一</span>
+          <h3>每周执行是否忠实遵循计划？</h3>
+          <p class="muted">按执行账本汇总每次调仓；只把已经完整结束的轮次算入复盘。</p>
+        </div>
+        <StatusBadge :text="executionConclusion" :color="executionErrors ? 'red' : (reports.length ? 'green' : 'orange')" />
       </div>
-
-      <article class="panel equity-review-panel">
-        <div class="panel-head">
-          <div>
-            <h3>3x 逐仓实盘与原始 TB4 模拟盘</h3>
-            <p class="muted">起点统一记为 1.0；两者风险倍数不同，曲线差距不能直接视为滑点或执行误差。</p>
-          </div>
-          <StatusBadge :text="enumLabel(equity.status || 'NO_OBSERVATIONS')" :raw="equity.status || 'NO_OBSERVATIONS'" :color="equity.status === 'READY' ? 'green' : 'orange'" />
-        </div>
-        <div v-if="!equity.points?.length" class="empty-state">
-          配置专用实盘账户并在 TB4 清单 READY 后同步，才会开始记录权益对照。
-        </div>
-        <div v-else class="equity-chart">
-          <MultiLineChart
-            :data="equity.points"
-            :keys="['live_normalized', 'paper_normalized']"
-            :colors="['#37d391', '#3987e5']"
-            :width="720"
-            :height="220"
-          />
-          <div class="chart-legend">
-            <span><i class="live-line"></i>3x 逐仓实盘</span>
-            <span><i class="paper-line"></i>原始 TB4 模拟盘</span>
-            <span>最后同步 {{ timeText(equity.points.at(-1)?.synced_at_ms) }}</span>
-          </div>
-        </div>
-      </article>
-
-      <div class="review-grid">
-        <article class="panel">
-          <div class="panel-head">
-            <div>
-              <h3>成交价偏差与费用</h3>
-              <p class="muted">仅汇总执行账本中的已完成轮次；不同手续费资产不做汇率换算。</p>
-            </div>
-          </div>
-          <div class="metric-grid compact-metrics">
-            <MetricCard label="完成的调仓次数" :value="reports.length" note="只统计已经完整结束的执行轮次" />
-            <MetricCard label="尝试订单" :value="costSummary.attempted" note="排除尘埃与低于最低额" />
-            <MetricCard
-              label="成交价平均偏差"
-              help="滑点"
-              :value="costSummary.weightedSlippageBps == null ? '-' : `${fmt(costSummary.weightedSlippageBps, 3)} bps`"
-              note="按每笔实际成交金额加权"
-            />
-            <MetricCard
-              label="失败 / 证据异常"
-              :value="costSummary.errorCount"
-              note="失败、部分成交或取证异常"
-              :value-class="costSummary.errorCount ? 'negative' : ''"
-            />
-          </div>
-          <div class="fee-list">
-            <div v-for="item in costSummary.fees" :key="item.asset">
-              <span>{{ item.asset }}</span><strong class="mono">{{ fmt(item.amount, 8) }}</strong>
-            </div>
-            <p v-if="!costSummary.fees.length" class="muted">尚无可按资产汇总的手续费记录。</p>
-            <p v-if="costSummary.mixedFeeRows" class="muted">
-              {{ costSummary.mixedFeeRows }} 行返回多个手续费资产，保留在逐单明细中，未混加为单一总额。
-            </p>
-          </div>
-        </article>
-
-        <article class="panel checkpoint-panel">
-          <div class="panel-head">
-            <div>
-            <h3>每三个月是否可以考虑加仓？</h3>
-              <p class="muted">只允许在日历检查点评估；短期盈利不会提前授权加仓。</p>
-            </div>
-            <StatusBadge :text="checkpoint.badge" :color="checkpoint.due ? 'orange' : 'blue'" />
-          </div>
-          <dl class="checkpoint-dates">
-            <div><dt>实盘观测起点</dt><dd>{{ timeText(checkpoint.startMs) }}</dd></div>
-            <div><dt>下次检查</dt><dd>{{ timeText(checkpoint.nextMs) }}</dd></div>
-          </dl>
-          <div class="condition-list">
-            <div v-for="condition in checkpoint.conditions" :key="condition.label" class="condition-item">
-              <StatusBadge :text="condition.state" :color="condition.color" />
-              <div><strong>{{ condition.label }}</strong><p class="muted">{{ condition.note }}</p></div>
-            </div>
-          </div>
-          <p class="protocol-note">
-            所有条件同时满足时，每次最多增至当前规模的 1.5 倍；无法解释的系统性偏离必须人工书面归因，
-            页面不会自动判定通过。
-          </p>
-        </article>
+      <div v-if="!isAdmin" class="empty-state">执行报告含账户成交证据，仅管理员可查看。</div>
+      <div v-else-if="store.liveExecutionReportsError" class="service-alert">{{ store.liveExecutionReportsError }}</div>
+      <div v-else-if="!reports.length" class="empty-state">尚无完整调仓记录，暂时不能评价执行忠实度。</div>
+      <div v-else class="table-wrap">
+        <table>
+          <thead><tr><th>调仓周</th><th>执行结果</th><th>按计划完成</th><th>失败或异常</th><th>成交价偏差</th><th>结论</th></tr></thead>
+          <tbody>
+            <tr v-for="row in fidelityRows" :key="row.key">
+              <td>{{ row.week }}</td>
+              <td><StatusBadge :text="enumLabel(row.status)" :raw="row.status" :color="row.errors ? 'red' : 'green'" /></td>
+              <td>{{ row.matched }}/{{ row.attempted }}</td>
+              <td :class="row.errors ? 'negative' : ''">{{ row.errors }}</td>
+              <td>{{ row.slippage }}</td>
+              <td><strong :class="row.errors ? 'negative' : 'positive'">{{ row.errors ? "需要解释" : "忠实执行" }}</strong></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+      <details v-if="selectedReport" class="audit-details review-audit">
+        <summary>查看最近一次调仓的逐市场审计记录</summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>市场</th><th>执行结果</th><th>计划数量</th><th>实际成交</th><th>成交均价</th><th>手续费</th></tr></thead>
+            <tbody>
+              <tr v-for="row in selectedReport.rows || []" :key="row.symbol">
+                <td><strong>{{ row.symbol }}</strong></td>
+                <td>{{ enumLabel(row.status) }}</td>
+                <td>{{ quantityText(row.target_quantity) }}</td>
+                <td>{{ quantityText(row.executed_quantity) }}</td>
+                <td>{{ moneyText(row.average_price) }}</td>
+                <td>{{ feeText(row) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </article>
 
-      <article class="panel report-history-panel">
-        <div class="panel-head">
-          <div>
-              <h3>每次调仓执行得对不对？</h3>
-            <p class="muted">逐笔展示原始策略目标、3x 执行目标与成交后实际持仓；只读，不改变账本或策略。</p>
-          </div>
-          <button v-if="isAdmin" class="button ghost small" :disabled="store.liveExecutionReportsBusy" @click="loadReports">
-            {{ store.liveExecutionReportsBusy ? "刷新中" : "刷新报告" }}
-          </button>
+    <article class="panel review-main-panel">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow">问题二</span>
+          <h3>收益和损耗由什么构成？</h3>
+          <p class="muted">只展示账本能够直接支持的项目；策略收益、费用和成交价影响不会混成一个猜测值。</p>
         </div>
-        <div v-if="!isAdmin" class="empty-state">执行报告含全账户成交证据，仅管理员可查看。</div>
-        <div v-else-if="store.liveExecutionReportsError" class="service-alert">{{ store.liveExecutionReportsError }}</div>
-        <div v-else-if="!reports.length" class="empty-state">尚无已完成的自动执行轮次。</div>
-        <div v-else class="report-history-layout">
-          <div class="table-wrap report-list">
-            <table>
-              <thead><tr><th>再平衡时间</th><th>结果</th><th>成功</th><th>失败</th></tr></thead>
-              <tbody>
-                <tr
-                  v-for="report in reports"
-                  :key="reportKey(report)"
-                  :class="{ selected: reportKey(report) === reportKey(selectedReport) }"
-                  @click="selectedReportKey = reportKey(report)"
-                >
-                  <td>{{ timeText(report.rebalance_time_ms) }}</td>
-                  <td><StatusBadge :text="enumLabel(report.status)" :raw="report.status" :color="report.status === 'COMPLETED' ? 'green' : 'red'" /></td>
-                  <td>{{ report.matched_count || 0 }}/{{ report.attempted_count || 0 }}</td>
-                  <td :class="Number(report.failed_count || 0) ? 'negative' : ''">{{ report.failed_count || 0 }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="table-wrap report-detail">
-            <table>
-              <thead>
-                <tr><th>市场</th><th>结果</th><th>TB4 原始目标</th><th>3x 执行目标</th><th>成交后持仓</th><th>成交量</th><th>成交均价</th><th>成交价偏差 <HelpTip term="滑点" /></th><th>手续费</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in selectedReport?.rows || []" :key="row.symbol">
-                  <td><strong>{{ row.symbol }}</strong></td>
-                  <td><StatusBadge :text="rowStatusText(row.status)" :raw="row.status" :color="rowStatusColor(row.status)" /></td>
-                  <td class="mono">{{ fmt(row.strategy_target_quantity, 8) }}</td>
-                  <td class="mono">{{ fmt(row.target_quantity, 8) }}</td>
-                  <td class="mono">{{ quantityOrDash(reconciledQuantity(row.symbol)) }}</td>
-                  <td class="mono">{{ fmt(row.executed_quantity, 8) }}</td>
-                  <td class="mono">{{ fmt(row.average_price, 6) }}</td>
-                  <td class="mono">{{ row.slippage_bps == null ? "-" : `${fmt(row.slippage_bps, 3)} bps` }}</td>
-                  <td class="mono">{{ fmt(row.fee, 8) }} {{ row.fee_assets?.join("/") || "-" }}</td>
-                </tr>
-                <tr v-if="!selectedReport?.rows?.length"><td colspan="9" class="muted">该轮没有逐单记录。</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </article>
-    </template>
+        <StatusBadge :text="equity.status === 'READY' ? '已有观测' : '等待数据'" :color="equity.status === 'READY' ? 'blue' : 'orange'" />
+      </div>
+      <div class="table-wrap">
+        <table class="return-composition-table">
+          <thead><tr><th>组成</th><th>当前记录</th><th>这代表什么</th><th>数据说明</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>策略与实盘累计差距</strong></td>
+              <td :class="deviationClass(equity.cumulative_deviation_pct)">{{ metricPercent(equity.cumulative_deviation_pct) }}</td>
+              <td>实盘归一化收益减去未放大的模拟收益</td>
+              <td>两者风险倍数不同，不能全部归因为执行损耗</td>
+            </tr>
+            <tr>
+              <td><strong>最近一周差距</strong></td>
+              <td :class="deviationClass(equity.latest_weekly_deviation_pct)">{{ metricPercent(equity.latest_weekly_deviation_pct) }}</td>
+              <td>最近自然周实盘与模拟收益之差</td>
+              <td>{{ latestWeekLabel }}</td>
+            </tr>
+            <tr>
+              <td><strong>手续费</strong></td>
+              <td>{{ feeSummary }}</td>
+              <td>交易所逐笔返回的真实手续费</td>
+              <td>不同资产分别保留，不做汇率换算</td>
+            </tr>
+            <tr>
+              <td><strong>成交价影响</strong></td>
+              <td>{{ slippageSummary }}</td>
+              <td>实际成交价相对下单参考价的偏差</td>
+              <td>按真实成交金额加权，仅使用有成交证据的订单</td>
+            </tr>
+            <tr>
+              <td><strong>未解释部分</strong></td>
+              <td>暂无独立读数</td>
+              <td>资金费、价格时点和其他差异的剩余影响</td>
+              <td>当前读模型不能可靠拆分，因此不在前端估算</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
-import MetricCard from "../components/MetricCard.vue";
-import HelpTip from "../components/HelpTip.vue";
-import MultiLineChart from "../components/MultiLineChart.vue";
+import { computed, onMounted } from "vue";
 import StatusBadge from "../components/StatusBadge.vue";
-import { fmt, percent } from "../core/format.js";
+import { fmt } from "../core/format.js";
 import { enumLabel } from "../domain/labels.js";
-import ReportsPage from "./ReportsPage.vue";
-import {
-  isAdmin,
-  isAuthenticated,
-  loadLiveExecutionReports,
-  store,
-} from "../stores/appStore.js";
+import { isAdmin, loadLiveExecutionReports, setActivePage, store } from "../stores/appStore.js";
 
-const activeTab = ref("execution");
-const selectedReportKey = ref("");
-const equity = computed(() => store.state?.live_reconciliation?.equity || {
-  status: "NO_OBSERVATIONS",
-  points: [],
-  weekly_points: [],
-});
-const liveExecution = computed(() => store.state?.live_execution || {});
 const reports = computed(() => store.liveExecutionReports || []);
-const selectedReport = computed(() => (
-  reports.value.find((report) => reportKey(report) === selectedReportKey.value) || reports.value[0] || null
-));
-
-function reportKey(report) {
-  return report ? `${report.execution_epoch || ""}:${report.rebalance_time_ms || 0}` : "";
-}
-
-function reconciledQuantity(symbol) {
-  const rows = selectedReport.value?.position_reconciliation?.rows || [];
-  return rows.find((row) => row.symbol === symbol)?.actual_quantity ?? null;
-}
-
-function quantityOrDash(value) {
-  return value === null || value === undefined ? "-" : fmt(value, 8);
-}
-
-watch(reports, (items) => {
-  if (!items.some((report) => reportKey(report) === selectedReportKey.value)) {
-    selectedReportKey.value = reportKey(items[0]);
-  }
-}, { immediate: true });
-
-async function loadReports() {
-  if (isAdmin.value) await loadLiveExecutionReports(100);
-}
-
-onMounted(loadReports);
-watch(isAuthenticated, (authenticated) => {
-  if (authenticated) loadReports();
+const equity = computed(() => store.state?.live_reconciliation?.equity || { status: "NO_OBSERVATIONS", weekly_points: [] });
+const selectedReport = computed(() => reports.value[0] || null);
+const executionErrors = computed(() => reports.value.reduce((sum, report) => sum + Number(report.failed_count || 0), 0));
+const executionConclusion = computed(() => !reports.value.length ? "等待完整调仓" : (executionErrors.value ? `${executionErrors.value} 项需要解释` : "执行符合计划"));
+const executionConclusionClass = computed(() => executionErrors.value ? "negative" : "");
+const returnConclusion = computed(() => equity.value.latest_weekly_deviation_pct == null ? "暂无足够观测" : `最近一周差距 ${metricPercent(equity.value.latest_weekly_deviation_pct)}`);
+const latestObservation = computed(() => {
+  const row = equity.value.weekly_points?.at(-1);
+  return row ? `${row.iso_year} 年第 ${row.iso_week} 周` : "暂无记录";
 });
-
-const costSummary = computed(() => {
-  let attempted = 0;
-  let errorCount = 0;
-  let weightedSlip = 0;
+const latestWeekLabel = computed(() => {
+  const row = equity.value.weekly_points?.at(-1);
+  return row ? `${row.iso_year} 年第 ${row.iso_week} 周的最后一次同步` : "尚无周度权益观测";
+});
+const fidelityRows = computed(() => reports.value.map((report, index) => {
+  const rows = report.rows || [];
+  let weighted = 0;
   let notional = 0;
-  let mixedFeeRows = 0;
-  const fees = new Map();
-  for (const report of reports.value) {
-    attempted += Number(report.attempted_count || 0);
-    errorCount += Number(report.failed_count || 0) + Number(report.evidence_error_count || 0);
-    for (const row of report.rows || []) {
-      const quantity = Math.abs(Number(row.executed_quantity || 0));
-      const price = Number(row.average_price || 0);
-      const slip = Number(row.slippage_bps);
-      const rowNotional = quantity * price;
-      if (rowNotional > 0 && Number.isFinite(slip)) {
-        weightedSlip += rowNotional * slip;
-        notional += rowNotional;
-      }
-      const assets = row.fee_assets || [];
-      if (assets.length === 1) {
-        fees.set(assets[0], (fees.get(assets[0]) || 0) + Number(row.fee || 0));
-      } else if (assets.length > 1) {
-        mixedFeeRows += 1;
-      }
-    }
+  for (const row of rows) {
+    const amount = Math.abs(Number(row.executed_quantity || 0) * Number(row.average_price || 0));
+    const slippage = Number(row.slippage_bps);
+    if (amount && Number.isFinite(slippage)) { weighted += amount * slippage; notional += amount; }
   }
   return {
-    attempted,
-    errorCount,
-    weightedSlippageBps: notional ? weightedSlip / notional : null,
-    fees: [...fees.entries()].map(([asset, amount]) => ({ asset, amount })),
-    mixedFeeRows,
+    key: `${report.rebalance_time_ms || index}`,
+    week: weekText(report.rebalance_time_ms), status: report.status,
+    matched: Number(report.matched_count || 0), attempted: Number(report.attempted_count || 0),
+    errors: Number(report.failed_count || 0), slippage: notional ? `${fmt(weighted / notional, 3)} bps` : "暂无成交记录",
   };
-});
-
-function addCalendarMonths(timestamp, months) {
-  const source = new Date(timestamp);
-  const target = new Date(Date.UTC(
-    source.getUTCFullYear(),
-    source.getUTCMonth() + months,
-    1,
-    source.getUTCHours(),
-    source.getUTCMinutes(),
-    source.getUTCSeconds(),
-    source.getUTCMilliseconds(),
-  ));
-  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
-  target.setUTCDate(Math.min(source.getUTCDate(), lastDay));
-  return target.getTime();
-}
-
-const checkpoint = computed(() => {
-  const startMs = Number(equity.value.points?.[0]?.synced_at_ms || 0);
-  if (!startMs) {
-    return {
-      startMs: null,
-      nextMs: null,
-      due: false,
-      badge: "等待首个观测点",
-      conditions: [
-        { label: "满 3 个日历月", state: "未开始", color: "orange", note: "权益账本尚无实盘起点。" },
-        { label: "未触发 30% 停止线", state: "待数据", color: "orange", note: "需要实盘与模拟盘回撤水位。" },
-        { label: "偏差已完全归因", state: "人工复核", color: "blue", note: "必须以滑点、成交时点和结构性不可执行逐项解释。" },
-      ],
-    };
+}));
+const feeItems = computed(() => {
+  const totals = new Map();
+  for (const report of reports.value) for (const row of report.rows || []) {
+    const assets = row.fee_assets || [];
+    if (assets.length === 1) totals.set(assets[0], (totals.get(assets[0]) || 0) + Number(row.fee || 0));
   }
-  const now = Date.now();
-  let nextMs = addCalendarMonths(startMs, 3);
-  while (nextMs <= now) nextMs = addCalendarMonths(nextMs, 3);
-  const previousMs = addCalendarMonths(nextMs, -3);
-  const due = now >= previousMs && previousMs > startMs;
-  const threshold = Number(equity.value.stop_threshold_pct ?? 30);
-  const liveDd = equity.value.live_drawdown_pct;
-  const paperDd = equity.value.paper_drawdown_pct;
-  const drawdownSafe = liveDd != null && paperDd != null
-    && Number(liveDd) < threshold && Number(paperDd) < threshold;
-  const executionStopped = ["PROTOCOL_STOP", "PROTOCOL_VIOLATION", "EMERGENCY_STOPPED", "DATA_INTEGRITY_ERROR"]
-    .includes(liveExecution.value.status);
-  return {
-    startMs,
-    nextMs,
-    due,
-    badge: `${Math.max(0, Math.ceil((nextMs - now) / 86400000))} 天后检查`,
-    conditions: [
-      {
-        label: "到达日历检查点",
-        state: due ? "可评估" : "未到期",
-        color: due ? "green" : "blue",
-        note: `下一次检查时间 ${timeText(nextMs)}。`,
-      },
-      {
-        label: "当前未处于停止状态",
-        state: drawdownSafe && !executionStopped ? "未停止" : "不满足",
-        color: drawdownSafe && !executionStopped ? "green" : "red",
-        note: `实盘回撤 ${metricPercent(liveDd)}，模拟盘回撤 ${metricPercent(paperDd)}，停机线 ${percent(threshold)}。`,
-      },
-      {
-        label: "偏差可完全归因",
-        state: "人工复核",
-        color: "blue",
-        note: "系统没有足够证据自动判断“无法解释的系统性偏离”。",
-      },
-    ],
-  };
+  return [...totals.entries()];
+});
+const feeSummary = computed(() => feeItems.value.length ? feeItems.value.map(([asset, amount]) => `${fmt(amount, 8)} ${asset}`).join("；") : "暂无手续费记录");
+const slippageSummary = computed(() => {
+  const rows = fidelityRows.value.filter((row) => !row.slippage.startsWith("暂无"));
+  if (!rows.length) return "暂无成交记录";
+  let weighted = 0; let notional = 0;
+  for (const report of reports.value) for (const row of report.rows || []) {
+    const amount = Math.abs(Number(row.executed_quantity || 0) * Number(row.average_price || 0));
+    const slip = Number(row.slippage_bps);
+    if (amount && Number.isFinite(slip)) { weighted += amount * slip; notional += amount; }
+  }
+  return notional ? `${fmt(weighted / notional, 3)} bps` : "暂无成交记录";
 });
 
-function metricPercent(value) {
-  return value == null ? "-" : percent(Number(value));
+function loadReports() { return loadLiveExecutionReports(); }
+function metricPercent(value) { return value == null ? "暂无记录" : `${Number(value) >= 0 ? "+" : ""}${fmt(value, 3)}%`; }
+function deviationClass(value) { return value == null ? "" : (Number(value) >= 0 ? "positive" : "negative"); }
+function weekText(value) {
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return "时间未记录";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
-
-function deviationClass(value) {
-  return value != null && Math.abs(Number(value)) > 1 ? "negative" : "";
-}
-
-function timeText(value) {
-  if (value === null || value === undefined || value === "") return "-";
-  const date = new Date(Number(value) || value);
-  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("zh-CN", { hour12: false });
-}
-
-function rowStatusText(value) {
-  return enumLabel(value);
-}
-
-function rowStatusColor(value) {
-  return ["EXECUTED_MATCH", "SKIPPED_DUST", "SKIPPED_BELOW_MIN"].includes(value) ? "green" : "red";
-}
+function quantityText(value) { return value == null ? "-" : fmt(value, 8); }
+function moneyText(value) { return Number(value) ? fmt(value, 4) : "-"; }
+function feeText(row) { return Number(row.fee) ? `${fmt(row.fee, 8)} ${(row.fee_assets || []).join("/")}` : "-"; }
+onMounted(() => { if (isAdmin.value) loadReports(); });
 </script>
-
-<style scoped>
-.equity-review-panel, .review-grid, .report-history-panel { margin-top: 14px; }
-.equity-chart { min-height: 260px; padding-top: 10px; }
-.chart-legend { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; color: var(--muted); }
-.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.chart-legend i { width: 18px; height: 2px; display: inline-block; }
-.live-line { background: #37d391; }
-.paper-line { background: #3987e5; }
-.review-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
-.compact-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.fee-list { margin-top: 14px; display: grid; gap: 8px; }
-.fee-list > div { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 8px; }
-.checkpoint-dates { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 0 0 16px; }
-.checkpoint-dates div { padding: 12px; background: var(--panel-inset); border-radius: 8px; }
-.checkpoint-dates dt { color: var(--muted); font-size: 12px; }
-.checkpoint-dates dd { margin: 5px 0 0; font-weight: 700; }
-.condition-list { display: grid; gap: 12px; }
-.condition-item { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; }
-.condition-item p { margin: 3px 0 0; }
-.protocol-note { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); }
-.report-history-layout { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(560px, 1.4fr); gap: 14px; }
-.report-list tr { cursor: pointer; }
-.report-list tr.selected td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.empty-state { padding: 30px 12px; text-align: center; color: var(--muted); }
-@media (max-width: 1050px) {
-  .review-grid, .report-history-layout { grid-template-columns: 1fr; }
-}
-@media (max-width: 680px) {
-  .compact-metrics, .checkpoint-dates { grid-template-columns: 1fr; }
-}
-</style>

@@ -1834,6 +1834,24 @@ span.help-tip-trigger {
   .research-picker-row code { display: none; }
 }
 
+.quant-review { display: grid; gap: 16px; }
+.review-answer-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line-soft); border-radius: var(--radius-md); background: var(--panel); overflow: hidden; }
+.review-answer-strip > div { min-width: 0; padding: 14px 16px; border-right: 1px solid var(--line-soft); }
+.review-answer-strip > div:last-child { border-right: 0; }
+.review-answer-strip span,
+.review-answer-strip strong { display: block; }
+.review-answer-strip span { color: var(--text-muted); font-size: 12px; }
+.review-answer-strip strong { margin-top: 7px; }
+.review-main-panel { margin: 0; }
+.review-audit { margin-top: 14px; }
+.return-composition-table td:nth-child(2) { font-weight: 700; white-space: nowrap; }
+@media (max-width: 640px) {
+  .review-answer-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-answer-strip > div:nth-child(2) { border-right: 0; }
+  .review-answer-strip > div:nth-child(-n+2) { border-bottom: 1px solid var(--line-soft); }
+  .return-composition-table th:nth-child(3), .return-composition-table td:nth-child(3) { display: none; }
+}
+
 /* 网格子面板挂钩 */
 .inline-editor-form { display: block; }
 .position-panel,
