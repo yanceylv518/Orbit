@@ -135,6 +135,17 @@
     .steps{grid-template-columns:1fr}
     .step:not(:last-child)::after{content:"↓";right:auto;left:14px;top:auto;bottom:-16px}
   }
+  .chart{background:var(--panel2);border:1px solid var(--edge-soft);border-radius:8px}
+  .chart text{fill:var(--faint);font-size:9px;font-family:ui-monospace,monospace}
+  .sigcard{background:var(--panel2);border:1px solid var(--edge-soft);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+  .sigcard.did{border-left:3px solid var(--up)}
+  .sigcard.skip{border-left:3px solid var(--faint)}
+  .sigcard.viol{border-left:3px solid var(--down)}
+  .sighead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .sigbody{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px;align-items:center}
+  .verdict{font-size:.84rem;color:var(--muted);line-height:1.7}
+  .verdict b{color:var(--text)}
+  @media (max-width:760px){.sigbody{grid-template-columns:1fr}}
   @media (prefers-reduced-motion:no-preference){
     .view.active{animation:fade .18s ease}
     @keyframes fade{from{opacity:.4}to{opacity:1}}
@@ -147,13 +158,14 @@
   <div class="top-inner">
     <div class="brand"><span class="ring"></span>ORBIT <small>页面设计样稿 · 假数据 · 供讨论</small></div>
     <nav class="views" id="nav">
-      <button data-v="live" class="active">实盘（一级）</button>
-      <button data-v="inst">实例详情</button>
-      <button data-v="strat">策略详情</button>
       <button data-v="data">数据</button>
+      <button data-v="strat">策略与研究</button>
+      <button data-v="live" class="active">量化·运行</button>
+      <button data-v="inst">量化·实例</button>
+      <button data-v="qrev">量化·复盘</button>
+      <button data-v="desk">信号·信号台</button>
+      <button data-v="rev">信号·复盘</button>
       <button data-v="wizard">启用向导</button>
-      <button data-v="desk">信号台（动量）</button>
-      <button data-v="rev">复盘·三账对比</button>
     </nav>
   </div>
 </header>
@@ -386,6 +398,56 @@
   <div class="tabnote" style="text-align:center"><span class="disc">讨论点⑤：确认语用固定短语,还是要求手输金额数字（如"启动 2000"）？</span></div>
 </section>
 
+<!-- ═══════════ 量化 · 复盘 ═══════════ -->
+<section class="view" id="v-qrev">
+  <div class="pagehead">
+    <span class="eyebrow">量化 / 复盘</span>
+    <h1>它跑得对不对，赚了多少？</h1>
+    <p class="answer ok">✅ 执行无偏差，累计 +38.2 USDT（本金 500）</p>
+    <span class="scope-note">量化的复盘只有两件事：执行是否忠实于计划、收益是多少</span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>累计收益</span><strong class="num long">+38.2 USDT</strong><small>+7.6% · 自 7 月 31 日起</small></div>
+    <div class="kpi"><span>执行忠实度</span><strong class="ok-dot num">100%</strong><small>累计 42 笔计划单,42 笔按计划成交</small></div>
+    <div class="kpi"><span>成本损耗</span><strong class="num">−1.9%</strong><small>滑点 0.6% + 手续费 1.3%</small></div>
+    <div class="kpi"><span>vs 模拟基准</span><strong class="num">+0.4%</strong><small>差异可由滑点与取整解释</small></div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <h3>跑得对不对</h3>
+      <p class="sub">每周一次调仓,逐周核对"计划 vs 实际"</p>
+      <table>
+        <thead><tr><th>调仓周</th><th>计划单</th><th>成交</th><th>平均偏差</th><th>核对</th></tr></thead>
+        <tbody>
+          <tr><td>8 月 11 日</td><td class="num">10</td><td class="num">10</td><td class="num">0.04%</td><td><span class="pill g">一致</span></td></tr>
+          <tr><td>8 月 4 日</td><td class="num">8</td><td class="num">8</td><td class="num">0.05%</td><td><span class="pill g">一致</span></td></tr>
+          <tr><td>7 月 28 日</td><td class="num">12</td><td class="num">12</td><td class="num">0.03%</td><td><span class="pill g">一致</span></td></tr>
+        </tbody>
+      </table>
+      <div class="tabnote">这里只回答"机器有没有照计划做"。为什么这么做,去「策略与研究」;现在什么状态,去「量化·运行」。</div>
+    </div>
+    <div class="panel side">
+      <h3>收益构成</h3>
+      <p class="sub">钱从哪来、被什么吃掉</p>
+      <table>
+        <tbody>
+          <tr><td>价格收益</td><td class="num long">+11.2%</td></tr>
+          <tr><td>资金费</td><td class="num short">−1.7%</td></tr>
+          <tr><td>手续费</td><td class="num short">−1.3%</td></tr>
+          <tr><td>滑点</td><td class="num short">−0.6%</td></tr>
+          <tr><td><b>净收益</b></td><td class="num long"><b>+7.6%</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <span class="on">执行与收益</span><span>权益曲线</span><span>逐周明细</span><span>审计明细</span>
+  </div>
+</section>
+
 <!-- ═══════════ 信号台（动量形态实例详情） ═══════════ -->
 <section class="view" id="v-desk">
   <div class="pagehead">
@@ -411,9 +473,21 @@
             <span style="color:var(--muted);font-size:.85rem">突破 24 小时高点 · 放量 2.3× · 强度排名 #2</span></div>
           <span class="pill o num">有效期 23 分钟</span>
         </div>
-        <div class="num" style="margin:10px 0 8px;font-size:.88rem">
-          参考进场 <strong>10.42</strong> · 建议止损 <strong>9.98</strong>（−4.2%,2×波幅）·
-          1R 10.86 / 2R 11.30 / 3R 11.74
+        <div class="sigbody" style="margin:10px 0">
+          <svg class="chart" viewBox="0 0 300 100" width="100%" height="100" role="img" aria-label="SOL 当前信号图：突破前高,标注进场与止损位">
+            <polyline points="0,72 20,68 40,74 60,66 80,60 100,64 120,58 140,62 160,54 180,58 200,50 220,46 240,52 260,40 280,32 300,28" fill="none" stroke="#3987E5" stroke-width="1.8"/>
+            <line x1="0" y1="44" x2="300" y2="44" stroke="#8FA1BC" stroke-dasharray="4 3" stroke-width=".9"/>
+            <line x1="0" y1="28" x2="300" y2="28" stroke="#19A862" stroke-dasharray="2 2" stroke-width=".8"/>
+            <line x1="0" y1="66" x2="300" y2="66" stroke="#AD3B48" stroke-dasharray="3 3" stroke-width=".9"/>
+            <circle cx="300" cy="28" r="3.5" fill="#19A862"/>
+            <text x="4" y="41">24小时高点</text><text x="4" y="63">建议止损</text><text x="252" y="24">现价·信号</text>
+          </svg>
+          <div class="num" style="font-size:.86rem;line-height:1.9">
+            参考进场 <strong>10.42</strong><br>
+            建议止损 <strong>9.98</strong> <span style="color:var(--faint)">(−4.2%,2×波幅)</span><br>
+            1R <b>10.86</b> · 2R <b>11.30</b> · 3R <b>11.74</b><br>
+            <span style="color:var(--faint)">按 1% 风险 → 建议 2.4 张</span>
+          </div>
         </div>
         <div style="display:flex;gap:10px"><button class="btn">我做了</button><button class="btn ghost">放弃</button></div>
       </div>
@@ -446,56 +520,147 @@
   </div>
 </section>
 
-<!-- ═══════════ 复盘 · 三账对比 ═══════════ -->
+<!-- ═══════════ 信号 · 复盘（图形为主） ═══════════ -->
 <section class="view" id="v-rev">
   <div class="pagehead">
-    <span class="eyebrow">复盘 / 动量形态 v1</span>
-    <h1>你的操作在加分还是减分？</h1>
-    <p class="answer ok">在加分：选择 +1.2%，管理 +1.6%（近 90 天）</p>
-    <span class="scope-note">三本账逐层对比,把"人的价值"拆成两个可测的数字</span>
+    <span class="eyebrow">信号 / 复盘 · 动量形态 v1</span>
+    <h1>我做的和我没做的，分别怎么样了？</h1>
+    <p class="answer ok">本周做了 3 笔（+2.4%），放过 4 笔（若做 +0.3%）</p>
+    <span class="scope-note">每个信号都回到图上看：进场在哪、止损在哪、后来走成什么样</span>
   </div>
 
   <div class="kpis">
-    <div class="kpi"><span>信号模拟账</span><strong class="num">+8.4%</strong><small>全部 47 个信号 · 机械执行</small></div>
-    <div class="kpi"><span>你选的信号(机械)</span><strong class="num">+9.6%</strong><small>你做的 12 个若机械执行 → 选择增益 +1.2%</small></div>
-    <div class="kpi"><span>你的实际</span><strong class="num long">+11.2%</strong><small>实际进出 → 管理增益 +1.6%</small></div>
-    <div class="kpi"><span>计划外交易</span><strong class="bad-dot num">−3.1%</strong><small>2 笔,未配对任何信号</small></div>
+    <div class="kpi"><span>我做了</span><strong class="num long">3 笔 +2.4%</strong><small>2 盈 1 亏 · 平均持有 3.2 小时</small></div>
+    <div class="kpi"><span>我放过</span><strong class="num">4 笔 +0.3%</strong><small>若机械执行的合计结果</small></div>
+    <div class="kpi"><span>选择增益</span><strong class="num long">+1.2%</strong><small>我挑的 vs 全部信号平均</small></div>
+    <div class="kpi"><span>管理增益</span><strong class="num long">+1.6%</strong><small>我的进出 vs 机械进出</small></div>
   </div>
 
-  <div class="cols">
-    <div class="panel">
-      <h3>切片体检（减法的原料）</h3>
-      <p class="sub">同一形态按条件切开看,哪块持续失血一目了然</p>
-      <table>
-        <thead><tr><th>切片</th><th>样本</th><th>均值</th><th>状态</th></tr></thead>
-        <tbody>
-          <tr><td>3日量递增组</td><td class="num">21 笔</td><td class="num long">+0.41%</td><td><span class="pill g">健康</span></td></tr>
-          <tr><td>量走平/递减组</td><td class="num">26 笔</td><td class="num">+0.07%</td><td><span class="pill o">观察</span></td></tr>
-          <tr><td>凌晨时段(0-6时)</td><td class="num">9 笔</td><td class="num short">−0.33%</td><td><span class="pill o">样本不足,continue 观察</span></td></tr>
-          <tr><td>上市&lt;30天新币</td><td class="num">6 笔</td><td class="num short">−0.51%</td><td><span class="pill o">样本不足</span></td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="panel side">
-      <h3>季度减法工作台</h3>
-      <p class="sub">下次评审:10 月 1 日</p>
-      <div style="font-size:.86rem;color:var(--muted)">
-        评审时只允许砍<strong style="color:var(--text)">样本 ≥50 且持续为负</strong>的切片;
-        砍完发布形态 v2,旧版本封存可查。<br><br>
-        <span class="pill b">当前无可砍切片</span>
+  <article class="panel">
+    <h3>我做了的</h3>
+    <p class="sub">蓝线是价格,虚线是进场与止损,阴影是持有区间</p>
+
+    <div class="sigcard did">
+      <div class="sighead">
+        <div><strong class="num">SOL</strong> <span class="pill g">做多</span>
+          <span style="color:var(--muted);font-size:.84rem">8/11 09:15 · 突破24小时高点 + 放量2.3×</span></div>
+        <span class="pill g num">+3.1% · 2.2R</span>
       </div>
-      <div class="tabnote"><span class="disc">讨论点⑧：减法评审的样本门槛 50 笔/刀,你觉得该更严还是更松？</span></div>
+      <div class="sigbody">
+        <svg class="chart" viewBox="0 0 300 100" width="100%" height="100" role="img" aria-label="SOL 做多信号走势：进场后上行,在高位离场">
+          <rect x="100" y="0" width="160" height="100" fill="#3987E5" opacity=".07"/>
+          <polyline points="0,70 20,66 40,72 60,58 80,52 100,55 120,44 140,38 160,42 180,30 200,26 220,20 240,24 260,16 280,12 300,14" fill="none" stroke="#3987E5" stroke-width="1.8"/>
+          <line x1="0" y1="55" x2="300" y2="55" stroke="#8FA1BC" stroke-dasharray="3 3" stroke-width=".8"/>
+          <line x1="0" y1="78" x2="300" y2="78" stroke="#AD3B48" stroke-dasharray="3 3" stroke-width=".8"/>
+          <circle cx="100" cy="55" r="3.5" fill="#19A862"/><circle cx="260" cy="16" r="3.5" fill="#E6EDF7"/>
+          <text x="4" y="52">进场</text><text x="4" y="75">止损</text><text x="238" y="10">我离场</text>
+        </svg>
+        <div class="verdict">
+          <b>做对了。</b>信号后一路走高,我在 2.2 倍风险处离场。<br>
+          机械规则会持有到时间退出,结果 <b>+3.8%</b>——<span style="color:var(--warn)">我提前下车,少赚 0.7%</span>。<br>
+          <span style="color:var(--faint)">最大浮盈 4.1% / 最大浮亏 0.4%</span>
+        </div>
+      </div>
     </div>
-  </div>
+
+    <div class="sigcard did">
+      <div class="sighead">
+        <div><strong class="num">AVAX</strong> <span class="pill g">做多</span>
+          <span style="color:var(--muted);font-size:.84rem">8/12 11:05 · 突破8小时高点 + 放量1.7×</span></div>
+        <span class="pill r num">−1.0% · −1.0R</span>
+      </div>
+      <div class="sigbody">
+        <svg class="chart" viewBox="0 0 300 100" width="100%" height="100" role="img" aria-label="AVAX 做多信号走势：进场后下行触及止损">
+          <rect x="100" y="0" width="80" height="100" fill="#3987E5" opacity=".07"/>
+          <polyline points="0,50 20,46 40,52 60,44 80,40 100,42 120,50 140,58 160,66 180,74 200,80 220,76 240,82 260,86 280,84 300,88" fill="none" stroke="#3987E5" stroke-width="1.8"/>
+          <line x1="0" y1="42" x2="300" y2="42" stroke="#8FA1BC" stroke-dasharray="3 3" stroke-width=".8"/>
+          <line x1="0" y1="74" x2="300" y2="74" stroke="#AD3B48" stroke-dasharray="3 3" stroke-width=".8"/>
+          <circle cx="100" cy="42" r="3.5" fill="#19A862"/><circle cx="180" cy="74" r="3.5" fill="#AD3B48"/>
+          <text x="4" y="39">进场</text><text x="4" y="71">止损</text><text x="186" y="70">止损出局</text>
+        </svg>
+        <div class="verdict">
+          <b>亏得干净。</b>止损按计划执行,亏损 1 个风险单位,没有加仓、没有扛单。<br>
+          <span style="color:var(--faint)">这是允许发生的亏损——同一形态上的正常成本</span><br>
+          <span style="color:var(--faint)">最大浮盈 0.3% / 最大浮亏 1.0%</span>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel" style="margin-top:14px">
+    <h3>我没做的</h3>
+    <p class="sub">系统照样记了模拟单——放过的机会到底是躲过一劫还是错失一段</p>
+
+    <div class="sigcard skip">
+      <div class="sighead">
+        <div><strong class="num">LINK</strong> <span class="pill g">做多</span>
+          <span style="color:var(--muted);font-size:.84rem">8/12 03:30 · 放弃原因：没盯盘</span></div>
+        <span class="pill o num">错过 +4.6%</span>
+      </div>
+      <div class="sigbody">
+        <svg class="chart" viewBox="0 0 300 100" width="100%" height="100" role="img" aria-label="LINK 放弃的做多信号：信号后大幅上行">
+          <polyline points="0,80 20,76 40,82 60,70 80,64 100,66 120,52 140,44 160,40 180,30 200,22 220,18 240,14 260,10 280,12 300,8" fill="none" stroke="#3987E5" stroke-width="1.8"/>
+          <line x1="0" y1="66" x2="300" y2="66" stroke="#8FA1BC" stroke-dasharray="3 3" stroke-width=".8"/>
+          <circle cx="100" cy="66" r="3.5" fill="#C9862B"/>
+          <text x="4" y="63">信号价</text><text x="104" y="80">我放弃了</text>
+        </svg>
+        <div class="verdict">
+          <b>这是错过的肉。</b>凌晨 3:30 的信号,机械执行会拿到 <b>+4.6%</b>。<br>
+          <span style="color:var(--warn)">近 90 天"没盯盘"放弃了 9 个信号,合计错过 +6.8%——</span>
+          <span style="color:var(--faint)">这类信号是不是该考虑挂条件单或自动化？</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sigcard skip">
+      <div class="sighead">
+        <div><strong class="num">DOGE</strong> <span class="pill g">做多</span>
+          <span style="color:var(--muted);font-size:.84rem">8/10 14:45 · 放弃原因：大环境不好</span></div>
+        <span class="pill g num">躲过 −2.2%</span>
+      </div>
+      <div class="sigbody">
+        <svg class="chart" viewBox="0 0 300 100" width="100%" height="100" role="img" aria-label="DOGE 放弃的做多信号：信号后下行">
+          <polyline points="0,40 20,44 40,38 60,46 80,50 100,48 120,58 140,68 160,74 180,80 200,86 220,84 240,88 260,90 280,86 300,92" fill="none" stroke="#3987E5" stroke-width="1.8"/>
+          <line x1="0" y1="48" x2="300" y2="48" stroke="#8FA1BC" stroke-dasharray="3 3" stroke-width=".8"/>
+          <circle cx="100" cy="48" r="3.5" fill="#C9862B"/>
+          <text x="4" y="45">信号价</text><text x="104" y="62">我放弃了</text>
+        </svg>
+        <div class="verdict">
+          <b>躲对了。</b>机械执行会止损,亏 2.2%。<br>
+          <span style="color:var(--faint)">"大环境不好"这个理由近 90 天用了 6 次,其中 5 次事后证明是对的——
+          这可能该升级成正式的过滤条件</span>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel" style="margin-top:14px">
+    <h3>计划外交易 <span class="pill r">纪律镜子</span></h3>
+    <p class="sub">没有对应信号的成交——头铁单、复仇单会在这里现形</p>
+    <div class="sigcard viol">
+      <div class="sighead">
+        <div><strong class="num">AVAX</strong> <span class="pill r">做多 · 无信号</span>
+          <span style="color:var(--muted);font-size:.84rem">8/12 11:52 · 上一笔 AVAX 做多止损后 47 分钟</span></div>
+        <span class="pill r num">−1.9%</span>
+      </div>
+      <div class="verdict" style="margin-top:6px">
+        <b>同标的同方向复仇单。</b>当时系统未发出信号,冷却期未过。<br>
+        <span style="color:var(--faint)">近 90 天 2 笔计划外交易合计 −3.1%——若上线冷却期硬拦截,这两笔不会发生</span>
+      </div>
+    </div>
+  </article>
 
   <div class="tabs">
-    <span class="on">三账对比</span><span>浮盈浮亏分布</span><span>违规记录</span><span>版本史</span><span>审计明细</span>
+    <span class="on">做了/没做</span><span>切片体检</span><span>浮盈浮亏分布</span><span>季度减法</span><span>审计明细</span>
   </div>
+  <div class="tabnote">切片体检（哪个时段/哪类币持续失血）与季度减法工作台移入 Tab,复盘首屏只回答"做了的和没做的怎么样了"
+    <span class="disc">讨论点⑨：放弃原因是否强制选（"没盯盘"这类标签正是上面那条洞察的来源）</span></div>
 </section>
 
 <footer class="note">
-  样稿说明：全部数据为演示假数据；布局遵循已冻结的设计图纸（首屏一句答案 / 一屏五问 / 审计信息默认折叠 / 异常驱动展开）。
-  五个「讨论点」是需要你拍板的地方——直接回复编号即可。
+  样稿说明：全部数据为演示假数据。<b>结构按「两条业务线 + 三样共用」重切</b>——共用:数据、策略与研究;
+  业务线一「量化」(运行 / 复盘:跑得对不对、赚多少);业务线二「信号」(信号台 / 复盘:信号图形、做了的、没做的)。
+  两条线的复盘刻意长得不一样,因为要回答的问题本来就不同。页面里的「讨论点」标签是待你拍板处,回编号即可。
 </footer>
 </div>
 
