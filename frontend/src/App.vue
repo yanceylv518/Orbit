@@ -68,7 +68,7 @@
         </div>
         <div class="toolbar">
           <button class="button ghost" @click="glossaryOpen = true">术语帮助</button>
-          <button class="risk-pill" :class="riskStatusClass" @click="setActivePage('risk')" title="点击进入风控中心">
+          <button class="risk-pill" :class="riskStatusClass" @click="setActivePage('forward/live-small')" title="查看量化实例的风险与停止状态">
             风控 {{ riskStatusText }}
           </button>
           <!-- 只读模式：第一阶段主动作；模拟模式：dry_run 控件 -->

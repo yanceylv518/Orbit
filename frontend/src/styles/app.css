@@ -1845,11 +1845,39 @@ span.help-tip-trigger {
 .review-main-panel { margin: 0; }
 .review-audit { margin-top: 14px; }
 .return-composition-table td:nth-child(2) { font-weight: 700; white-space: nowrap; }
+.strategy-hub-page,
+.strategy-detail-page { display: grid; gap: 16px; }
+.strategy-hub-answer { padding: 8px 0 2px; }
+.strategy-hub-answer h2 { max-width: 900px; margin: 5px 0 8px; font-size: clamp(22px, 2.2vw, 32px); }
+.strategy-hub-answer p { max-width: 850px; margin: 0; color: var(--text-muted); line-height: 1.6; }
+.strategy-hub-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.strategy-hub-card { display: flex; align-items: stretch; flex-direction: column; gap: 18px; margin: 0; }
+.strategy-hub-card h3 { margin: 4px 0 8px; font-size: 22px; }
+.strategy-hub-card p { color: var(--text-muted); line-height: 1.6; }
+.strategy-hub-card .button { align-self: flex-start; margin-top: auto; }
+.mini-process { display: grid; gap: 8px; margin: 0; padding-left: 22px; color: var(--text-muted); }
+.strategy-lifecycle-card { margin: 0; }
+.five-step-flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.five-step-flow li { position: relative; min-width: 0; padding: 14px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+.five-step-flow li > span { display: grid; place-items: center; width: 25px; height: 25px; margin-bottom: 10px; border-radius: 50%; color: var(--accent); background: rgba(57,135,229,.14); }
+.five-step-flow b,
+.five-step-flow small { display: block; }
+.five-step-flow small { margin-top: 6px; color: var(--text-muted); line-height: 1.45; }
+.strategy-process-panel { margin: 0; }
+.strategy-five-answers { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.strategy-five-answers li { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 18px; padding: 17px 0; border-top: 1px solid var(--line-soft); }
+.strategy-five-answers li:first-child { border-top: 0; }
+.strategy-five-answers li > span { color: var(--accent); font-weight: 700; }
+.strategy-five-answers h4 { margin: 0 0 5px; font-size: 16px; }
+.strategy-five-answers p { margin: 0; color: var(--text-muted); line-height: 1.6; }
 @media (max-width: 640px) {
   .review-answer-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .review-answer-strip > div:nth-child(2) { border-right: 0; }
   .review-answer-strip > div:nth-child(-n+2) { border-bottom: 1px solid var(--line-soft); }
   .return-composition-table th:nth-child(3), .return-composition-table td:nth-child(3) { display: none; }
+  .strategy-hub-grid,
+  .five-step-flow { grid-template-columns: 1fr; }
+  .strategy-five-answers li { grid-template-columns: 62px minmax(0, 1fr); gap: 10px; }
 }
 
 /* 网格子面板挂钩 */
