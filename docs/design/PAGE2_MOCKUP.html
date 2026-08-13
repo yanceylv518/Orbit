@@ -105,6 +105,21 @@
   details.audit summary{padding:10px 16px;color:var(--faint);cursor:pointer;font-size:.84rem}
   details.audit div{padding:4px 16px 14px;color:var(--muted);font-size:.82rem}
 
+  .gal-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 14px}
+  .gal-controls .seg{display:flex;border:1px solid var(--edge);border-radius:8px;overflow:hidden}
+  .gal-controls .seg button{background:transparent;border:none;color:var(--muted);padding:6px 14px;
+    cursor:pointer;font-size:.84rem;font-family:inherit}
+  .gal-controls .seg button.on{background:var(--chip);color:var(--text)}
+  .gal-controls .lbl{color:var(--faint);font-size:.8rem;margin-left:6px}
+  .wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  .thumb{background:var(--panel2);border:1px solid var(--edge-soft);border-radius:8px;padding:8px;
+    cursor:pointer;border-left-width:3px}
+  .thumb.win{border-left-color:var(--up)} .thumb.loss{border-left-color:var(--down)}
+  .thumb:hover{border-color:var(--blue)}
+  .thumb .tmeta{display:flex;justify-content:space-between;font-size:.76rem;margin-bottom:4px}
+  .thumb .tmeta b{font-family:ui-monospace,monospace}
+  .thumb .r-win{color:var(--up)} .thumb .r-loss{color:#E08A96}
+  .thumb .tags{color:var(--faint);font-size:.7rem;margin-top:4px}
   .overlay{position:fixed;inset:0;background:rgba(5,10,20,.72);backdrop-filter:blur(3px);
     display:none;align-items:center;justify-content:center;z-index:30;padding:20px}
   .overlay.open{display:flex}
@@ -167,6 +182,7 @@
     <nav class="views" id="nav">
       <button data-v="data">数据</button>
       <button data-v="strat">策略与研究</button>
+      <button data-v="gal">研究·信号图库</button>
       <button data-v="live" class="active">量化·运行</button>
       <button data-v="inst">量化·实例</button>
       <button data-v="qrev">量化·复盘</button>
@@ -399,6 +415,75 @@
     <div class="drawer actions"><button class="btn ghost" id="cancel-wiz">取消</button><button class="btn">确认启动</button></div>
   </div>
 </div>
+
+<!-- ═══════════ 研究 · 信号图库 ═══════════ -->
+<section class="view" id="v-gal">
+  <div class="pagehead">
+    <span class="eyebrow">策略与研究 / 结果 · 图库</span>
+    <h1>赚钱的信号和亏钱的信号，长得不一样吗？</h1>
+    <p class="answer" style="color:var(--text)">把 312 个信号还原成图，用眼睛找规律</p>
+    <span class="scope-note">量价关系 · 突破放量 v1 · 参数组合 24小时通道 / 放量 2.0×</span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>信号总数</span><strong class="num">312 个</strong><small>2021-01 至 2026-07</small></div>
+    <div class="kpi"><span>胜率</span><strong class="num">38%</strong><small>119 赚 / 193 亏</small></div>
+    <div class="kpi"><span>盈亏比</span><strong class="num long">2.4 : 1</strong><small>平均赚 3.1% / 平均亏 1.3%</small></div>
+    <div class="kpi"><span>成本后均值</span><strong class="num long">+0.31%</strong><small>每笔 · 已扣手续费与滑点</small></div>
+  </div>
+
+  <article class="panel">
+    <h3>信号图墙 <span class="disc">讨论点⑩：缩略图上还想看到什么？（成交量柱 / 均线 / 大盘同期走势）</span></h3>
+    <p class="sub">蓝线是价格，圆点是信号触发点，虚线是止损位；左边缘颜色表示这笔最终赚还是亏</p>
+
+    <div class="gal-controls">
+      <div class="seg" id="gal-filter">
+        <button class="on" data-f="all">全部</button>
+        <button data-f="win">只看赚的</button>
+        <button data-f="loss">只看亏的</button>
+      </div>
+      <div class="seg" id="gal-sort">
+        <button class="on" data-s="ret">按收益排序</button>
+        <button data-s="time">按时间排序</button>
+      </div>
+      <span class="lbl" id="gal-count">显示 12 / 312</span>
+    </div>
+
+    <div class="wall" id="wall"></div>
+
+    <div class="tabnote" style="margin-top:12px">
+      点任意缩略图可放大看完整上下文（前后各 3 天、成交量、当时大盘状态）——本样稿只演示图墙布局
+    </div>
+  </article>
+
+  <div class="cols" style="margin-top:14px">
+    <div class="panel">
+      <h3>量化策略的调仓点</h3>
+      <p class="sub">趋势策略在 BTC 上的持仓区间与每次调仓——同一套图形语言</p>
+      <svg class="chart" viewBox="0 0 600 130" width="100%" height="130" role="img" aria-label="BTC 价格与趋势策略持仓区间">
+        <rect x="60" y="0" width="150" height="130" fill="#19A862" opacity=".08"/>
+        <rect x="300" y="0" width="90" height="130" fill="#AD3B48" opacity=".08"/>
+        <rect x="450" y="0" width="120" height="130" fill="#19A862" opacity=".08"/>
+        <polyline points="0,100 30,96 60,92 90,80 120,72 150,60 180,55 210,62 240,70 270,66 300,74 330,84 360,92 390,86 420,80 450,74 480,62 510,50 540,44 570,38 600,34" fill="none" stroke="#3987E5" stroke-width="1.8"/>
+        <g fill="#8FA1BC">
+          <circle cx="60" cy="92" r="3"/><circle cx="210" cy="62" r="3"/>
+          <circle cx="300" cy="74" r="3"/><circle cx="390" cy="86" r="3"/><circle cx="450" cy="74" r="3"/>
+        </g>
+        <text x="66" y="14">做多</text><text x="306" y="14">做空</text><text x="456" y="14">做多</text>
+        <text x="4" y="126">2025-06</text><text x="548" y="126">2026-07</text>
+      </svg>
+      <div class="tabnote">绿底=持多、红底=持空、灰点=调仓时刻。量化不需要你判断,但看得见它在做什么</div>
+    </div>
+    <div class="panel side">
+      <h3>看出规律了吗</h3>
+      <p class="sub">图墙的用途:为下一次减法找线索</p>
+      <div style="font-size:.86rem;color:var(--muted);line-height:1.8">
+        观察到的候选规律,都要先写成可计算的条件、再进下一版考卷验证——<b style="color:var(--text)">看图产生假设,数据裁决假设</b>。<br><br>
+        <span class="pill o">例</span> "赚的那些突破前都有一段收窄横盘" → 下一版加入"突破前波动收敛"条件测一测。
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ═══════════ 量化 · 复盘 ═══════════ -->
 <section class="view" id="v-qrev">
@@ -683,6 +768,56 @@
   document.getElementById('cancel-wiz').addEventListener('click',closeWiz);
   wiz.addEventListener('click',e=>{if(e.target===wiz)closeWiz()});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeWiz()});
+
+  /* ── 信号图库：确定性生成演示用价格路径 ── */
+  const SYMS=['SOL','LINK','AVAX','DOT','BCH','LTC','ADA','XRP','DOGE','BNB','ETH','BTC'];
+  function lcg(seed){let s=seed;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296}}
+  function makeSignal(i){
+    const r=lcg(9973+i*7919), win=r()<0.42;
+    const drift=win?-(0.9+r()*1.6):(0.5+r()*1.4);      // SVG y 轴向下,负 drift = 上涨
+    const pts=[]; let y=62, entryIdx=8;
+    for(let k=0;k<=28;k++){
+      if(k>entryIdx) y+=drift+(r()-0.5)*5.2; else y+=(r()-0.5)*4.4;
+      y=Math.max(10,Math.min(88,y)); pts.push([k*(280/28)+6, y]);
+    }
+    const entry=pts[entryIdx], last=pts[pts.length-1];
+    const ret=((entry[1]-last[1])/62*10);              // 演示用收益
+    return {sym:SYMS[i%12], win, pts, entry, ret,
+      date:`${2022+(i%5)}-${String(1+(i*3)%12).padStart(2,'0')}`,
+      tag:['量递增','高流动性','亚洲时段','欧美时段','量走平'][i%5]};
+  }
+  const SIGNALS=Array.from({length:24},(_,i)=>makeSignal(i));
+  const wall=document.getElementById('wall');
+  let fState='all', sState='ret';
+  function draw(){
+    let list=SIGNALS.filter(s=>fState==='all'||(fState==='win')===s.win);
+    list.sort((a,b)=>sState==='ret'?b.ret-a.ret:a.date.localeCompare(b.date));
+    list=list.slice(0,12);
+    wall.innerHTML=list.map(s=>{
+      const pl=s.pts.map(p=>`${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+      const stopY=Math.min(92,s.entry[1]+14);
+      return `<div class="thumb ${s.win?'win':'loss'}">
+        <div class="tmeta"><b>${s.sym}</b><span class="${s.win?'r-win':'r-loss'}">${s.ret>0?'+':''}${s.ret.toFixed(1)}%</span></div>
+        <svg viewBox="0 0 292 100" width="100%" height="72" role="img" aria-label="${s.sym} 信号走势,结果${s.win?'盈利':'亏损'}">
+          <polyline points="${pl}" fill="none" stroke="#3987E5" stroke-width="1.6"/>
+          <line x1="0" y1="${s.entry[1].toFixed(1)}" x2="292" y2="${s.entry[1].toFixed(1)}" stroke="#8FA1BC" stroke-dasharray="3 3" stroke-width=".7"/>
+          <line x1="0" y1="${stopY.toFixed(1)}" x2="292" y2="${stopY.toFixed(1)}" stroke="#AD3B48" stroke-dasharray="2 3" stroke-width=".7"/>
+          <circle cx="${s.entry[0].toFixed(1)}" cy="${s.entry[1].toFixed(1)}" r="3.2" fill="${s.win?'#19A862':'#C9862B'}"/>
+        </svg>
+        <div class="tags">${s.date} · ${s.tag}</div>
+      </div>`;
+    }).join('');
+    document.getElementById('gal-count').textContent=`显示 ${list.length} / 312`;
+  }
+  document.getElementById('gal-filter').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    fState=b.dataset.f; [...b.parentNode.children].forEach(x=>x.classList.toggle('on',x===b)); draw();
+  });
+  document.getElementById('gal-sort').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    sState=b.dataset.s; [...b.parentNode.children].forEach(x=>x.classList.toggle('on',x===b)); draw();
+  });
+  draw();
 </script>
 
 </body>
