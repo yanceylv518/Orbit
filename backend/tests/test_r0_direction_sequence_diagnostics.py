@@ -91,6 +91,44 @@ class R0DirectionSequenceDiagnosticTests(unittest.TestCase):
                 baseline_report_sha256="b", bootstrap_samples=10, bootstrap_seed=7,
             )
 
+    def test_every_parameter_and_definition_contains_all_required_slices(self):
+        parameter_reports = []
+        events = {}
+        for index, family in enumerate(("BREAKOUT_MOMENTUM", "OVERSOLD_REBOUND"), 1):
+            parameter_id = f"p{index}"
+            direction = "LONG" if family == "OVERSOLD_REBOUND" else "SHORT"
+            parameter_reports.append({
+                "parameter_id": parameter_id, "family_id": family,
+                "definition_id": "S1_DROP_STABILIZATION" if family == "OVERSOLD_REBOUND" else "B1_DONCHIAN_VOLUME",
+                "parameters": {"holding_candles": index},
+                "summary": {"event_count": 1, "mean_net_return_pct": 1.0},
+            })
+            events[parameter_id] = [self._event("BTCUSDT", direction, index)]
+        report = create_direction_sequence_report(
+            {"contract_sha256": "c", "manifest": {"dataset_fingerprint": "d"}},
+            {"verdict": "TRAINING_FAIL", "parameter_reports": parameter_reports},
+            events, baseline_report_sha256="b", bootstrap_samples=10, bootstrap_seed=7,
+        )
+
+        required = {
+            "overall", "by_direction", "by_same_direction_sequence",
+            "direction_by_same_direction_sequence",
+        }
+        self.assertEqual(len(report["parameter_reports"]), 2)
+        for item in report["parameter_reports"]:
+            self.assertEqual(set(item["slices"]), required)
+            self.assertEqual(set(item["slices"]["by_direction"]), {"LONG", "SHORT"})
+            self.assertEqual(
+                set(item["slices"]["direction_by_same_direction_sequence"]["SHORT"]),
+                {"SEQ_1", "SEQ_2", "SEQ_3", "SEQ_4_PLUS"},
+            )
+        self.assertEqual(
+            set(report["definition_reports"]),
+            {"B1_DONCHIAN_VOLUME", "S1_DROP_STABILIZATION"},
+        )
+        for item in report["definition_reports"].values():
+            self.assertEqual(set(item["slices"]), required)
+
     @staticmethod
     def _event(symbol, direction, candle):
         return {

@@ -105,6 +105,7 @@ def create_direction_sequence_report(
 
     parameter_reports = []
     family_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    definition_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for parameter_id in sorted(baseline_by_id):
         baseline = baseline_by_id[parameter_id]
         events = annotate_same_direction_sequence(events_by_parameter[parameter_id])
@@ -118,6 +119,7 @@ def create_direction_sequence_report(
         ):
             raise ValueError("oversold family produced a forbidden SHORT event")
         family_rows[str(baseline["family_id"])].extend(events)
+        definition_rows[str(baseline["definition_id"])].extend(events)
         parameter_reports.append({
             "parameter_id": parameter_id,
             "family_id": baseline["family_id"],
@@ -128,6 +130,9 @@ def create_direction_sequence_report(
                 "mean_net_return_pct": actual_mean,
                 "matches_frozen_training": True,
             },
+            "slices": summarize_direction_sequence_slices(
+                events, bootstrap_samples=bootstrap_samples, bootstrap_seed=bootstrap_seed,
+            ),
         })
 
     return {
@@ -147,6 +152,15 @@ def create_direction_sequence_report(
             "uses_future_signals": False,
         },
         "parameter_reports": parameter_reports,
+        "definition_reports": {
+            definition: {
+                "aggregation_unit": "PARAMETER_EVENT_OBSERVATION",
+                "slices": summarize_direction_sequence_slices(
+                    events, bootstrap_samples=bootstrap_samples, bootstrap_seed=bootstrap_seed,
+                ),
+            }
+            for definition, events in sorted(definition_rows.items())
+        },
         "family_reports": {
             family: {
                 "aggregation_unit": "PARAMETER_EVENT_OBSERVATION",
