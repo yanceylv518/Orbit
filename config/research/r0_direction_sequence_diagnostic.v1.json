@@ -1,0 +1,32 @@
+{
+  "protocol": "ORBIT_R0_DIRECTION_SEQUENCE_DIAGNOSTIC_CONTRACT_V1",
+  "status": "FROZEN_AFTER_TRAINING_BEFORE_DIAGNOSTIC_MEASUREMENT",
+  "frozen_at": "2026-08-14",
+  "base_contract_sha256": "a9a7abd45a69fd96e492549de2617a8ce472dce7cf56a80653060ed2f78a9799",
+  "base_training_report_git_sha256": "8d5c9681a7877777bcfc93725e7220ba32c747a7d6a536c97fa837c11c4cfec6",
+  "base_verdict_required": "TRAINING_FAIL",
+  "lockbox_access": "PROHIBITED",
+  "selection_or_gate_effect": "NONE",
+  "coverage": "ALL_16_FROZEN_PARAMETER_COMBINATIONS",
+  "same_direction_sequence": {
+    "scope": "SAME_PARAMETER_SAME_SYMBOL",
+    "candle_interval": "15m",
+    "maximum_gap_candles_inclusive": 96,
+    "opposite_direction_resets_immediately": true,
+    "buckets": ["SEQ_1", "SEQ_2", "SEQ_3", "SEQ_4_PLUS"],
+    "future_information": "PROHIBITED"
+  },
+  "required_slices": [
+    "DIRECTION",
+    "SAME_DIRECTION_SEQUENCE",
+    "DIRECTION_X_SAME_DIRECTION_SEQUENCE"
+  ],
+  "prohibitions": [
+    "NO_GATE_CHANGE",
+    "NO_PARAMETER_CHANGE",
+    "NO_CANDIDATE_RESELECTION",
+    "NO_LOCKBOX_READ",
+    "NO_TRADING_AUTHORIZATION",
+    "NO_R0_VERDICT_REVISION"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "baseline_report_sha256": "8d5c9681a7877777bcfc93725e7220ba32c747a7d6a536c97fa837c11c4cfec6",
+  "checkpoint_set_sha256": "b3d89383a93064526c0bd008f0570f169c1b3d6a3a0f87f2c01ac11341d5605d",
+  "contract_sha256": "a9a7abd45a69fd96e492549de2617a8ce472dce7cf56a80653060ed2f78a9799",
+  "protocol": "ORBIT_R0_DIAG2_REPRODUCTION_RECEIPT_V1",
+  "training_report_exact_match": true,
+  "verdict": "TRAINING_FAIL"
+}

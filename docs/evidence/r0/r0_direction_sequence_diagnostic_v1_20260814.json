@@ -1,0 +1,439 @@
+{
+  "baseline_report_sha256": "8d5c9681a7877777bcfc93725e7220ba32c747a7d6a536c97fa837c11c4cfec6",
+  "baseline_verdict": "TRAINING_FAIL",
+  "contract_sha256": "a9a7abd45a69fd96e492549de2617a8ce472dce7cf56a80653060ed2f78a9799",
+  "dataset_fingerprint": "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
+  "family_reports": {
+    "BREAKOUT_MOMENTUM": {
+      "aggregation_unit": "PARAMETER_EVENT_OBSERVATION",
+      "slices": {
+        "by_direction": {
+          "LONG": {
+            "bootstrap_mean_ci_high": -0.2898737279799049,
+            "bootstrap_mean_ci_low": -0.3933511948848696,
+            "event_count": 790239,
+            "mean_net_return_pct": -0.34169341644488105
+          },
+          "SHORT": {
+            "bootstrap_mean_ci_high": -0.31308586185753035,
+            "bootstrap_mean_ci_low": -0.510964356525684,
+            "event_count": 793651,
+            "mean_net_return_pct": -0.4141129540422849
+          }
+        },
+        "by_same_direction_sequence": {
+          "SEQ_1": {
+            "bootstrap_mean_ci_high": -0.2885045928257995,
+            "bootstrap_mean_ci_low": -0.40559495689201164,
+            "event_count": 869478,
+            "mean_net_return_pct": -0.34881652999047247
+          },
+          "SEQ_2": {
+            "bootstrap_mean_ci_high": -0.3633921066872965,
+            "bootstrap_mean_ci_low": -0.5047371272577006,
+            "event_count": 390642,
+            "mean_net_return_pct": -0.435190832135331
+          },
+          "SEQ_3": {
+            "bootstrap_mean_ci_high": -0.3414674077239495,
+            "bootstrap_mean_ci_low": -0.5307978879809194,
+            "event_count": 175964,
+            "mean_net_return_pct": -0.437980577391391
+          },
+          "SEQ_4_PLUS": {
+            "bootstrap_mean_ci_high": -0.19877602752199408,
+            "bootstrap_mean_ci_low": -0.44216410869529976,
+            "event_count": 147806,
+            "mean_net_return_pct": -0.32691293706909813
+          }
+        },
+        "direction_by_same_direction_sequence": {
+          "LONG": {
+            "SEQ_1": {
+              "event_count": 430158,
+              "mean_net_return_pct": -0.33485019471823446
+            },
+            "SEQ_2": {
+              "event_count": 194949,
+              "mean_net_return_pct": -0.3692624085967695
+            },
+            "SEQ_3": {
+              "event_count": 88851,
+              "mean_net_return_pct": -0.36723589391696615
+            },
+            "SEQ_4_PLUS": {
+              "event_count": 76281,
+              "mean_net_return_pct": -0.2800744609330249
+            }
+          },
+          "SHORT": {
+            "SEQ_1": {
+              "event_count": 439320,
+              "mean_net_return_pct": -0.36249159793191676
+            },
+            "SEQ_2": {
+              "event_count": 195693,
+              "mean_net_return_pct": -0.5008686041579329
+            },
+            "SEQ_3": {
+              "event_count": 87113,
+              "mean_net_return_pct": -0.510136694978733
+            },
+            "SEQ_4_PLUS": {
+              "event_count": 71525,
+              "mean_net_return_pct": -0.3768659017406928
+            }
+          }
+        },
+        "overall": {
+          "bootstrap_mean_ci_high": -0.32038765764000515,
+          "bootstrap_mean_ci_low": -0.43391041139732456,
+          "event_count": 1583890,
+          "mean_net_return_pct": -0.377981187965452
+        }
+      }
+    },
+    "OVERSOLD_REBOUND": {
+      "aggregation_unit": "PARAMETER_EVENT_OBSERVATION",
+      "slices": {
+        "by_direction": {
+          "LONG": {
+            "bootstrap_mean_ci_high": -0.010300646630066388,
+            "bootstrap_mean_ci_low": -0.2774585247339116,
+            "event_count": 368799,
+            "mean_net_return_pct": -0.14329958121410405
+          },
+          "SHORT": {
+            "bootstrap_mean_ci_high": null,
+            "bootstrap_mean_ci_low": null,
+            "event_count": 0,
+            "mean_net_return_pct": null
+          }
+        },
+        "by_same_direction_sequence": {
+          "SEQ_1": {
+            "bootstrap_mean_ci_high": -0.04699307097332155,
+            "bootstrap_mean_ci_low": -0.32214289722994754,
+            "event_count": 145846,
+            "mean_net_return_pct": -0.18279614581507667
+          },
+          "SEQ_2": {
+            "bootstrap_mean_ci_high": -0.09194203460691236,
+            "bootstrap_mean_ci_low": -0.34283783359548875,
+            "event_count": 77104,
+            "mean_net_return_pct": -0.21462030922186592
+          },
+          "SEQ_3": {
+            "bootstrap_mean_ci_high": 0.0518459358355401,
+            "bootstrap_mean_ci_low": -0.2695139525471938,
+            "event_count": 44353,
+            "mean_net_return_pct": -0.10600312054751226
+          },
+          "SEQ_4_PLUS": {
+            "bootstrap_mean_ci_high": 0.2195773383524251,
+            "bootstrap_mean_ci_low": -0.30984170783270265,
+            "event_count": 101496,
+            "mean_net_return_pct": -0.048662162466975266
+          }
+        },
+        "direction_by_same_direction_sequence": {
+          "LONG": {
+            "SEQ_1": {
+              "event_count": 145846,
+              "mean_net_return_pct": -0.18279614581507667
+            },
+            "SEQ_2": {
+              "event_count": 77104,
+              "mean_net_return_pct": -0.21462030922186592
+            },
+            "SEQ_3": {
+              "event_count": 44353,
+              "mean_net_return_pct": -0.10600312054751226
+            },
+            "SEQ_4_PLUS": {
+              "event_count": 101496,
+              "mean_net_return_pct": -0.048662162466975266
+            }
+          },
+          "SHORT": {
+            "SEQ_1": {
+              "event_count": 0,
+              "mean_net_return_pct": null
+            },
+            "SEQ_2": {
+              "event_count": 0,
+              "mean_net_return_pct": null
+            },
+            "SEQ_3": {
+              "event_count": 0,
+              "mean_net_return_pct": null
+            },
+            "SEQ_4_PLUS": {
+              "event_count": 0,
+              "mean_net_return_pct": null
+            }
+          }
+        },
+        "overall": {
+          "bootstrap_mean_ci_high": -0.010300646630066388,
+          "bootstrap_mean_ci_low": -0.2774585247339116,
+          "event_count": 368799,
+          "mean_net_return_pct": -0.14329958121410405
+        }
+      }
+    }
+  },
+  "lockbox_opened": false,
+  "parameter_reports": [
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "parameter_id": "B1_DONCHIAN_VOLUME:2672db054d08",
+      "parameters": {
+        "channel_lookback_candles": 96,
+        "holding_candles": 32,
+        "minimum_relative_quote_volume": "2.0"
+      },
+      "reproduction": {
+        "event_count": 132712,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.38674944248602955
+      }
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "parameter_id": "B1_DONCHIAN_VOLUME:6984b2aca695",
+      "parameters": {
+        "channel_lookback_candles": 96,
+        "holding_candles": 16,
+        "minimum_relative_quote_volume": "1.5"
+      },
+      "reproduction": {
+        "event_count": 177580,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.4023990061283116
+      }
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "parameter_id": "B1_DONCHIAN_VOLUME:730fa337219e",
+      "parameters": {
+        "channel_lookback_candles": 32,
+        "holding_candles": 32,
+        "minimum_relative_quote_volume": "1.5"
+      },
+      "reproduction": {
+        "event_count": 225235,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.38629116397570384
+      }
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "parameter_id": "B1_DONCHIAN_VOLUME:92c8385df5b0",
+      "parameters": {
+        "channel_lookback_candles": 32,
+        "holding_candles": 16,
+        "minimum_relative_quote_volume": "1.5"
+      },
+      "reproduction": {
+        "event_count": 297575,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.3626970654828225
+      }
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "parameter_id": "B1_DONCHIAN_VOLUME:9b5809c7e9a0",
+      "parameters": {
+        "channel_lookback_candles": 96,
+        "holding_candles": 16,
+        "minimum_relative_quote_volume": "2.0"
+      },
+      "reproduction": {
+        "event_count": 159429,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.39432958215644714
+      }
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "parameter_id": "B1_DONCHIAN_VOLUME:a0ebe43e0431",
+      "parameters": {
+        "channel_lookback_candles": 32,
+        "holding_candles": 32,
+        "minimum_relative_quote_volume": "2.0"
+      },
+      "reproduction": {
+        "event_count": 195964,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.3633154311197717
+      }
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "parameter_id": "B1_DONCHIAN_VOLUME:b6b0f94b2d46",
+      "parameters": {
+        "channel_lookback_candles": 96,
+        "holding_candles": 32,
+        "minimum_relative_quote_volume": "1.5"
+      },
+      "reproduction": {
+        "event_count": 145571,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.40326970061077233
+      }
+    },
+    {
+      "definition_id": "B1_DONCHIAN_VOLUME",
+      "family_id": "BREAKOUT_MOMENTUM",
+      "parameter_id": "B1_DONCHIAN_VOLUME:e9282323a93d",
+      "parameters": {
+        "channel_lookback_candles": 32,
+        "holding_candles": 16,
+        "minimum_relative_quote_volume": "2.0"
+      },
+      "reproduction": {
+        "event_count": 249824,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.353015551039227
+      }
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "parameter_id": "S1_DROP_STABILIZATION:05f2dd1fbd0a",
+      "parameters": {
+        "holding_candles": 8,
+        "minimum_drop_fraction": "0.05",
+        "return_lookback_candles": 32
+      },
+      "reproduction": {
+        "event_count": 117473,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.2145343952606112
+      }
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "parameter_id": "S1_DROP_STABILIZATION:142f84aeb94b",
+      "parameters": {
+        "holding_candles": 16,
+        "minimum_drop_fraction": "0.05",
+        "return_lookback_candles": 16
+      },
+      "reproduction": {
+        "event_count": 50051,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.15651521869130477
+      }
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "parameter_id": "S1_DROP_STABILIZATION:32b74c44f05b",
+      "parameters": {
+        "holding_candles": 16,
+        "minimum_drop_fraction": "0.10",
+        "return_lookback_candles": 16
+      },
+      "reproduction": {
+        "event_count": 7051,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": 0.6262879087156682
+      }
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "parameter_id": "S1_DROP_STABILIZATION:371d2efd1537",
+      "parameters": {
+        "holding_candles": 16,
+        "minimum_drop_fraction": "0.05",
+        "return_lookback_candles": 32
+      },
+      "reproduction": {
+        "event_count": 83483,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.21625708517487155
+      }
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "parameter_id": "S1_DROP_STABILIZATION:3bcc4091c77b",
+      "parameters": {
+        "holding_candles": 16,
+        "minimum_drop_fraction": "0.10",
+        "return_lookback_candles": 32
+      },
+      "reproduction": {
+        "event_count": 15987,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": 0.18465270532708675
+      }
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "parameter_id": "S1_DROP_STABILIZATION:b5b337dfcf2d",
+      "parameters": {
+        "holding_candles": 8,
+        "minimum_drop_fraction": "0.10",
+        "return_lookback_candles": 16
+      },
+      "reproduction": {
+        "event_count": 8767,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": 0.5207904241811788
+      }
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "parameter_id": "S1_DROP_STABILIZATION:df631a837b7e",
+      "parameters": {
+        "holding_candles": 8,
+        "minimum_drop_fraction": "0.05",
+        "return_lookback_candles": 16
+      },
+      "reproduction": {
+        "event_count": 64331,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.21089904593441536
+      }
+    },
+    {
+      "definition_id": "S1_DROP_STABILIZATION",
+      "family_id": "OVERSOLD_REBOUND",
+      "parameter_id": "S1_DROP_STABILIZATION:f48a63c80597",
+      "parameters": {
+        "holding_candles": 8,
+        "minimum_drop_fraction": "0.10",
+        "return_lookback_candles": 32
+      },
+      "reproduction": {
+        "event_count": 21656,
+        "matches_frozen_training": true,
+        "mean_net_return_pct": -0.00580124466965813
+      }
+    }
+  ],
+  "protocol": "ORBIT_R0_DIRECTION_SEQUENCE_DIAGNOSTIC_V1",
+  "purpose": "DIAGNOSE_DIRECTION_AND_REPEATED_SAME_DIRECTION_SIGNALS_ONLY",
+  "selection_or_gate_effect": "NONE",
+  "sequence_definition": {
+    "interval": "15m",
+    "maximum_gap_candles_inclusive": 96,
+    "opposite_direction_resets": true,
+    "scope": "PER_PARAMETER_PER_SYMBOL",
+    "uses_future_signals": false
+  }
+}
