@@ -332,6 +332,21 @@ class ResearchCatalogTests(unittest.TestCase):
         self.assertIn('v-model="galleryFilters.year"', panel)
         self.assertNotIn('type="number"', panel)
 
+    def test_r0_signal_chart_keeps_annotations_off_the_candles(self):
+        component = (
+            BACKEND_ROOT.parent / "frontend" / "src" / "components" / "SignalWindowCard.vue"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('class="signal-event-summary"', component)
+        self.assertIn('class="signal-event-arrow"', component)
+        self.assertIn("markerArrowPath", component)
+        self.assertIn('class="signal-volume-pane"', component)
+        self.assertIn('class="signal-benchmark-pane"', component)
+        self.assertIn("candleReturn", component)
+        self.assertIn("candleAmplitude", component)
+        self.assertNotIn("<circle", component)
+        self.assertNotIn("signal-event-rail", component)
+
     def test_paired_protocol_rejects_mixed_candle_interval(self):
         datasets = [
             {"id": "BTC-funding", "market": "BTCUSDT", "kind": "funding", "interval": None},

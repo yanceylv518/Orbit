@@ -1,63 +1,82 @@
 <template>
-  <button class="signal-window-card" type="button" @click="$emit('open')">
-    <header><span><strong>{{ event.symbol }}</strong><small>{{ year }} · {{ event.tier }}</small></span><b :class="event.net_return_pct >= 0 ? 'positive' : 'negative'">{{ pct(event.net_return_pct) }}</b></header>
-    <svg :viewBox="`0 0 ${width} ${height}`" role="img" :aria-label="`${event.symbol} 训练期信号窗口`">
-      <rect width="100%" height="100%" fill="#0b1423" />
-      <rect v-if="postExitX !== null" :x="postExitX" y="8" :width="width - postExitX - 8" :height="priceBottom - 8" fill="#8393aa" fill-opacity=".08" />
-      <line v-for="tick in 3" :key="tick" x1="8" :x2="width - 8" :y1="8 + tick * (priceBottom - 8) / 4" :y2="8 + tick * (priceBottom - 8) / 4" stroke="#26374e" />
-      <line :x1="8" :x2="width - 8" :y1="priceY(event.entry_price)" :y2="priceY(event.entry_price)" stroke="#4ea1ff" stroke-dasharray="4 3" />
-      <line :x1="8" :x2="width - 8" :y1="priceY(event.stop_price)" :y2="priceY(event.stop_price)" stroke="#ef6c75" stroke-dasharray="4 3" />
-      <g v-for="(candle, index) in candles" :key="candle[0]">
-        <line :x1="x(index)" :x2="x(index)" :y1="priceY(candle[2])" :y2="priceY(candle[3])" :stroke="candle[4] >= candle[1] ? '#76d5a6' : '#ef6c75'" />
-        <rect :x="x(index) - bodyWidth / 2" :y="priceY(Math.max(candle[1], candle[4]))" :width="bodyWidth" :height="Math.max(1, Math.abs(priceY(candle[1]) - priceY(candle[4])))" :fill="candle[4] >= candle[1] ? '#76d5a6' : '#ef6c75'" />
-        <rect :x="x(index) - bodyWidth / 2" :y="volumeY(candle[5])" :width="bodyWidth" :height="height - 8 - volumeY(candle[5])" fill="#3e8ef7" fill-opacity=".32" />
-      </g>
-      <polyline :points="movingAveragePoints" fill="none" stroke="#f0b35a" stroke-width="1.2" />
-      <polyline :points="benchmarkPoints" fill="none" stroke="#9f7aea" stroke-width="1.1" stroke-dasharray="3 2" />
-      <g v-for="mark in marks" :key="mark.label"><circle :cx="x(mark.index)" :cy="priceY(mark.price)" r="3.5" :fill="mark.color" /><text :x="x(mark.index) + 5" :y="priceY(mark.price) - 5" :fill="mark.color" font-size="8">{{ mark.label }}</text></g>
-      <text v-if="postExitX !== null" :x="postExitX + 4" y="17" fill="#8393aa" font-size="8">出场后走势</text>
-    </svg>
-    <footer><span>最大浮盈 {{ pct(event.annotations.mfe_pct) }} · 第 {{ event.annotations.mfe_bar }} 根</span><span>最大浮亏 {{ pct(event.annotations.mae_pct) }}</span><em v-if="event.stop_then_recovered_2h">止损后又回来</em></footer>
-  </button>
+  <article :class="['signal-window-card', { expanded }]" :role="expanded ? undefined : 'button'" :tabindex="expanded ? undefined : 0" @click="openThumbnail" @keydown.enter="openThumbnail">
+    <header>
+      <span class="signal-window-identity"><strong>{{ event.symbol }}</strong><b :class="['direction-badge', directionClass]">{{ directionLabel }}</b><small>{{ year }} · {{ tierLabel }}</small></span>
+      <span class="signal-window-result"><small>实际净收益</small><b :class="event.net_return_pct >= 0 ? 'positive' : 'negative'">{{ pct(event.net_return_pct) }}</b></span>
+    </header>
+
+    <div v-if="expanded" class="signal-chart-toolbar">
+      <button class="button ghost compact" type="button" :disabled="visibleCount <= minimumVisible" @click="zoom(1)">放大 ＋</button>
+      <button class="button ghost compact" type="button" :disabled="visibleCount >= candles.length" @click="zoom(-1)">缩小 −</button>
+      <button class="button ghost compact" type="button" @click="resetView">重置视图</button>
+      <span>鼠标滚轮缩放 · 按住图表左右拖动</span><strong>当前显示 {{ visibleStart + 1 }}–{{ visibleEnd }} / {{ candles.length }} 根</strong>
+    </div>
+
+    <div v-if="expanded" class="signal-event-summary">
+      <span v-for="mark in marks" :key="`summary-${mark.label}`" :class="mark.kind"><i></i><b>{{ mark.title }}</b> {{ mark.value }} <small>{{ mark.detail }}</small></span>
+    </div>
+    <div v-if="expanded" class="signal-candle-readout">
+      <strong>{{ hoverCandle ? timeFull(hoverCandle.candle[0]) : "把鼠标移到任意 K 线查看详情" }}</strong>
+      <template v-if="hoverCandle">
+        <span>开 <b>{{ price(hoverCandle.candle[1]) }}</b></span><span>高 <b>{{ price(hoverCandle.candle[2]) }}</b></span><span>低 <b>{{ price(hoverCandle.candle[3]) }}</b></span><span>收 <b>{{ price(hoverCandle.candle[4]) }}</b></span>
+        <span>涨跌幅 <b :class="candleReturn(hoverCandle.candle) >= 0 ? 'positive' : 'negative'">{{ signedPct(candleReturn(hoverCandle.candle)) }}</b></span><span>振幅 <b>{{ pct(candleAmplitude(hoverCandle.candle)) }}</b></span><span>成交额 <b>{{ compactMoney(hoverCandle.candle[5]) }}</b></span>
+      </template>
+    </div>
+
+    <div class="signal-chart-wrap">
+      <svg ref="chart" :class="{ draggable: expanded, dragging }" :viewBox="`0 0 ${width} ${height}`" role="img" :aria-label="`${event.symbol} ${directionLabel}训练期信号窗口`" @wheel.prevent="onWheel" @pointerdown="startDrag" @pointermove="onPointerMove" @pointerup="endDrag" @pointercancel="endDrag" @pointerleave="onPointerLeave">
+        <defs><clipPath :id="clipId"><rect :x="plotLeft" :y="plotTop" :width="plotWidth" :height="priceBottom - plotTop" /></clipPath></defs>
+        <rect width="100%" height="100%" fill="#0b1423" />
+        <g :clip-path="`url(#${clipId})`">
+          <rect v-if="postExitX !== null" :x="postExitX" :y="plotTop" :width="width - postExitX" :height="priceBottom - plotTop" fill="#8393aa" fill-opacity=".10" />
+          <line v-for="tick in 4" :key="tick" :x1="plotLeft" :x2="width - plotRight" :y1="plotTop + tick * (priceBottom - plotTop) / 5" :y2="plotTop + tick * (priceBottom - plotTop) / 5" stroke="#26374e" />
+          <line v-if="priceInRange(event.entry_price)" :x1="plotLeft" :x2="width - plotRight" :y1="priceY(event.entry_price)" :y2="priceY(event.entry_price)" stroke="#4ea1ff" stroke-width="1" stroke-dasharray="5 4" stroke-opacity=".65" />
+          <line v-if="priceInRange(event.stop_price)" :x1="plotLeft" :x2="width - plotRight" :y1="priceY(event.stop_price)" :y2="priceY(event.stop_price)" stroke="#ef6c75" stroke-width="1" stroke-dasharray="5 4" stroke-opacity=".65" />
+          <g v-for="item in visibleCandles" :key="item.candle[0]">
+            <line :x1="x(item.index)" :x2="x(item.index)" :y1="priceY(item.candle[2])" :y2="priceY(item.candle[3])" :stroke="item.candle[4] >= item.candle[1] ? '#76d5a6' : '#ef6c75'" stroke-width="1.2" />
+            <rect :x="x(item.index) - bodyWidth / 2" :y="priceY(Math.max(item.candle[1], item.candle[4]))" :width="bodyWidth" :height="Math.max(1.4, Math.abs(priceY(item.candle[1]) - priceY(item.candle[4])))" :fill="item.candle[4] >= item.candle[1] ? '#76d5a6' : '#ef6c75'" />
+          </g>
+          <polyline :points="movingAveragePoints" fill="none" stroke="#f0b35a" stroke-width="1.6" />
+          <g v-for="mark in visibleTradeMarks" :key="mark.label" class="signal-event-arrow"><path :d="markerArrowPath(mark)" :fill="mark.color"><title>{{ mark.title }}：{{ mark.detail }}</title></path></g>
+          <g v-if="hoverCandle" class="signal-crosshair"><line :x1="x(hoverCandle.index)" :x2="x(hoverCandle.index)" :y1="plotTop" :y2="priceBottom" stroke="#a9cfff" stroke-dasharray="3 3" /><line :x1="plotLeft" :x2="width - plotRight" :y1="hoverY" :y2="hoverY" stroke="#a9cfff" stroke-dasharray="3 3" /></g>
+        </g>
+        <g class="signal-price-axis"><text v-for="tick in priceTicks" :key="tick" :x="width - 4" :y="priceY(tick) + 4" text-anchor="end">{{ price(tick) }}</text></g>
+        <g class="signal-volume-pane">
+          <line :x1="plotLeft" :x2="width - plotRight" :y1="volumeTop" :y2="volumeTop" stroke="#26374e" />
+          <text :x="plotLeft + 3" :y="volumeTop + 13">成交额</text>
+          <rect v-for="item in visibleCandles" :key="`volume-${item.candle[0]}`" :x="x(item.index) - bodyWidth / 2" :y="volumeY(item.candle[5])" :width="bodyWidth" :height="volumeBottom - volumeY(item.candle[5])" :fill="item.candle[4] >= item.candle[1] ? '#3e8ef7' : '#315f9d'" :fill-opacity="hoverIndex === item.index ? .95 : .62" />
+        </g>
+        <g v-if="expanded" class="signal-benchmark-pane">
+          <line :x1="plotLeft" :x2="width - plotRight" :y1="benchmarkTop" :y2="benchmarkTop" stroke="#26374e" />
+          <text :x="plotLeft + 3" :y="benchmarkTop + 13">同期 BTC</text>
+          <line :x1="plotLeft" :x2="width - plotRight" :y1="benchmarkZeroY" :y2="benchmarkZeroY" stroke="#40526c" stroke-opacity=".65" />
+          <polyline :points="benchmarkPoints" fill="none" stroke="#a987ff" stroke-width="1.4" />
+        </g>
+        <line v-if="hoverCandle" :x1="x(hoverCandle.index)" :x2="x(hoverCandle.index)" :y1="volumeTop" :y2="expanded ? benchmarkBottom : volumeBottom" stroke="#a9cfff" stroke-dasharray="3 3" stroke-opacity=".7" />
+        <g class="signal-time-axis"><text v-for="item in timeTicks" :key="item.index" :x="x(item.index)" :y="height - 5" text-anchor="middle">{{ timeLabel(item.candle[0]) }}</text></g>
+      </svg>
+      <span v-if="!expanded" class="signal-open-hint">点击全屏查看 · 可缩放拖动</span>
+    </div>
+
+    <footer><span><b>最大浮盈</b> {{ pct(event.annotations.mfe_pct) }} · 第 {{ event.annotations.mfe_bar }} 根</span><span><b>最大浮亏</b> {{ pct(event.annotations.mae_pct) }} · 第 {{ event.annotations.mae_bar }} 根</span><span><b>出场原因</b> {{ exitReasonLabel }}</span><em v-if="event.stop_then_recovered_2h">止损后又回来</em></footer>
+    <div v-if="expanded" class="signal-chart-legend"><span><i class="entry"></i>进场价</span><span><i class="stop"></i>止损价</span><span><i class="average"></i>8根均线</span><span class="post">浅色区域：实际出场后的观察区间</span><span>图中 1–4 对应上方事件说明卡</span></div>
+  </article>
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 const props = defineProps({ event: { type: Object, required: true }, expanded: { type: Boolean, default: false } });
-defineEmits(["open"]);
-const width = computed(() => props.expanded ? 920 : 420);
-const height = computed(() => props.expanded ? 430 : 220);
-const candles = computed(() => props.event.window.candles || []);
-const priceBottom = computed(() => height.value * .73);
-const bodyWidth = computed(() => Math.max(1, (width.value - 16) / Math.max(candles.value.length, 1) * .58));
-const prices = computed(() => candles.value.flatMap((row) => [row[2], row[3]]));
-const minimum = computed(() => Math.min(...prices.value, props.event.stop_price));
-const maximum = computed(() => Math.max(...prices.value, props.event.entry_price));
-const maxVolume = computed(() => Math.max(...candles.value.map((row) => row[5]), 1));
-const year = computed(() => props.event.entry_year_utc);
-const x = (index) => 8 + index * (width.value - 16) / Math.max(candles.value.length - 1, 1);
-const priceY = (value) => 8 + (maximum.value - value) / Math.max(maximum.value - minimum.value, 1e-9) * (priceBottom.value - 16);
-const volumeY = (value) => height.value - 8 - value / maxVolume.value * (height.value - priceBottom.value - 12);
-const postExitX = computed(() => props.event.annotations.exit_index === null ? null : x(props.event.annotations.exit_index));
-const movingAveragePoints = computed(() => candles.value.map((_, index) => {
-  const rows = candles.value.slice(Math.max(0, index - 7), index + 1);
-  return `${x(index)},${priceY(rows.reduce((sum, row) => sum + row[4], 0) / rows.length)}`;
-}).join(" "));
-const benchmarkPoints = computed(() => {
-  const values = props.event.window.benchmark_return_pct || [];
-  const valid = values.filter((value) => value !== null);
-  const lo = Math.min(...valid, 0); const hi = Math.max(...valid, 0);
-  return values.map((value, index) => value === null ? null : `${x(index)},${8 + (hi - value) / Math.max(hi - lo, 1e-9) * (priceBottom.value - 16)}`).filter(Boolean).join(" ");
-});
-const marks = computed(() => {
-  const a = props.event.annotations;
-  const rows = candles.value;
-  return [
-    { label: "进场", index: a.entry_index, price: props.event.entry_price, color: "#4ea1ff" },
-    ...(a.exit_index === null ? [] : [{ label: "出场", index: a.exit_index, price: props.event.exit_price, color: "#f0b35a" }]),
-    { label: `MFE ${a.mfe_bar}`, index: a.mfe_index, price: props.event.direction === "LONG" ? rows[a.mfe_index][2] : rows[a.mfe_index][3], color: "#76d5a6" },
-    { label: "MAE", index: a.mae_index, price: props.event.direction === "LONG" ? rows[a.mae_index][3] : rows[a.mae_index][2], color: "#b6c2d5" },
-  ];
-});
-function pct(value) { return `${Number(value).toFixed(2)}%`; }
+const emit = defineEmits(["open"]); const chart = ref(null); const visibleStart = ref(0); const visibleEnd = ref(0); const dragging = ref(false); const dragStartX = ref(0); const dragStartWindow = ref([0, 0]); const hoverIndex = ref(null); const hoverY = ref(0); const minimumVisible = 12; const clipId = `signal-clip-${Math.random().toString(36).slice(2)}`;
+const candles = computed(() => props.event.window.candles || []); const width = computed(() => props.expanded ? 1400 : 900); const height = computed(() => props.expanded ? 390 : 250); const plotLeft = computed(() => props.expanded ? 28 : 14); const plotRight = computed(() => props.expanded ? 82 : 58); const plotTop = computed(() => 10); const plotWidth = computed(() => width.value - plotLeft.value - plotRight.value); const priceBottom = computed(() => props.expanded ? 255 : 165); const volumeTop = computed(() => priceBottom.value + 6); const volumeBottom = computed(() => props.expanded ? 317 : 222); const benchmarkTop = computed(() => 323); const benchmarkBottom = computed(() => 369); const visibleCount = computed(() => visibleEnd.value - visibleStart.value);
+const visibleCandles = computed(() => candles.value.slice(visibleStart.value, visibleEnd.value).map((candle, offset) => ({ candle, index: visibleStart.value + offset }))); const hoverCandle = computed(() => hoverIndex.value === null ? null : visibleCandles.value.find((item) => item.index === hoverIndex.value) || null); const visiblePrices = computed(() => visibleCandles.value.flatMap((item) => [item.candle[2], item.candle[3]])); const minimum = computed(() => Math.min(...visiblePrices.value)); const maximum = computed(() => Math.max(...visiblePrices.value)); const pricePadding = computed(() => Math.max((maximum.value - minimum.value) * .08, maximum.value * .0005)); const axisMinimum = computed(() => minimum.value - pricePadding.value); const axisMaximum = computed(() => maximum.value + pricePadding.value); const maxVolume = computed(() => Math.max(...visibleCandles.value.map((item) => item.candle[5]), 1)); const bodyWidth = computed(() => Math.max(2, plotWidth.value / Math.max(visibleCount.value, 1) * .62));
+const year = computed(() => props.event.entry_year_utc); const directionLabel = computed(() => props.event.direction === "LONG" ? "多单" : "空单"); const directionClass = computed(() => props.event.direction === "LONG" ? "long" : "short"); const tierLabel = computed(() => ({ HIGH: "高流动性", MEDIUM: "中流动性", LOW: "低流动性" }[props.event.tier] || props.event.tier)); const exitReasonLabel = computed(() => ({ TIME: "持有期结束", STOP: "触发止损", STOP_GAP: "跳空止损" }[props.event.exit_reason] || props.event.exit_reason));
+watch(candles, resetView, { immediate: true }); function resetView() { visibleStart.value = 0; visibleEnd.value = candles.value.length; hoverIndex.value = null; }
+const x = (index) => plotLeft.value + (index - visibleStart.value) * plotWidth.value / Math.max(visibleCount.value - 1, 1); const priceY = (value) => plotTop.value + (axisMaximum.value - value) / Math.max(axisMaximum.value - axisMinimum.value, 1e-9) * (priceBottom.value - plotTop.value - 8); const volumeY = (value) => volumeTop.value + 5 + (1 - Number(value) / maxVolume.value) * (volumeBottom.value - volumeTop.value - 8); const priceInRange = (value) => Number(value) >= axisMinimum.value && Number(value) <= axisMaximum.value; const indexVisible = (index) => index !== null && index >= visibleStart.value && index < visibleEnd.value; const postExitX = computed(() => indexVisible(props.event.annotations.exit_index) ? x(props.event.annotations.exit_index) : null);
+function markerArrowPath(mark) { const candle = candles.value[mark.index]; const tipY = Math.max(plotTop.value + 5, priceY(candle[2]) - 3); const markerX = x(mark.index); return `M ${markerX - 3} ${tipY - 4} L ${markerX + 3} ${tipY - 4} L ${markerX} ${tipY} Z`; }
+const movingAveragePoints = computed(() => visibleCandles.value.map(({ index }) => { const rows = candles.value.slice(Math.max(0, index - 7), index + 1); return `${x(index)},${priceY(rows.reduce((sum, row) => sum + row[4], 0) / rows.length)}`; }).join(" "));
+const benchmarkValues = computed(() => (props.event.window.benchmark_return_pct || []).slice(visibleStart.value, visibleEnd.value)); const benchmarkStats = computed(() => { const values = benchmarkValues.value.filter((value) => value !== null); return { low: Math.min(...values, 0), high: Math.max(...values, 0) }; }); const benchmarkPoints = computed(() => benchmarkValues.value.map((value, offset) => value === null ? null : `${x(visibleStart.value + offset)},${benchmarkTop.value + 5 + (benchmarkStats.value.high - value) / Math.max(benchmarkStats.value.high - benchmarkStats.value.low, 1e-9) * (benchmarkBottom.value - benchmarkTop.value - 10)}`).filter(Boolean).join(" ")); const benchmarkZeroY = computed(() => benchmarkTop.value + 5 + benchmarkStats.value.high / Math.max(benchmarkStats.value.high - benchmarkStats.value.low, 1e-9) * (benchmarkBottom.value - benchmarkTop.value - 10));
+const marks = computed(() => { const a = props.event.annotations; const rows = candles.value; return [{ number: 1, kind: "entry", title: "进场", value: directionLabel.value, detail: `${price(props.event.entry_price)} · 第 ${a.entry_index + 1} 根`, label: "entry", index: a.entry_index, price: props.event.entry_price, color: "#4ea1ff" }, ...(a.exit_index === null ? [] : [{ number: 2, kind: "exit", title: "实际出场", value: exitReasonLabel.value, detail: `${price(props.event.exit_price)} · 净收益 ${signedPct(props.event.net_return_pct)}`, label: "exit", index: a.exit_index, price: props.event.exit_price, color: "#f0b35a" }]), { number: 3, kind: "mfe", title: "最大浮盈", value: `+${pct(a.mfe_pct)}`, detail: `进场后第 ${a.mfe_bar} 根`, label: "mfe", index: a.mfe_index, price: props.event.direction === "LONG" ? rows[a.mfe_index][2] : rows[a.mfe_index][3], color: "#76d5a6" }, { number: 4, kind: "mae", title: "最大浮亏", value: `-${pct(a.mae_pct)}`, detail: `进场后第 ${a.mae_bar} 根`, label: "mae", index: a.mae_index, price: props.event.direction === "LONG" ? rows[a.mae_index][3] : rows[a.mae_index][2], color: "#b6c2d5" }]; }); const visibleMarks = computed(() => marks.value.filter((mark) => indexVisible(mark.index))); const visibleTradeMarks = computed(() => visibleMarks.value.filter((mark) => mark.kind === "entry" || mark.kind === "exit")); const priceTicks = computed(() => Array.from({ length: 5 }, (_, index) => axisMinimum.value + (axisMaximum.value - axisMinimum.value) * index / 4)); const timeTicks = computed(() => visibleCandles.value.filter((_, index) => index % Math.max(Math.floor(visibleCount.value / 6), 1) === 0));
+function openThumbnail() { if (!props.expanded) emit("open"); } function zoom(direction, centerRatio = .5) { if (!props.expanded || !candles.value.length) return; const current = visibleCount.value; const next = direction > 0 ? Math.max(minimumVisible, Math.round(current * .72)) : Math.min(candles.value.length, Math.round(current / .72)); const center = visibleStart.value + current * centerRatio; let start = Math.round(center - next * centerRatio); start = Math.max(0, Math.min(start, candles.value.length - next)); visibleStart.value = start; visibleEnd.value = start + next; hoverIndex.value = null; }
+function onWheel(event) { if (!props.expanded) return; const bounds = chart.value?.getBoundingClientRect(); const ratio = bounds ? Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)) : .5; zoom(event.deltaY < 0 ? 1 : -1, ratio); } function startDrag(event) { if (!props.expanded) return; dragging.value = true; dragStartX.value = event.clientX; dragStartWindow.value = [visibleStart.value, visibleEnd.value]; chart.value?.setPointerCapture(event.pointerId); } function moveDrag(event) { if (!dragging.value || visibleCount.value >= candles.value.length) return; const bounds = chart.value?.getBoundingClientRect(); if (!bounds) return; const shift = Math.round((dragStartX.value - event.clientX) / bounds.width * visibleCount.value); const count = dragStartWindow.value[1] - dragStartWindow.value[0]; const start = Math.max(0, Math.min(dragStartWindow.value[0] + shift, candles.value.length - count)); visibleStart.value = start; visibleEnd.value = start + count; } function updateHover(event) { if (!props.expanded || dragging.value) return; const bounds = chart.value?.getBoundingClientRect(); if (!bounds) return; const svgX = (event.clientX - bounds.left) / bounds.width * width.value; const ratio = Math.max(0, Math.min(1, (svgX - plotLeft.value) / plotWidth.value)); hoverIndex.value = Math.max(visibleStart.value, Math.min(visibleEnd.value - 1, visibleStart.value + Math.round(ratio * Math.max(visibleCount.value - 1, 1)))); hoverY.value = Math.max(plotTop.value, Math.min(priceBottom.value, (event.clientY - bounds.top) / bounds.height * height.value)); } function onPointerMove(event) { if (dragging.value) moveDrag(event); else updateHover(event); } function onPointerLeave() { if (!dragging.value) hoverIndex.value = null; } function endDrag(event) { dragging.value = false; chart.value?.releasePointerCapture?.(event.pointerId); }
+function pct(value) { return `${Number(value).toFixed(2)}%`; } function signedPct(value) { return `${Number(value) >= 0 ? "+" : ""}${Number(value).toFixed(2)}%`; } function price(value) { return Number(value).toLocaleString("zh-CN", { maximumSignificantDigits: 7 }); } function timeLabel(value) { return new Date(Number(value)).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }); } function timeFull(value) { return new Date(Number(value)).toLocaleString("zh-CN", { hour12: false }); } function candleReturn(candle) { return (Number(candle[4]) / Number(candle[1]) - 1) * 100; } function candleAmplitude(candle) { return (Number(candle[2]) / Number(candle[3]) - 1) * 100; } function compactMoney(value) { return `${Number(value).toLocaleString("zh-CN", { notation: "compact", maximumFractionDigits: 2 })} USDT`; }
 </script>

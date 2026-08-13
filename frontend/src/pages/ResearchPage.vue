@@ -216,7 +216,10 @@
     </article>
 
     <div v-if="galleryFocus" class="r0-gallery-modal" @click.self="galleryFocus = null">
-      <div class="r0-gallery-modal-card"><button class="button ghost compact" @click="galleryFocus = null">关闭</button><SignalWindowCard :event="galleryFocus" :expanded="true" /></div>
+      <div class="r0-gallery-modal-card">
+        <div class="r0-gallery-modal-head"><strong>单笔信号分析</strong><span>可缩放、拖动查看局部 K 线</span><button class="button ghost compact" @click="galleryFocus = null">关闭大图</button></div>
+        <SignalWindowCard :event="galleryFocus" :expanded="true" />
+      </div>
     </div>
 
     <template v-if="isResearchMode">
