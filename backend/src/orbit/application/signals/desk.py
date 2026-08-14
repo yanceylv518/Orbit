@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import time
-from typing import Any
+from typing import Any, Callable
 
 from orbit.infrastructure.persistence.signal_ledger import AppendOnlySignalLedger, canonical_json
 
@@ -22,12 +22,31 @@ INTERACTION_MANIFEST = {
 class SignalDeskService:
     """SIG-2 command/read model over immutable SIG-1 and interaction ledgers."""
 
-    def __init__(self, ledger_directory: Path, interaction_directory: Path | None = None):
+    def __init__(
+        self,
+        ledger_directory: Path,
+        interaction_directory: Path | None = None,
+        *,
+        vault: Any | None = None,
+        notifier_factory: Callable[..., Any] | None = None,
+        account_repository: Any | None = None,
+        binding_reader: Callable[[], list[dict[str, Any]]] | None = None,
+        gateway_factory: Callable[[dict[str, Any]], Any] | None = None,
+        spec: dict[str, Any] | None = None,
+        clock_ms: Callable[[], int] | None = None,
+    ):
         self.ledger_directory = ledger_directory
         self.interaction_directory = interaction_directory or ledger_directory.parent / "sig2"
+        self.vault = vault
+        self.notifier_factory = notifier_factory
+        self.account_repository = account_repository
+        self.binding_reader = binding_reader or (lambda: [])
+        self.gateway_factory = gateway_factory
+        self.spec = spec or {}
+        self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
     def snapshot(self, *, day: str | None = None, limit: int = 200) -> dict[str, Any]:
-        selected_day = day or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        selected_day = day or self._clock_day()
         source = self._read_source(selected_day)
         if source["health"]["status"] in {"NOT_DEPLOYED", "LEDGER_ERROR"}:
             return source
@@ -40,7 +59,7 @@ class SignalDeskService:
                 row["manual_execution"] = None
             source["signals"] = all_rows[: max(1, min(int(limit), 1000))]
             source["summary"] = self._summary(all_rows)
-            source["discipline"] = self._discipline(all_rows)
+            source["discipline"] = self._discipline(all_rows, [])
             source["review"] = self._review(all_rows)
             source["health"].update(
                 {"status": "LEDGER_ERROR", "error_type": type(exc).__name__, "error_scope": "SIG2_INTERACTIONS"}
@@ -55,18 +74,146 @@ class SignalDeskService:
             elif event.get("event_type") == "MANUAL_EXECUTION_RECORDED":
                 executions[event["signal_id"]] = event
         all_rows = source.pop("_all_signals")
+        family_rankings: dict[str, dict[str, int]] = {}
+        for family in {str(row.get("family_id")) for row in all_rows}:
+            ranked = sorted((row for row in all_rows if str(row.get("family_id")) == family), key=lambda row: -float(row.get("trend_strength_96") or 0))
+            family_rankings[family] = {row["signal_id"]: index + 1 for index, row in enumerate(ranked)}
         for row in all_rows:
             row["decision"] = self._public_event(decisions.get(row["signal_id"])) or None
             row["manual_execution"] = self._public_event(executions.get(row["signal_id"])) or None
+            row["expires_at_ms"] = int(row["signal_time_ms"]) + 30 * 60_000
+            row["expired"] = self.clock_ms() > row["expires_at_ms"]
+            row["trend_strength_rank"] = family_rankings[str(row.get("family_id"))][row["signal_id"]]
+            row["trend_strength_rank_total"] = len(family_rankings[str(row.get("family_id"))])
         source["signals"] = all_rows[: max(1, min(int(limit), 1000))]
         source["summary"] = self._summary(all_rows)
-        source["discipline"] = self._discipline(all_rows)
+        source["discipline"] = self._discipline(all_rows, interactions)
+        active_cooldowns = {(row["symbol"], row["direction"]): row for row in source["discipline"].get("cooldowns", [])}
+        for row in all_rows:
+            cooldown = active_cooldowns.get((row["symbol"], row["direction"]))
+            row["action_block"] = ({"reason": "COOLDOWN_AFTER_STOP", "until_ms": cooldown["until_ms"]} if cooldown else ({"reason": "DAILY_LOSS_CIRCUIT", "until_ms": None} if source["discipline"]["circuit_breaker_active"] else None))
         source["review"] = self._review(all_rows)
+        source["operations"] = self._operations(interactions, source["health"], all_rows)
         source["interaction_ledger"] = {
             "event_count": len(interactions),
             "append_only": True,
         }
         return source
+
+    def configure_pushover(self, *, api_token: str, user_key: str, enabled: bool, actor: str) -> dict[str, Any]:
+        if self.vault is None:
+            raise ValueError("服务器凭证库不可用，无法保存 Pushover 配置")
+        if not api_token.strip() or not user_key.strip():
+            raise ValueError("请同时填写 Pushover API Token 和 User Key")
+        token_ref = self.vault.protect(api_token.strip())
+        user_ref = self.vault.protect(user_key.strip())
+        self._interaction_ledger().append({
+            "event_type": "PUSHOVER_CONFIGURATION_CHANGED",
+            "recorded_at_ms": self.clock_ms(),
+            "enabled": bool(enabled),
+            "api_token_reference": token_ref,
+            "user_key_reference": user_ref,
+            "api_token_fingerprint": self.vault.fingerprint(api_token.strip()),
+            "user_key_fingerprint": self.vault.fingerprint(user_key.strip()),
+            "actor": actor,
+        })
+        return self.snapshot()
+
+    def test_pushover(self, *, actor: str) -> dict[str, Any]:
+        config = self._latest_event("PUSHOVER_CONFIGURATION_CHANGED")
+        if not config or self.notifier_factory is None:
+            raise ValueError("请先保存 Pushover 配置")
+        try:
+            result = self.notifier_factory(
+                api_token_reference=config["api_token_reference"],
+                user_key_reference=config["user_key_reference"],
+            ).send({"title": "Orbit 测试通知", "message": "Pushover 配置可用。", "priority": 0})
+        except Exception as exc:
+            self._interaction_ledger().append({"event_type": "PUSHOVER_TEST_FAILED", "recorded_at_ms": self.clock_ms(), "error_type": type(exc).__name__, "actor": actor})
+            raise ValueError(f"测试通知发送失败：{type(exc).__name__}") from exc
+        self._interaction_ledger().append({"event_type": "PUSHOVER_TEST_SUCCEEDED", "recorded_at_ms": self.clock_ms(), "actor": actor})
+        return {"ok": True, "status": result.get("status", "DELIVERED")}
+
+    def set_service_enabled(self, *, enabled: bool, actor: str) -> dict[str, Any]:
+        self._interaction_ledger().append({"event_type": "SIGNAL_SERVICE_CONTROL_CHANGED", "recorded_at_ms": self.clock_ms(), "enabled": bool(enabled), "actor": actor})
+        return self.snapshot()
+
+    def bind_account(self, *, account_id: str | None, actor: str) -> dict[str, Any]:
+        value = str(account_id or "").strip()
+        if value:
+            if self.account_repository is None or not self.account_repository.account_by_id(value):
+                raise ValueError("所选账户不存在")
+            conflict = next((row for row in self.binding_reader() if row.get("exchange_account_id") == value and row.get("status") in {"ACTIVE", "STOPPING"}), None)
+            if conflict:
+                raise ValueError("该账户已绑定 TB4 自动执行。信号服务必须使用物理隔离的独立子账户")
+        self._interaction_ledger().append({"event_type": "SIGNAL_ACCOUNT_BINDING_CHANGED", "recorded_at_ms": self.clock_ms(), "account_id": value or None, "actor": actor})
+        return self.snapshot()
+
+    def request_discipline_change(self, *, setting: str, value: Any, actor: str) -> dict[str, Any]:
+        allowed = {"daily_loss_limit_r", "consecutive_loss_limit"}
+        if setting not in allowed:
+            raise ValueError("该纪律参数不允许在页面放宽")
+        effective_at = self.clock_ms() + 24 * 60 * 60_000
+        self._interaction_ledger().append({"event_type": "DISCIPLINE_CHANGE_REQUESTED", "recorded_at_ms": self.clock_ms(), "setting": setting, "value": value, "effective_at_ms": effective_at, "actor": actor})
+        return {"ok": True, "effective_at_ms": effective_at}
+
+    def sync_bound_account(self, account_id: str, snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
+        operations = self._operations(self._read_interactions(), {}, [])
+        if operations["binding"]["account_id"] != account_id:
+            return {"status": "NOT_BOUND"}
+        conflict = next((row for row in self.binding_reader() if row.get("exchange_account_id") == account_id and row.get("status") in {"ACTIVE", "STOPPING"}), None)
+        if conflict:
+            return {"status": "BINDING_CONFLICT", "reason": "ACCOUNT_USED_BY_TB4"}
+        if self.account_repository is None or self.gateway_factory is None:
+            return {"status": "UNAVAILABLE"}
+        account = self.account_repository.account_by_id(account_id)
+        if not account:
+            return {"status": "ACCOUNT_MISSING"}
+        gateway = self.gateway_factory(account)
+        source = self._read_source(self._clock_day())
+        signals = source.get("_all_signals", [])
+        taken = {row["signal_id"]: row for row in signals if (self._decision_for(row["signal_id"]) or {}).get("decision") == "TAKEN"}
+        symbols = sorted({row["symbol"] for row in signals})
+        imported = 0; outside = 0; paired = 0
+        for symbol in symbols:
+            trades = sorted(gateway.user_trades(symbol), key=lambda row: int(row.get("time") or 0))
+            consumed: dict[str, dict[str, Any]] = {}
+            for signal in [row for row in taken.values() if row["symbol"] == symbol and not any(e.get("event_type") == "MANUAL_EXECUTION_RECORDED" for e in self._events_for(row["signal_id"]))]:
+                decision = self._decision_for(signal["signal_id"]) or {}
+                entry = next((trade for trade in trades if self._trade_is_entry(trade, signal) and int(signal["signal_time_ms"]) <= int(trade.get("time") or 0) <= int(signal["signal_time_ms"]) + 30 * 60_000), None)
+                if entry is None: continue
+                exit_trade = next((trade for trade in trades if int(trade.get("time") or 0) > int(entry.get("time") or 0) and self._trade_is_exit(trade, signal)), None)
+                if exit_trade is None: continue
+                entry_price = float(entry.get("price") or 0); exit_price = float(exit_trade.get("price") or 0)
+                stop = float(decision.get("stop_price") or signal["suggested_stop_price"])
+                sign = 1.0 if signal["direction"] == "LONG" else -1.0
+                pnl = sign * (exit_price - entry_price); risk = abs(entry_price - stop)
+                entry_id = str(entry.get("id") or entry.get("tradeId")); exit_id = str(exit_trade.get("id") or exit_trade.get("tradeId"))
+                self._interaction_ledger().append({"event_type": "MANUAL_EXECUTION_RECORDED", "recorded_at_ms": self.clock_ms(), "signal_id": signal["signal_id"], "account_id": account_id, "entry_trade_ids": [entry_id], "exit_trade_ids": [exit_id], "entry_price": entry_price, "exit_price": exit_price, "exited_at_ms": int(exit_trade.get("time") or 0), "exit_reason": "STOP" if float(exit_trade.get("realizedPnl") or 0) < 0 and abs(exit_price - stop) / max(stop, 1e-12) < 0.003 else "ACCOUNT_CLOSE", "gross_return_pct": pnl / entry_price * 100, "realized_r": pnl / risk if risk else 0, "source": "BINANCE_AUTO_PAIR"})
+                consumed[entry_id] = signal; consumed[exit_id] = signal; paired += 1
+            for trade in trades:
+                trade_id = str(trade.get("id") or trade.get("tradeId") or "")
+                if not trade_id or self._trade_imported(account_id, trade_id):
+                    continue
+                matched = consumed.get(trade_id)
+                self._interaction_ledger().append({
+                    "event_type": "ACCOUNT_TRADE_PAIRED" if matched else "OUTSIDE_SIGNAL_TRADE_DETECTED",
+                    "recorded_at_ms": self.clock_ms(), "account_id": account_id, "trade_id": trade_id,
+                    "signal_id": matched.get("signal_id") if matched else None, "symbol": symbol,
+                    "side": trade.get("side"), "position_side": trade.get("positionSide"),
+                    "trade_time_ms": int(trade.get("time") or 0), "price": float(trade.get("price") or 0),
+                    "quantity": float(trade.get("qty") or 0), "realized_pnl": float(trade.get("realizedPnl") or 0),
+                })
+                imported += 1; outside += int(not matched)
+        for position in (snapshot or {}).get("positions", []):
+            symbol = str(position.get("symbol") or ""); amount = float(position.get("position_amt") or 0)
+            direction = str(position.get("position_side") or ("LONG" if amount > 0 else "SHORT")).upper()
+            planned = any(row["symbol"] == symbol and row["direction"] == direction for row in taken.values())
+            position_key = f"position:{symbol}:{direction}:{position.get('update_time') or 'current'}"
+            if not planned and not self._trade_imported(account_id, position_key):
+                self._interaction_ledger().append({"event_type": "OUTSIDE_SIGNAL_TRADE_DETECTED", "recorded_at_ms": self.clock_ms(), "account_id": account_id, "trade_id": position_key, "signal_id": None, "symbol": symbol, "position_side": direction, "quantity": abs(amount), "source": "OPEN_POSITION_RECONCILIATION"})
+                outside += 1
+        return {"status": "SYNCED", "imported_count": imported, "paired_execution_count": paired, "outside_signal_count": outside}
 
     def record_decision(
         self, *, signal_id: str, decision: str, reason: str | None, stop_price: float | None,
@@ -76,12 +223,16 @@ class SignalDeskService:
         if decision not in {"TAKEN", "SKIPPED"}:
             raise ValueError("decision must be TAKEN or SKIPPED")
         signal = self._signal(signal_id)
+        if self.clock_ms() > int(signal["signal_time_ms"]) + 30 * 60_000:
+            raise ValueError("信号已超过 30 分钟有效期，不能补标记")
         if self._candidate_scope(signal) != "INCLUDED":
             raise ValueError("该信号不在当日 30 条人工候选范围内，只保留模拟记录")
         existing = self._events_for(signal_id)
         if any(row.get("event_type") == "SIGNAL_DECISION_RECORDED" for row in existing):
             raise ValueError("该信号已经做过决定，追加账本不允许覆盖")
         if decision == "TAKEN":
+            if self._discipline([], self._read_interactions())["circuit_breaker_active"]:
+                raise ValueError("当日连续亏损/亏损限额熔断中，暂时不能登记新交易")
             if stop_price is None:
                 raise ValueError("做了的信号必须同时记录止损价")
             actual_entry = float(entry_price if entry_price is not None else signal["reference_entry_price"])
@@ -89,7 +240,7 @@ class SignalDeskService:
             self._validate_cooldown(signal)
         event = {
             "event_type": "SIGNAL_DECISION_RECORDED",
-            "recorded_at_ms": int(time.time() * 1000),
+            "recorded_at_ms": self.clock_ms(),
             "signal_id": signal_id,
             "decision": decision,
             "reason": (reason or "").strip()[:120] or None,
@@ -119,7 +270,7 @@ class SignalDeskService:
         risk = abs(float(entry_price) - float(decision["stop_price"]))
         event = {
             "event_type": "MANUAL_EXECUTION_RECORDED",
-            "recorded_at_ms": int(time.time() * 1000),
+            "recorded_at_ms": self.clock_ms(),
             "signal_id": signal_id,
             "entry_price": float(entry_price),
             "exit_price": float(exit_price),
@@ -142,8 +293,10 @@ class SignalDeskService:
             stored_hash = manifest.pop("manifest_sha256", None)
             if stored_hash != hashlib.sha256(canonical_json(manifest)).hexdigest():
                 raise RuntimeError("SIG-1 manifest fingerprint mismatch")
-            if manifest.get("protocol") != "ORBIT_SIG1_SIGNAL_SERVICE_V1":
+            if manifest.get("protocol") not in {"ORBIT_SIG1_SIGNAL_SERVICE_V1", "ORBIT_SIG1_LEDGER_MANIFEST_V1"}:
                 raise RuntimeError("SIG-1 manifest protocol mismatch")
+            if manifest.get("protocol") == "ORBIT_SIG1_LEDGER_MANIFEST_V1" and manifest.get("signal_protocol") != "ORBIT_SIG1_SIGNAL_SERVICE_V1":
+                raise RuntimeError("SIG-1 signal protocol mismatch")
             records = AppendOnlySignalLedger(self.ledger_directory).read_all()
         except Exception as exc:
             payload = self._empty(selected_day, "LEDGER_ERROR")
@@ -183,9 +336,47 @@ class SignalDeskService:
             return {"count": len(selected), "closed_count": len(closed), "realized_r_total": sum(float(r[field]["realized_r"]) for r in closed), "wins": sum(float(r[field]["realized_r"]) > 0 for r in closed), "losses": sum(float(r[field]["realized_r"]) <= 0 for r in closed)}
         return {"all_signal_simulation": book(lambda r: True), "chosen_signal_simulation": book(lambda r: (r.get("decision") or {}).get("decision") == "TAKEN"), "actual_manual": book(lambda r: r.get("manual_execution") is not None, True)}
 
-    def _discipline(self, rows):
-        stopped = [r for r in rows if (r.get("manual_execution") or {}).get("exit_reason") == "STOP"]
-        return {"stop_attached": "ENFORCED", "averaging_down": "BLOCKED", "cooldown_after_stop_minutes": 240, "cooldown_symbols": sorted({f'{r["symbol"]} {r["direction"]}' for r in stopped}), "outside_signal_trade": "BLOCKED", "outside_signal_count": 0}
+    def _discipline(self, rows, interactions=None):
+        interactions = self._read_interactions() if interactions is None else interactions
+        cooldowns = []
+        now = self.clock_ms()
+        for event in interactions:
+            if event.get("event_type") != "MANUAL_EXECUTION_RECORDED" or event.get("exit_reason") != "STOP": continue
+            try: signal = self._signal(event["signal_id"])
+            except ValueError: continue
+            until = int(event.get("exited_at_ms") or 0) + 240 * 60_000
+            if until > now: cooldowns.append({"symbol": signal["symbol"], "direction": signal["direction"], "until_ms": until})
+        outside = [event for event in interactions if event.get("event_type") == "OUTSIDE_SIGNAL_TRADE_DETECTED"]
+        loss_runs = 0
+        for event in reversed([e for e in interactions if e.get("event_type") == "MANUAL_EXECUTION_RECORDED"]):
+            if float(event.get("realized_r") or 0) >= 0: break
+            loss_runs += 1
+        current_day = self._clock_day()
+        daily_r = sum(float(e.get("realized_r") or 0) for e in interactions if e.get("event_type") == "MANUAL_EXECUTION_RECORDED" and datetime.fromtimestamp(int(e.get("exited_at_ms") or 0) / 1000, tz=timezone.utc).strftime("%Y-%m-%d") == current_day)
+        circuit = loss_runs >= 3 or daily_r <= -3
+        return {"stop_attached": "ENFORCED", "averaging_down": "BLOCKED", "cooldown_after_stop_minutes": 240, "cooldown_symbols": sorted({f'{r["symbol"]} {r["direction"]}' for r in cooldowns}), "cooldowns": cooldowns, "outside_signal_trade": "BLOCKED", "outside_signal_count": len(outside), "consecutive_losses": loss_runs, "consecutive_loss_limit": 3, "daily_realized_r": daily_r, "daily_loss_limit_r": -3, "circuit_breaker_active": circuit, "relaxation_delay_hours": 24}
+
+    def _operations(self, interactions, health, rows):
+        def latest(kind):
+            return next((event for event in reversed(interactions) if event.get("event_type") == kind), None)
+        push = latest("PUSHOVER_CONFIGURATION_CHANGED") or {}
+        control = latest("SIGNAL_SERVICE_CONTROL_CHANGED") or {}
+        binding = latest("SIGNAL_ACCOUNT_BINDING_CHANGED") or {}
+        latest_scan_ms = (health.get("latest_scan") or {}).get("recorded_at_ms") or health.get("latest_recorded_at_ms")
+        now = self.clock_ms()
+        stale = latest_scan_ms is None or now - int(latest_scan_ms) > 30 * 60_000
+        push_failures = sum(event.get("event_type") in {"PUSHOVER_TEST_FAILED", "SERVICE_SCAN_FAILED"} for event in interactions)
+        pending = [self._public_event(event) for event in interactions if event.get("event_type") == "DISCIPLINE_CHANGE_REQUESTED" and int(event.get("effective_at_ms") or 0) > now]
+        notifications = self.spec.get("notifications", {})
+        market = self.spec.get("market", {})
+        return {
+            "service": {"enabled": bool(control.get("enabled", False)), "running": bool(control.get("enabled", False)) and not stale, "last_scan_at_ms": latest_scan_ms, "market_data_fresh": not stale, "error_count": push_failures + int(health.get("status") == "LEDGER_ERROR")},
+            "pushover": {"configured": bool(push.get("api_token_reference") and push.get("user_key_reference")), "enabled": bool(push.get("enabled", False)), "api_token_fingerprint": push.get("api_token_fingerprint"), "user_key_fingerprint": push.get("user_key_fingerprint"), "today_sent": sum((row.get("push") or {}).get("event_type") == "PUSH_SUCCEEDED" for row in rows), "daily_limit": notifications.get("daily_success_limit", 3)},
+            "binding": {"account_id": binding.get("account_id"), "optional": True, "purpose": "只用于真实成交自动配对，不参与信号扫描或模拟"},
+            "parameters": {"liquidity_threshold_usdt": (market.get("liquidity") or {}).get("minimum_median_daily_quote_volume_usdt", 200000000), "candidate_limit": (self.spec.get("workload") or {}).get("daily_candidate_limit", 30), "push_thresholds": notifications.get("trend_strength_minimum_by_family", {}), "signal_interval": market.get("signal_interval", "15m")},
+            "pending_discipline_changes": pending,
+            "backup": {"required_paths": [str(self.ledger_directory), str(self.interaction_directory)]},
+        }
 
     def _signal(self, signal_id):
         if not (self.ledger_directory / "manifest.json").exists(): raise ValueError("信号服务尚不可用")
@@ -214,6 +405,35 @@ class SignalDeskService:
             except ValueError: continue
             exited_at = int(event["exited_at_ms"])
             if prior["symbol"] == signal["symbol"] and prior["direction"] == signal["direction"] and cutoff <= exited_at <= signal_time: raise ValueError("同标的同方向止损后仍在 4 小时冷却期")
+
+    def _latest_event(self, event_type):
+        return next((row for row in reversed(self._read_interactions()) if row.get("event_type") == event_type), None)
+
+    def _clock_day(self) -> str:
+        return datetime.fromtimestamp(self.clock_ms() / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+
+    def _decision_for(self, signal_id):
+        return next((row for row in reversed(self._read_interactions()) if row.get("event_type") == "SIGNAL_DECISION_RECORDED" and row.get("signal_id") == signal_id), None)
+
+    def _trade_imported(self, account_id, trade_id):
+        return any(row.get("account_id") == account_id and row.get("trade_id") == trade_id for row in self._read_interactions())
+
+    @staticmethod
+    def _match_trade(trade, signals):
+        side = str(trade.get("side") or "").upper(); position = str(trade.get("positionSide") or "").upper()
+        timestamp = int(trade.get("time") or 0); symbol = str(trade.get("symbol") or "").upper()
+        candidates = [signal for signal in signals if signal["symbol"] == symbol and int(signal["signal_time_ms"]) <= timestamp <= int(signal["signal_time_ms"]) + 30 * 60_000 and ((signal["direction"] == "LONG" and (position == "LONG" or side == "BUY")) or (signal["direction"] == "SHORT" and (position == "SHORT" or side == "SELL")))]
+        return min(candidates, key=lambda row: abs(timestamp - int(row["signal_time_ms"])), default=None)
+
+    @staticmethod
+    def _trade_is_entry(trade, signal):
+        side = str(trade.get("side") or "").upper(); position = str(trade.get("positionSide") or "").upper()
+        return (signal["direction"] == "LONG" and side == "BUY" and position in {"", "BOTH", "LONG"}) or (signal["direction"] == "SHORT" and side == "SELL" and position in {"", "BOTH", "SHORT"})
+
+    @staticmethod
+    def _trade_is_exit(trade, signal):
+        side = str(trade.get("side") or "").upper(); position = str(trade.get("positionSide") or "").upper()
+        return (signal["direction"] == "LONG" and side == "SELL" and position in {"", "BOTH", "LONG"}) or (signal["direction"] == "SHORT" and side == "BUY" and position in {"", "BOTH", "SHORT"})
 
     @staticmethod
     def _validate_stop(direction, entry, stop):

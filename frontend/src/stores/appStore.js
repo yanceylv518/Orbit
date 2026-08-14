@@ -28,6 +28,10 @@ import {
   postJson,
   recordSignalDecisionRequest,
   recordSignalExecutionRequest,
+  configureSignalPushoverRequest,
+  testSignalPushoverRequest,
+  controlSignalServiceRequest,
+  bindSignalAccountRequest,
   resumeStoppedSymbolRequest,
 } from "../api/client.js";
 import { LEGACY_PAGE_ALIASES } from "../domain/labels.js";
@@ -111,6 +115,24 @@ export async function recordSignalExecution(payload) {
   store.signalDesk = data;
   return true;
 }
+
+async function applySignalCommand(request) {
+  store.signalDeskError = "";
+  try {
+    const { response, data } = await request;
+    if (!response.ok || data.error || data.detail) throw new Error(data.error || data.detail || `操作失败（HTTP ${response.status}）。`);
+    if (data.protocol === "ORBIT_SIGNAL_DESK_V2") store.signalDesk = data;
+    return data;
+  } catch (error) {
+    store.signalDeskError = error instanceof Error ? error.message : "信号服务操作失败。";
+    return null;
+  }
+}
+
+export function configureSignalPushover(payload) { return applySignalCommand(configureSignalPushoverRequest(payload)); }
+export function testSignalPushover() { return applySignalCommand(testSignalPushoverRequest()); }
+export function controlSignalService(enabled) { return applySignalCommand(controlSignalServiceRequest(enabled)); }
+export function bindSignalAccount(accountId) { return applySignalCommand(bindSignalAccountRequest(accountId)); }
 
 export const isAuthenticated = computed(() => Boolean(store.state?.auth?.authenticated));
 export const currentUser = computed(() => store.state?.auth?.current_user || null);

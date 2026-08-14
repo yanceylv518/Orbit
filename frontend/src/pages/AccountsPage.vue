@@ -110,6 +110,11 @@
           </table>
         </div>
       </article>
+
+      <article v-if="isAdmin" class="panel">
+        <div class="panel-head"><div><h3>手机信号推送</h3><p class="muted">Pushover 凭证加密保存，保存后不会回显。</p></div><StatusBadge :text="store.signalDesk?.operations?.pushover?.configured ? '已配置' : '未配置'" :color="store.signalDesk?.operations?.pushover?.configured ? 'green' : 'orange'" /></div>
+        <div class="inline-editor-form"><div class="editor-grid"><label><span>User Key</span><input v-model="pushoverForm.user_key" type="password" autocomplete="off" placeholder="保存后不回显" /></label><label><span>API Token</span><input v-model="pushoverForm.api_token" type="password" autocomplete="off" placeholder="保存后不回显" /></label><label class="inline-check"><input v-model="pushoverForm.enabled" type="checkbox" /><span>启用信号推送</span></label></div><div class="editor-actions"><button class="button ghost small" :disabled="!store.signalDesk?.operations?.pushover?.configured" @click="sendPushoverTest">发送测试通知</button><button class="button small" @click="savePushover">安全保存</button></div><p class="muted">今日已推 {{ store.signalDesk?.operations?.pushover?.today_sent || 0 }} / {{ store.signalDesk?.operations?.pushover?.daily_limit || 3 }}；门槛只读，修改信号定义不在此页面开放。</p></div>
+      </article>
     </div>
   </section>
 </template>
@@ -121,25 +126,41 @@ import { cls, fmt } from "../core/format.js";
 import { accountModeColor, accountModeLabel, enumLabel, statusColor, statusLabel } from "../domain/labels.js";
 import {
   accounts,
+  configureSignalPushover,
   currentUser,
   isAdmin,
+  loadSignalDesk,
   saveBinanceCredentials,
   saveBusinessUser,
   saveExchangeAccount,
   store,
   syncBinanceAccount,
+  testSignalPushover,
   users,
 } from "../stores/appStore.js";
 
 const credentialForms = reactive({});
 const userEditor = reactive({ open: false, editing: false, form: {} });
 const accountEditor = reactive({ open: false, editing: false, form: {} });
+const pushoverForm = reactive({ user_key: "", api_token: "", enabled: true });
 
 watchEffect(() => {
   for (const account of accounts.value) {
     credentialForms[account.account_id] ||= { apiKey: "", apiSecret: "" };
   }
 });
+loadSignalDesk();
+
+async function savePushover() {
+  if (!pushoverForm.user_key || !pushoverForm.api_token) { alert("请同时填写 User Key 和 API Token。"); return; }
+  const result = await configureSignalPushover(pushoverForm);
+  if (result) { pushoverForm.user_key = ""; pushoverForm.api_token = ""; }
+}
+
+async function sendPushoverTest() {
+  const result = await testSignalPushover();
+  if (result) alert("测试通知已发送。");
+}
 
 function exchangeAccount(row) {
   return (store.state?.exchange_accounts || []).find((item) => item.id === row.account_id) || {};

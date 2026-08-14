@@ -40,12 +40,15 @@ class PushoverNotifier:
         if not token or not user:
             raise PushoverDeliveryError("Pushover credentials are unavailable in the credential vault")
         payload = urlencode(
-            {
+            {key: value for key, value in {
                 "token": token,
                 "user": user,
                 "title": str(notification["title"]),
                 "message": str(notification["message"]),
-            }
+                "url": notification.get("url"),
+                "url_title": notification.get("url_title"),
+                "priority": notification.get("priority"),
+            }.items() if value is not None}
         ).encode("utf-8")
         request = Request(
             self.endpoint,

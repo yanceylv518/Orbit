@@ -1,10 +1,12 @@
 <template>
-  <div class="signal-chart-wrap">
+  <div :class="['signal-chart-wrap',{expanded}]">
     <div v-if="!candles.length" class="chart-empty">旧信号未保存图形快照；新产生的信号会显示真实 K 线和成交量。</div>
     <svg v-else class="signal-candle-chart" :viewBox="`0 0 ${width} ${height}`" role="img" :aria-label="`${symbol} 信号 K 线与成交量`">
       <g class="grid">
         <line v-for="y in [18, 72, 126, 180]" :key="y" x1="42" :x2="width - 8" :y1="y" :y2="y" />
       </g>
+      <polyline v-if="maPoints" :points="maPoints" class="ma-line" />
+      <polyline v-if="btcPoints" :points="btcPoints" class="btc-line" />
       <g v-for="(bar, index) in plotted" :key="bar.open_time_ms">
         <line :x1="bar.x" :x2="bar.x" :y1="bar.highY" :y2="bar.lowY" :class="bar.up ? 'up' : 'down'" />
         <rect :x="bar.x - bodyWidth / 2" :y="Math.min(bar.openY, bar.closeY)" :width="bodyWidth" :height="Math.max(1, Math.abs(bar.openY - bar.closeY))" :class="bar.up ? 'up-fill' : 'down-fill'">
@@ -24,17 +26,19 @@
       <text x="4" :y="stopY - 3" v-if="stopY !== null" class="stop-label">止损</text>
       <text x="4" y="224" class="volume-label">成交量</text>
     </svg>
-    <div class="chart-legend"><span class="entry-key">进场</span><span class="stop-key">止损</span><span>▲ 信号时刻</span><span>悬停 K 线查看涨跌幅、振幅与成交量</span></div>
+    <div class="chart-legend"><span class="entry-key">进场</span><span class="stop-key">止损</span><span class="ma-key">均线</span><span class="btc-key">同期 BTC（归一化）</span><span>▲ 信号时刻</span><span>悬停 K 线查看涨跌幅、振幅与成交量</span><button type="button" @click="expanded=!expanded">{{ expanded ? '关闭大图' : '放大查看' }}</button></div>
   </div>
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
+const expanded = ref(false);
 
 const props = defineProps({
   symbol: { type: String, default: "" },
   before: { type: Array, default: () => [] },
   after: { type: Array, default: () => [] },
+  btc: { type: Array, default: () => [] },
   entry: { type: Number, default: null },
   stop: { type: Number, default: null },
 });
@@ -56,6 +60,8 @@ const plotted = computed(() => candles.value.map((row, index) => ({
   up: Number(row.close) >= Number(row.open), volume: Number(row.quote_volume || 0),
 })));
 const signalIndex = computed(() => Math.max(0, props.before.length - 1 - Math.max(0, props.before.length + props.after.length - candles.value.length)));
+const maPoints = computed(() => plotted.value.map((bar,index)=>{const window=candles.value.slice(Math.max(0,index-8),index+1);const average=window.reduce((sum,row)=>sum+Number(row.close),0)/window.length;return `${bar.x},${priceY(average)}`}).join(" "));
+const btcPoints = computed(() => {const byTime=new Map(props.btc.map(row=>[Number(row.open_time_ms),Number(row.close)]));const matches=plotted.value.filter(bar=>byTime.has(Number(bar.open_time_ms)));if(matches.length<2)return "";const firstBtc=byTime.get(Number(matches[0].open_time_ms));const firstAsset=Number(matches[0].close);return matches.map(bar=>{const normalized=firstAsset*(byTime.get(Number(bar.open_time_ms))/firstBtc);return `${bar.x},${priceY(normalized)}`}).join(" ")});
 const entryY = computed(() => props.entry ? priceY(props.entry) : null);
 const stopY = computed(() => props.stop ? priceY(props.stop) : null);
 const volumeY = (volume) => 236 - (volume / maxVolume.value) * 30;
@@ -67,6 +73,6 @@ function tooltip(bar) {
 </script>
 
 <style scoped>
-.signal-chart-wrap{min-width:0}.signal-candle-chart{display:block;width:100%;height:244px;background:#0b1526;border:1px solid #203454;border-radius:8px}.grid line{stroke:#1d304d;stroke-width:1}.up,.down{stroke-width:1.2}.up{stroke:#64d3aa}.down{stroke:#ef6a79}.up-fill{fill:#64d3aa}.down-fill{fill:#ef6a79}.volume-up{fill:#1f6d60}.volume-down{fill:#713842}.entry-line{stroke:#4aa3ff;stroke-dasharray:5 4}.stop-line{stroke:#ef6a79;stroke-dasharray:5 4}.entry-label{fill:#69b5ff}.stop-label{fill:#ff8290}.volume-label{fill:#6f829f}.signal-marker path{fill:#f5b94c}.signal-marker line{stroke:#f5b94c}.signal-candle-chart text{font-size:10px}.chart-legend{display:flex;gap:14px;flex-wrap:wrap;color:#7f91ac;font-size:12px;margin-top:6px}.entry-key{color:#69b5ff}.stop-key{color:#ff8290}
+.signal-chart-wrap{min-width:0}.signal-chart-wrap.expanded{position:fixed;inset:18px;z-index:80;background:#081221;border:1px solid #315078;border-radius:10px;padding:14px;display:flex;flex-direction:column}.signal-chart-wrap.expanded .signal-candle-chart{height:calc(100vh - 92px)}.signal-candle-chart{display:block;width:100%;height:244px;background:#0b1526;border:1px solid #203454;border-radius:8px}.grid line{stroke:#1d304d;stroke-width:1}.up,.down{stroke-width:1.2}.up{stroke:#64d3aa}.down{stroke:#ef6a79}.up-fill{fill:#64d3aa}.down-fill{fill:#ef6a79}.volume-up{fill:#1f6d60}.volume-down{fill:#713842}.ma-line{fill:none;stroke:#f5b94c;stroke-width:1.4}.btc-line{fill:none;stroke:#a988ff;stroke-width:1.2;stroke-dasharray:4 3}.entry-line{stroke:#4aa3ff;stroke-dasharray:5 4}.stop-line{stroke:#ef6a79;stroke-dasharray:5 4}.entry-label{fill:#69b5ff}.stop-label{fill:#ff8290}.volume-label{fill:#6f829f}.signal-marker path{fill:#f5b94c}.signal-marker line{stroke:#f5b94c}.signal-candle-chart text{font-size:10px}.chart-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#7f91ac;font-size:12px;margin-top:6px}.chart-legend button{margin-left:auto;padding:4px 8px}.entry-key{color:#69b5ff}.stop-key{color:#ff8290}.ma-key{color:#f5b94c}.btc-key{color:#a988ff}
 .chart-empty{height:120px;display:grid;place-items:center;text-align:center;color:#71839e;background:#0b1526;border:1px solid #203454;border-radius:8px;padding:14px}
 </style>

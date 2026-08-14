@@ -534,7 +534,14 @@ class AppState:
             reconciliation = self.live_reconciliation_service.record_snapshot(
                 account_id, snapshot,
             )
-            return deepcopy(snapshot) | {"live_reconciliation_record": reconciliation}
+            try:
+                signal_pairing = self.signal_desk.sync_bound_account(account_id, snapshot)
+            except Exception as exc:
+                signal_pairing = {"status": "ERROR", "error_type": type(exc).__name__}
+            return deepcopy(snapshot) | {
+                "live_reconciliation_record": reconciliation,
+                "signal_trade_pairing": signal_pairing,
+            }
 
     def update_binance_credentials(
         self,

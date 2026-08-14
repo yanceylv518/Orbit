@@ -108,7 +108,7 @@
 部署级配置，不再承担日常实盘启停。
 
 Orbit 后端是 **唯一 TB4 轮询与自动执行 writer**。TB4 paper 账本默认位于
-`var/forward/tb4/`，实盘执行账本默认位于 `var/forward/live-small/`；两者必须持久化并备份。
+`var/forward/tb4/`，实盘执行账本默认位于 `var/forward/live-small/`；两者必须持久化并备份。信号服务上线后，备份清单还必须包含 `var/signals/sig1/`（信号与模拟账）和 `var/signals/sig2/`（人工决定、推送配置引用、账户配对与纪律事件）；恢复时四个目录均须先验 manifest 与哈希链，禁止只恢复页面数据库而遗漏信号账本。
 页面分别展示 `trend_forward`、`live_pilot_control` 与 `live_execution` 的进度、预检和逐单报告。
 
 自动执行规则以 `LIVE_SMALL.md` V3 为准：同一再平衡至多执行一次；失败不追单；急停后当前

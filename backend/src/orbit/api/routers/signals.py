@@ -26,6 +26,25 @@ class ManualExecutionRequest(BaseModel):
     exit_reason: Literal["MANUAL", "STOP", "TIME_EXIT"]
 
 
+class PushoverConfigurationRequest(BaseModel):
+    api_token: str = Field(min_length=1, max_length=128)
+    user_key: str = Field(min_length=1, max_length=128)
+    enabled: bool = True
+
+
+class SignalServiceControlRequest(BaseModel):
+    enabled: bool
+
+
+class SignalAccountBindingRequest(BaseModel):
+    account_id: str | None = Field(default=None, max_length=64)
+
+
+class DisciplineChangeRequest(BaseModel):
+    setting: Literal["daily_loss_limit_r", "consecutive_loss_limit"]
+    value: float
+
+
 @router.get("")
 def signal_desk(
     request: Request,
@@ -56,5 +75,42 @@ def record_manual_execution(
         return app_state(request).signal_desk.record_execution(
             **payload.model_dump(), actor=str(user["id"])
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/pushover")
+def configure_pushover(request: Request, payload: PushoverConfigurationRequest, user: dict = Depends(require_admin)) -> dict:
+    try:
+        return app_state(request).signal_desk.configure_pushover(**payload.model_dump(), actor=str(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/pushover/test")
+def test_pushover(request: Request, user: dict = Depends(require_admin)) -> dict:
+    try:
+        return app_state(request).signal_desk.test_pushover(actor=str(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/service")
+def control_signal_service(request: Request, payload: SignalServiceControlRequest, user: dict = Depends(require_admin)) -> dict:
+    return app_state(request).signal_desk.set_service_enabled(enabled=payload.enabled, actor=str(user["id"]))
+
+
+@router.post("/binding")
+def bind_signal_account(request: Request, payload: SignalAccountBindingRequest, user: dict = Depends(require_admin)) -> dict:
+    try:
+        return app_state(request).signal_desk.bind_account(account_id=payload.account_id, actor=str(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/discipline/changes")
+def request_discipline_change(request: Request, payload: DisciplineChangeRequest, user: dict = Depends(require_admin)) -> dict:
+    try:
+        return app_state(request).signal_desk.request_discipline_change(**payload.model_dump(), actor=str(user["id"]))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

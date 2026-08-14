@@ -113,6 +113,14 @@ def detect_sig1_signals(
                     },
                 )
             )
+    btc_rows = list((market_windows.get("BTCUSDT") or {}).get("candles", []))
+    btc_by_time = {int(row.open_time_ms): float(row.close) for row in btc_rows}
+    for signal in results:
+        signal["btc_context"] = [
+            {"open_time_ms": int(row["open_time_ms"]), "close": btc_by_time[int(row["open_time_ms"])]}
+            for row in signal.get("chart_before", [])
+            if int(row["open_time_ms"]) in btc_by_time
+        ]
     return sorted(results, key=lambda row: (row["signal_time_ms"], row["symbol"], row["family_id"]))
 
 

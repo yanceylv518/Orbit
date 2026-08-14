@@ -115,6 +115,11 @@ export function recordSignalExecutionRequest(payload) {
   return postJson("/api/signals/executions", payload);
 }
 
+export function configureSignalPushoverRequest(payload) { return postJson("/api/signals/pushover", payload); }
+export function testSignalPushoverRequest() { return postJson("/api/signals/pushover/test"); }
+export function controlSignalServiceRequest(enabled) { return postJson("/api/signals/service", { enabled }); }
+export function bindSignalAccountRequest(accountId) { return postJson("/api/signals/binding", { account_id: accountId || null }); }
+
 export async function postJson(path, payload = {}) {
   const response = await fetch(path, {
     method: "POST",

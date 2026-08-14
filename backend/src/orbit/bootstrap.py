@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, fields
+import json
 from pathlib import Path
 from typing import Any, Callable
 
@@ -46,6 +47,7 @@ from orbit.infrastructure.credentials.factory import create_credential_vault
 from orbit.infrastructure.exchange.binance import BinanceFuturesClient
 from orbit.infrastructure.exchange.binance_snapshots import BinanceSnapshotFetcher
 from orbit.infrastructure.exchange.kline_feed import BinanceKlineFeed
+from orbit.infrastructure.notifications.pushover import PushoverNotifier
 from orbit.infrastructure.persistence.account_snapshots import InMemoryAccountSnapshotRepository
 from orbit.infrastructure.persistence.accounts import ConfigAccountRepository
 from orbit.infrastructure.persistence.audits import InMemoryAuditRepository
@@ -320,7 +322,18 @@ def build_application_container(
     )
     if not signal_interaction_directory.is_absolute():
         signal_interaction_directory = root / signal_interaction_directory
-    signal_desk = SignalDeskService(signal_ledger_directory, signal_interaction_directory)
+    signal_spec_path = root / "config" / "signals" / "sig1.v1.json"
+    signal_spec = json.loads(signal_spec_path.read_text(encoding="utf-8")) if signal_spec_path.exists() else {}
+    signal_desk = SignalDeskService(
+        signal_ledger_directory,
+        signal_interaction_directory,
+        vault=credential_vault,
+        notifier_factory=lambda **references: PushoverNotifier(credential_vault, **references),
+        account_repository=account_repository,
+        binding_reader=lambda: strategy_control_plane_service.bindings(),
+        gateway_factory=lambda account: BinanceFuturesClient.from_account(account, credential_vault),
+        spec=signal_spec,
+    )
     trend_config = plan_runtime.get("trend_forward", {})
     live_control = live_pilot_control
     trend_data_dir = Path(str(trend_config.get("data_dir", "var/forward/tb4")))

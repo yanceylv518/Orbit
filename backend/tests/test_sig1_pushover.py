@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from urllib.parse import parse_qs
 from urllib.error import URLError
 
 from orbit.infrastructure.notifications.pushover import PushoverDeliveryError, PushoverNotifier
@@ -47,9 +48,18 @@ class Sig1PushoverTests(unittest.TestCase):
             user_key_reference="env:ORBIT_PUSHOVER_USER_KEY",
             opener=opener,
         )
-        result = notifier.send({"title": "Orbit", "message": "signal"})
+        result = notifier.send({
+            "title": "Orbit",
+            "message": "signal",
+            "url": "https://orbit.example/#signals/sig-1",
+            "url_title": "在 Orbit 打开信号",
+            "priority": 1,
+        })
         self.assertEqual(len(vault.resolved), 2)
         self.assertIn("super-secret-token", captured["body"])
+        fields = parse_qs(captured["body"])
+        self.assertEqual(fields["url"], ["https://orbit.example/#signals/sig-1"])
+        self.assertEqual(fields["priority"], ["1"])
         self.assertNotIn("super-secret-token", str(result))
         self.assertNotIn("super-secret-user", str(result))
 

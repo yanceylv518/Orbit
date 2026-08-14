@@ -294,6 +294,11 @@ class Sig1SignalService:
                 self.ledger.append(
                     self._event("PUSH_RETRY_EXHAUSTED", processed_at, signal_id=signal_id)
                 )
+                try:
+                    if self.notifier is not None:
+                        self.notifier.send({"title": "Orbit 推送通道故障", "message": f"信号 {signal_id} 连续推送失败，已停止重试。", "priority": 1})
+                except Exception:
+                    pass
                 continue
             attempt_number = attempts + 1
             self.ledger.append(
@@ -308,7 +313,14 @@ class Sig1SignalService:
             try:
                 if self.notifier is None:
                     raise RuntimeError("notification adapter unavailable")
-                result = self.notifier.send(notification_message(signal))
+                message = notification_message(signal)
+                deep_link_base = str(notifications.get("deep_link_base_url") or "").rstrip("/")
+                if deep_link_base:
+                    message |= {
+                        "url": f"{deep_link_base}/#signals/{signal_id}",
+                        "url_title": "在 Orbit 打开信号",
+                    }
+                result = self.notifier.send(message)
                 self.ledger.append(
                     self._event(
                         "PUSH_SUCCEEDED",

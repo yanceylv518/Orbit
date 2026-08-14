@@ -18,6 +18,7 @@ PROJECT_ROOT = BACKEND_ROOT.parent
 sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
 from orbit.application.sig1_signal_service import Sig1SignalService  # noqa: E402
+from orbit.application.signals.desk import INTERACTION_MANIFEST  # noqa: E402
 from orbit.domain.calibration.r0_shortline import ShortlineCandle  # noqa: E402
 from orbit.infrastructure.credentials.factory import create_credential_vault  # noqa: E402
 from orbit.infrastructure.exchange.kline_feed import BinanceKlineFeed  # noqa: E402
@@ -35,6 +36,7 @@ def main() -> None:
     parser.add_argument("--spec", default=str(SPEC_PATH))
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--ledger-directory")
+    parser.add_argument("--interaction-directory")
     parser.add_argument("--pushover-token-ref")
     parser.add_argument("--pushover-user-ref")
     parser.add_argument("--loop", action="store_true")
@@ -47,8 +49,15 @@ def main() -> None:
     runtime_config = json.loads(Path(args.config).resolve().read_text(encoding="utf-8"))
     vault = create_credential_vault(runtime_config)
     notifications = spec["notifications"]
-    token_reference = args.pushover_token_ref or notifications["api_token_reference"]
-    user_reference = args.pushover_user_ref or notifications["user_key_reference"]
+    signal_runtime = (runtime_config.get("runtime") or {}).get("signals") or {}
+    if signal_runtime.get("public_base_url"):
+        notifications["deep_link_base_url"] = str(signal_runtime["public_base_url"])
+    interaction_directory = Path(args.interaction_directory or PROJECT_ROOT / signal_runtime.get("interaction_ledger_directory", "var/signals/sig2")).resolve()
+    control_ledger = AppendOnlySignalLedger(interaction_directory)
+    control_ledger.open(INTERACTION_MANIFEST)
+    controls = _runtime_controls(control_ledger)
+    token_reference = args.pushover_token_ref or controls.get("api_token_reference") or notifications["api_token_reference"]
+    user_reference = args.pushover_user_ref or controls.get("user_key_reference") or notifications["user_key_reference"]
     _verify_credential_reference(token_reference, "Pushover API token")
     _verify_credential_reference(user_reference, "Pushover user key")
     notifier = PushoverNotifier(
@@ -71,13 +80,44 @@ def main() -> None:
     service = Sig1SignalService(spec, ledger, notifier)
     source = BinanceSig1Source(BinanceKlineFeed(), spec, service)
     while True:
-        result = source.scan_once()
-        print(json.dumps(result | {"service": service.status()}, ensure_ascii=False), flush=True)
+        controls = _runtime_controls(control_ledger)
+        service.spec["notifications"]["enabled"] = bool(controls.get("pushover_enabled", False))
+        if controls.get("api_token_reference") and controls.get("user_key_reference"):
+            service.notifier = PushoverNotifier(vault, api_token_reference=controls["api_token_reference"], user_key_reference=controls["user_key_reference"])
+        if not controls.get("service_enabled", False):
+            print(json.dumps({"status": "DISABLED", "reason": "signal service switch is off"}, ensure_ascii=False), flush=True)
+            if not args.loop: break
+            time.sleep(max(1.0, args.poll_delay_seconds))
+            continue
+        try:
+            result = source.scan_once()
+            control_ledger.append({"event_type": "SERVICE_HEARTBEAT", "recorded_at_ms": int(time.time() * 1000), "status": "RUNNING"})
+            print(json.dumps(result | {"service": service.status()}, ensure_ascii=False), flush=True)
+        except Exception as exc:
+            control_ledger.append({"event_type": "SERVICE_SCAN_FAILED", "recorded_at_ms": int(time.time() * 1000), "error_type": type(exc).__name__})
+            try:
+                if service.notifier is not None:
+                    service.notifier.send({"title": "Orbit 信号服务故障", "message": f"扫描失败：{type(exc).__name__}", "priority": 1})
+            except Exception:
+                pass
+            if not args.loop:
+                raise
         if not args.loop:
             break
         now_ms = int(time.time() * 1000)
         next_boundary_ms = (now_ms // INTERVAL_MS + 1) * INTERVAL_MS
         time.sleep(max(1.0, (next_boundary_ms - now_ms) / 1000 + args.poll_delay_seconds))
+
+
+def _runtime_controls(ledger: AppendOnlySignalLedger) -> dict[str, Any]:
+    result = {"service_enabled": False, "pushover_enabled": False}
+    for record in ledger.read_all():
+        event = record["payload"]
+        if event.get("event_type") == "SIGNAL_SERVICE_CONTROL_CHANGED":
+            result["service_enabled"] = bool(event.get("enabled"))
+        elif event.get("event_type") == "PUSHOVER_CONFIGURATION_CHANGED":
+            result.update({"pushover_enabled": bool(event.get("enabled")), "api_token_reference": event.get("api_token_reference"), "user_key_reference": event.get("user_key_reference")})
+    return result
 
 
 class BinanceSig1Source:
@@ -106,6 +146,8 @@ class BinanceSig1Source:
         }
         symbols = sorted(qualified | self.service.required_symbols())
         windows = self._intraday_windows(symbols, qualified)
+        if len(qualified) >= int(self.spec["market"]["minimum_simultaneously_eligible_markets"]) and len(windows) < int(self.spec["market"]["minimum_simultaneously_eligible_markets"]):
+            raise RuntimeError("Binance 15m market data is unavailable for the minimum eligible universe")
         close_time_ms = now_ms // INTERVAL_MS * INTERVAL_MS - 1
         result = self.service.process_closed_candle(
             windows, close_time_ms, processed_at_ms=now_ms
