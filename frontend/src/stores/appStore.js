@@ -22,9 +22,12 @@ import {
   fetchStrategies,
   fetchStrategy,
   fetchLiveExecutionReports,
+  fetchSignalDesk,
   loginRequest,
   logoutRequest,
   postJson,
+  recordSignalDecisionRequest,
+  recordSignalExecutionRequest,
   resumeStoppedSymbolRequest,
 } from "../api/client.js";
 import { LEGACY_PAGE_ALIASES } from "../domain/labels.js";
@@ -67,7 +70,47 @@ export const store = reactive({
   liveExecutionReports: [],
   liveExecutionReportsBusy: false,
   liveExecutionReportsError: "",
+  signalDesk: null,
+  signalDeskBusy: false,
+  signalDeskError: "",
 });
+
+export async function loadSignalDesk(day = "") {
+  if (store.signalDeskBusy) return null;
+  store.signalDeskBusy = true;
+  store.signalDeskError = "";
+  try {
+    const { response, data } = await fetchSignalDesk(day);
+    if (!response.ok || data.error) throw new Error(data.error || `读取信号台失败（HTTP ${response.status}）。`);
+    store.signalDesk = data;
+    return data;
+  } catch (error) {
+    store.signalDeskError = error instanceof Error ? error.message : "读取信号台失败。";
+    return null;
+  } finally {
+    store.signalDeskBusy = false;
+  }
+}
+
+export async function decideSignal(payload) {
+  const { response, data } = await recordSignalDecisionRequest(payload);
+  if (!response.ok || data.error) {
+    store.signalDeskError = data.error || `登记决定失败（HTTP ${response.status}）。`;
+    return false;
+  }
+  store.signalDesk = data;
+  return true;
+}
+
+export async function recordSignalExecution(payload) {
+  const { response, data } = await recordSignalExecutionRequest(payload);
+  if (!response.ok || data.error) {
+    store.signalDeskError = data.error || `登记成交失败（HTTP ${response.status}）。`;
+    return false;
+  }
+  store.signalDesk = data;
+  return true;
+}
 
 export const isAuthenticated = computed(() => Boolean(store.state?.auth?.authenticated));
 export const currentUser = computed(() => store.state?.auth?.current_user || null);
@@ -658,6 +701,8 @@ export async function logout() {
   store.dataQuality = null;
   store.liveExecutionReports = [];
   store.liveExecutionReportsError = "";
+  store.signalDesk = null;
+  store.signalDeskError = "";
 }
 
 export async function tick() {

@@ -25,6 +25,7 @@ from orbit.application.research.catalog import ResearchCatalogService
 from orbit.application.research.runs import CachedToolEvaluator, ResearchWorkflowService
 from orbit.application.runtime_events import RuntimeEventService
 from orbit.application.snapshot_queries import SnapshotQueryService
+from orbit.application.signals.desk import SignalDeskService
 from orbit.application.strategy_config import StrategyEventConfigService
 from orbit.application.strategy_catalog import StrategyCatalogService
 from orbit.application.strategy_control_plane import (
@@ -111,6 +112,7 @@ class ApplicationContainer:
     data_summary: Any
     research_catalog: Any
     research_workflow: Any
+    signal_desk: Any
     app_uow: Any
 
     def install(self, target: Any) -> None:
@@ -307,6 +309,18 @@ def build_application_container(
             ),
         ),
     )
+    signal_config = plan_runtime.get("signals", {})
+    signal_ledger_directory = Path(
+        str(signal_config.get("ledger_directory", "var/signals/sig1"))
+    )
+    if not signal_ledger_directory.is_absolute():
+        signal_ledger_directory = root / signal_ledger_directory
+    signal_interaction_directory = Path(
+        str(signal_config.get("interaction_ledger_directory", "var/signals/sig2"))
+    )
+    if not signal_interaction_directory.is_absolute():
+        signal_interaction_directory = root / signal_interaction_directory
+    signal_desk = SignalDeskService(signal_ledger_directory, signal_interaction_directory)
     trend_config = plan_runtime.get("trend_forward", {})
     live_control = live_pilot_control
     trend_data_dir = Path(str(trend_config.get("data_dir", "var/forward/tb4")))
@@ -526,5 +540,6 @@ def build_application_container(
         data_summary=data_summary,
         research_catalog=research_catalog,
         research_workflow=research_workflow,
+        signal_desk=signal_desk,
         app_uow=app_uow,
     )

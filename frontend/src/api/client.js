@@ -101,6 +101,20 @@ export function fetchLiveExecutionReports(limit = 50) {
   return getJson(`/api/live-execution/reports?limit=${encodeURIComponent(limit)}`);
 }
 
+export function fetchSignalDesk(day = "", limit = 200) {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (day) query.set("day", day);
+  return getJson(`/api/signals?${query}`);
+}
+
+export function recordSignalDecisionRequest(payload) {
+  return postJson("/api/signals/decisions", payload);
+}
+
+export function recordSignalExecutionRequest(payload) {
+  return postJson("/api/signals/executions", payload);
+}
+
 export async function postJson(path, payload = {}) {
   const response = await fetch(path, {
     method: "POST",

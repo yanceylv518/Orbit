@@ -47,6 +47,11 @@
       <path d="M14 8h5v5" />
       <path d="M4 21h16" />
     </template>
+    <template v-else-if="name === 'signals'">
+      <path d="M4 18 9 13l3 3 7-8" />
+      <circle cx="19" cy="8" r="2.2" />
+      <path d="M4 21h16" />
+    </template>
     <template v-else-if="name === 'symbol'">
       <path d="M8 5v3M8 16v3M8 8h-2.2v8H8V8ZM8 8h2.2v8H8" />
       <path d="M16 4v3M16 17v3M16 7h-2.2v10H16V7ZM16 7h2.2v10H16" />

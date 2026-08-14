@@ -196,6 +196,19 @@ def _signal(symbol, candles, signal_index, atr14, liquidity, *, family_id, direc
         "trend_strength_96": float(features["trend_strength"]),
         "median_daily_quote_volume_usdt": float(liquidity),
         "reason": reason,
+        # Freeze the observable chart at decision time.  This is deliberately
+        # limited to candles that had already closed when the signal fired.
+        "chart_before": [
+            {
+                "open_time_ms": int(row.open_time_ms),
+                "open": float(row.open),
+                "high": float(row.high),
+                "low": float(row.low),
+                "close": float(row.close),
+                "quote_volume": float(row.quote_volume),
+            }
+            for row in candles[max(0, signal_index - 47) : signal_index + 1]
+        ],
     }
 
 

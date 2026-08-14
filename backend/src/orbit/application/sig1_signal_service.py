@@ -65,6 +65,18 @@ class Sig1SignalService:
         if fresh:
             self._reconcile_daily_scope(fresh[0]["signal_day_utc"], processed_at)
         self._deliver_notifications(signal_day(signal_close_time_ms), processed_at)
+        state = self._state()
+        if int(signal_close_time_ms) not in state["completed_scan_times"]:
+            self.ledger.append(
+                self._event(
+                    "SCAN_COMPLETED",
+                    processed_at,
+                    signal_close_time_ms=int(signal_close_time_ms),
+                    market_window_count=len(market_windows),
+                    detected_signal_count=len(detected),
+                    new_signal_count=len(fresh),
+                )
+            )
         return {
             "signal_close_time_ms": int(signal_close_time_ms),
             "new_signal_count": len(fresh),
@@ -185,6 +197,18 @@ class Sig1SignalService:
                 "exit_reason": reason,
                 "gross_return_pct": pnl / entry_price * 100,
                 "realized_r": pnl / risk,
+                "chart_after": [
+                    {
+                        "open_time_ms": int(row.open_time_ms),
+                        "open": float(row.open),
+                        "high": float(row.high),
+                        "low": float(row.low),
+                        "close": float(row.close),
+                        "quote_volume": float(row.quote_volume),
+                    }
+                    for row in candles
+                    if int(opened["entry_time_ms"]) <= int(row.open_time_ms) <= int(candle.open_time_ms)
+                ],
             }
         return None
 
@@ -316,6 +340,7 @@ class Sig1SignalService:
         push_success_ids = set()
         push_terminal_ids = set()
         daily_scope_hashes = {}
+        completed_scan_times = set()
         for payload in payloads:
             event_type = payload.get("event_type")
             if event_type == "SIGNAL_DETECTED":
@@ -345,6 +370,8 @@ class Sig1SignalService:
                 push_terminal_ids.add(payload["signal_id"])
             elif event_type == "DAILY_SCOPE_RECONCILED":
                 daily_scope_hashes[payload["signal_day_utc"]] = payload["scope_sha256"]
+            elif event_type == "SCAN_COMPLETED":
+                completed_scan_times.add(int(payload["signal_close_time_ms"]))
         return {
             "payloads": payloads,
             "signals": signals,
@@ -353,6 +380,7 @@ class Sig1SignalService:
             "push_success_ids": push_success_ids,
             "push_terminal_ids": push_terminal_ids,
             "daily_scope_hashes": daily_scope_hashes,
+            "completed_scan_times": completed_scan_times,
         }
 
     @staticmethod

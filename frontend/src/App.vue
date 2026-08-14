@@ -81,6 +81,9 @@
           <template v-else-if="store.activePage === 'research'">
             <span class="pill">预注册 · 结果只追加</span>
           </template>
+          <template v-else-if="store.activePage === 'signals'">
+            <span class="pill">人工决策 · 不自动下单</span>
+          </template>
           <template v-else-if="store.activePage === 'forward'">
             <span class="pill">自动执行与核对</span>
           </template>
@@ -127,6 +130,7 @@ import AccountsPage from "./pages/AccountsPage.vue";
 import DataPage from "./pages/DataPage.vue";
 import ForwardPage from "./pages/ForwardPage.vue";
 import QuantPage from "./pages/QuantPage.vue";
+import SignalPage from "./pages/SignalPage.vue";
 import StrategyPage from "./pages/StrategyPage.vue";
 import {
   currentUser,
@@ -156,6 +160,7 @@ const navGroups = [
       { id: "data", label: "数据" },
       { id: "strategy", label: "策略与研究" },
       { id: "forward", label: "量化" },
+      { id: "signals", label: "信号" },
       { id: "accounts", label: "账户" },
     ],
   },
@@ -170,6 +175,7 @@ const pageComponents = {
   strategy: StrategyPage,
   accounts: AccountsPage,
   forward: QuantPage,
+  signals: SignalPage,
 };
 const activeComponent = computed(() => (
   store.activeRoute === "forward/legacy"
