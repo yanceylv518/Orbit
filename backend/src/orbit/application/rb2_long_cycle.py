@@ -74,12 +74,20 @@ def path_metrics(candles, entry_index, direction, entry_price, initial_r, horizo
         favorable = max(0.0, candles[high_index].high - entry_price)
         adverse = max(0.0, entry_price - candles[low_index].low)
         mfe_index = high_index
+        mae_index = low_index
     else:
         favorable = max(0.0, entry_price - candles[low_index].low)
         adverse = max(0.0, candles[high_index].high - entry_price)
         mfe_index = low_index
+        mae_index = high_index
     mfe_r, mae_r = favorable / initial_r, adverse / initial_r
-    return {"mfe_r": mfe_r, "mae_r": mae_r, "smoothness": mfe_r / max(mae_r, 1e-6), "mfe_bar": mfe_index - entry_index + 1}
+    return {
+        "mfe_r": mfe_r,
+        "mae_r": mae_r,
+        "smoothness": mfe_r / max(mae_r, 1e-6),
+        "mfe_bar": mfe_index - entry_index + 1,
+        "mae_bar": mae_index - entry_index + 1,
+    }
 
 
 def horizon_summary(rows: Sequence[Mapping[str, float]]) -> dict[str, Any]:

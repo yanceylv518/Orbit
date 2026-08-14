@@ -2,7 +2,7 @@
 
 生成日期：2026-08-14  
 机器报告：`rb2_long_cycle_v3_20260814.json`  
-机器报告 SHA-256：`0cf3b1fb93e22d9e05203b2aa8498ffa1eb9420a1fa4a3519769ad7ea96aae41`  
+机器报告 SHA-256：`bd24402f0708bc7d3f024998dedcd010aba1cdc9605e6f78e758e60a28e09f16`
 研究契约 SHA-256：`b724ed9b4c671dd1c35ba93b13f85ef3da2c8757efa5632cd17fb040783d088c`
 
 ## 先说结论

@@ -15,6 +15,7 @@ class RB2LongCycleTests(unittest.TestCase):
         data=rows(20); ex=future_extrema(data,8)
         result=path_metrics(data,1,"LONG",data[1].open,2,8,ex)
         self.assertEqual(result["mfe_bar"],8)
+        self.assertEqual(result["mae_bar"],1)
         self.assertGreaterEqual(result["smoothness"],0)
 
     def test_trend_uses_360_prior_4h_bars(self):
