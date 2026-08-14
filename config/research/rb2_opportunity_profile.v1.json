@@ -28,6 +28,17 @@
     "worst_event_removal_fractions": [0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.60],
     "best_event_retention_fractions": [0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.60],
     "descriptive_target_mean_pct": "0.3",
+    "long_horizon_candles": [96, 288, 960],
+    "smoothness_mae_floor_r": "0.000001",
+    "long_trend": {
+      "source_interval": "4h",
+      "ma_period": 50,
+      "return_days": [20, 60],
+      "up": "CLOSE_ABOVE_MA50_AND_RET20_GT_0_AND_RET60_GT_0",
+      "down": "CLOSE_BELOW_MA50_AND_RET20_LT_0_AND_RET60_LT_0",
+      "otherwise": "RANGE",
+      "uses_completed_bars_only": true
+    },
     "outcome_groups": ["TOP_10_PCT", "MIDDLE_80_PCT", "BOTTOM_10_PCT"],
     "observable_features": [
       "drop_depth_pct",
