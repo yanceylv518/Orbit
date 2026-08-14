@@ -65,8 +65,26 @@ class BinanceKlineFeed:
                 "low": float(row[3]),
                 "close": float(row[4]),
                 "volume": float(row[5]),
+                "quote_volume": float(row[7]),
             })
         return klines[-limit:]
+
+    def perpetual_symbols(self) -> list[str]:
+        request = Request(f"{self.base_url}/fapi/v1/exchangeInfo", method="GET")
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                raw = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            raise MarketFeedError(f"Exchange info HTTP {exc.code}") from exc
+        except URLError as exc:
+            raise MarketFeedError(f"Exchange info network error: {exc.reason}") from exc
+        return sorted(
+            str(row["symbol"])
+            for row in raw.get("symbols", [])
+            if row.get("status") == "TRADING"
+            and row.get("contractType") == "PERPETUAL"
+            and row.get("quoteAsset") == "USDT"
+        )
 
     def funding_rates(
         self,

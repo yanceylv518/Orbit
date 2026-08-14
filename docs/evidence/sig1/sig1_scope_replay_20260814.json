@@ -1,0 +1,23 @@
+{
+  "expected_rc0b_reference_event_counts": {
+    "BREAKOUT_MOMENTUM": 29311,
+    "OVERSOLD_REBOUND": 9183
+  },
+  "lockbox_data_read": false,
+  "lockbox_opened": false,
+  "protocol": "ORBIT_SIG1_RC0B_SCOPE_REFERENCE_V1",
+  "rc0b_reference_event_counts": {
+    "BREAKOUT_MOMENTUM": 29311,
+    "OVERSOLD_REBOUND": 9183
+  },
+  "reference_count_match": true,
+  "runtime_event_stream_source": "EVERY_COMPLETED_15M_CANDLE",
+  "runtime_reuses_research_position_suppression": false,
+  "sig1_spec_sha256": "cfa1bf88c78376fe1dddd975201df46489b76aeda6ec1a9ea4fb8d00c45b98ae",
+  "source_rc0b_report_sha256": "2ade73c64e25d30678b6c5ea151c9cf0a926378fb61529d0f32b7c5654be8a19",
+  "threshold_match": true,
+  "trend_strength_96_family_p90": {
+    "BREAKOUT_MOMENTUM": 9.94136807817591,
+    "OVERSOLD_REBOUND": 1.4637837227420296
+  }
+}

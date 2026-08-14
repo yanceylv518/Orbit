@@ -1,0 +1,83 @@
+{
+  "protocol": "ORBIT_SIG1_SIGNAL_SERVICE_V1",
+  "status": "FROZEN_MVP",
+  "frozen_at": "2026-08-14",
+  "source_rc0b_report_sha256": "2ade73c64e25d30678b6c5ea151c9cf0a926378fb61529d0f32b7c5654be8a19",
+  "event_stream_source": "EVERY_COMPLETED_15M_CANDLE",
+  "historical_reference": {
+    "source": "RC0B_DEDUPLICATED_RESEARCH_EVENT_POOL",
+    "purpose": "FREEZE_SCOPE_COUNTS_AND_NOTIFICATION_THRESHOLDS_ONLY",
+    "runtime_reuses_research_position_suppression": false
+  },
+  "market": {
+    "exchange": "BINANCE_USDT_PERPETUAL",
+    "signal_interval": "15m",
+    "completed_candles_only": true,
+    "minimum_simultaneously_eligible_markets": 3,
+    "liquidity": {
+      "minimum_median_daily_quote_volume_usdt": 200000000,
+      "lookback_complete_utc_days": 3
+    }
+  },
+  "signals": {
+    "BREAKOUT_MOMENTUM": {
+      "channel_lookback_candles": 32,
+      "volume_lookback_candles": 96,
+      "minimum_relative_quote_volume": "4.0",
+      "direction": "LONG_AND_SHORT_SYMMETRIC"
+    },
+    "OVERSOLD_REBOUND": {
+      "return_lookback_candles": 16,
+      "minimum_drop_fraction": "0.10",
+      "stabilization": "CLOSE_ABOVE_PREVIOUS_CLOSE_AND_NOT_BELOW_OPEN",
+      "direction": "LONG_ONLY"
+    }
+  },
+  "simulation": {
+    "entry": "NEXT_CANDLE_OPEN",
+    "atr_period": 14,
+    "initial_stop_atr_multiple": "2.0",
+    "maximum_holding_candles": 32,
+    "stop_gap_policy": "WORSE_OF_STOP_OR_CANDLE_OPEN",
+    "stop_precedes_time_exit_when_same_candle": true,
+    "every_signal_creates_trade": true,
+    "overlapping_virtual_trades_allowed": true
+  },
+  "workload": {
+    "daily_candidate_limit": 30,
+    "ranking": "DIRECTION_ALIGNED_TREND_STRENGTH_96_DESC",
+    "effect": "DISPLAY_WORKLOAD_ONLY",
+    "truncated_signals_still_recorded_and_simulated": true
+  },
+  "notifications": {
+    "provider": "PUSHOVER",
+    "enabled": true,
+    "daily_success_limit": 3,
+    "delivery": "IMMEDIATE_WHEN_THRESHOLD_QUALIFIES",
+    "wait_until_day_end": false,
+    "maximum_signal_age_ms": 1800000,
+    "maximum_attempts_per_signal": 3,
+    "trend_strength_window_candles": 96,
+    "threshold_source": "FAMILY_P90_WITHIN_FROZEN_SIG1_TRAINING_SCOPE",
+    "threshold_quantile_method": "LINEAR_INTERPOLATION_AT_INDEX_(N_MINUS_1)_TIMES_0.90",
+    "trend_strength_minimum_by_family": {
+      "BREAKOUT_MOMENTUM": "9.94136807817591",
+      "OVERSOLD_REBOUND": "1.4637837227420296"
+    },
+    "api_token_reference": "env:ORBIT_PUSHOVER_API_TOKEN",
+    "user_key_reference": "env:ORBIT_PUSHOVER_USER_KEY",
+    "credentials_must_use_vault": true
+  },
+  "persistence": {
+    "default_directory": "var/signals/sig1",
+    "format": "APPEND_ONLY_JSONL_SHA256_CHAIN",
+    "immutable_manifest": true
+  },
+  "discipline": {
+    "notification_is_side_effect_only": true,
+    "notification_failure_blocks_signal_or_simulation": false,
+    "account_positions_or_amounts_in_notification": false,
+    "live_trading_authorized": false,
+    "tb4_runtime_touched": false
+  }
+}
