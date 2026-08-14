@@ -209,3 +209,18 @@ def test_discipline_relaxation_waits_24_hours(tmp_path):
     result = service.request_discipline_change(setting="daily_loss_limit_r", value=-5, actor="admin")
     assert result["effective_at_ms"] == now + 24 * 60 * 60_000
     assert service.snapshot(day="2026-08-14")["operations"]["pending_discipline_changes"]
+
+
+def test_web_alerts_preserve_failure_history_and_mark_recovery(tmp_path):
+    service = _service(tmp_path)
+    service.set_service_enabled(enabled=True, actor="admin")
+    ledger = service._interaction_ledger()
+    ledger.append({"event_type": "SERVICE_SCAN_FAILED", "recorded_at_ms": 1786665700100, "error_type": "TimeoutError"})
+    failed = service.snapshot(day="2026-08-14")
+    scan_alert = next(row for row in failed["alerts"] if row["alert_id"].startswith("SERVICE_SCAN_FAILED"))
+    assert scan_alert["status"] == "ACTIVE"
+    assert failed["alert_summary"]["error"] >= 1
+    ledger.append({"event_type": "SERVICE_HEARTBEAT", "recorded_at_ms": 1786665700200, "status": "RUNNING"})
+    recovered = service.snapshot(day="2026-08-14")
+    scan_alert = next(row for row in recovered["alerts"] if row["alert_id"].startswith("SERVICE_SCAN_FAILED"))
+    assert scan_alert["status"] == "RECOVERED"

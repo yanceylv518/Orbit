@@ -64,6 +64,8 @@ class SignalDeskService:
             source["health"].update(
                 {"status": "LEDGER_ERROR", "error_type": type(exc).__name__, "error_scope": "SIG2_INTERACTIONS"}
             )
+            source["alerts"] = [self._alert("INTERACTION_LEDGER_ERROR", "CRITICAL", "账本", "人工留痕账本校验失败", "为保护证据，人工决定和成交入口已关闭。", self.clock_ms())]
+            source["alert_summary"] = self._alert_summary(source["alerts"])
             source["interaction_ledger"] = {"event_count": 0, "append_only": True}
             return source
         decisions: dict[str, dict[str, Any]] = {}
@@ -94,6 +96,8 @@ class SignalDeskService:
             row["action_block"] = ({"reason": "COOLDOWN_AFTER_STOP", "until_ms": cooldown["until_ms"]} if cooldown else ({"reason": "DAILY_LOSS_CIRCUIT", "until_ms": None} if source["discipline"]["circuit_breaker_active"] else None))
         source["review"] = self._review(all_rows)
         source["operations"] = self._operations(interactions, source["health"], all_rows)
+        source["alerts"] = self._alerts(source.pop("_source_alerts", []), interactions, source["health"], source["discipline"], source["operations"])
+        source["alert_summary"] = self._alert_summary(source["alerts"])
         source["interaction_ledger"] = {
             "event_count": len(interactions),
             "append_only": True,
@@ -304,6 +308,7 @@ class SignalDeskService:
             return payload
         signals: dict[str, dict[str, Any]] = {}; trades: dict[str, dict[str, Any]] = {}
         pushes: dict[str, dict[str, Any]] = {}; scopes: dict[str, dict[str, Any]] = {}; latest_scan = None
+        source_alerts: list[dict[str, Any]] = []
         latest_recorded_at_ms = None
         for record in records:
             event = record["payload"]; event_type = str(event.get("event_type", ""))
@@ -315,6 +320,7 @@ class SignalDeskService:
             elif event_type.startswith("PUSH_"): pushes[event["signal_id"]] = dict(event)
             elif event_type == "DAILY_SCOPE_RECONCILED": scopes[event["signal_day_utc"]] = dict(event)
             elif event_type == "SCAN_COMPLETED": latest_scan = dict(event)
+            if event_type in {"PUSH_FAILED", "PUSH_RETRY_EXHAUSTED", "PUSH_SUCCEEDED"}: source_alerts.append(self._public_event(event))
         scope = scopes.get(selected_day, {}); included = set(scope.get("included_signal_ids", [])); truncated = set(scope.get("truncated_signal_ids", []))
         rows = []
         for signal in signals.values():
@@ -322,7 +328,7 @@ class SignalDeskService:
             sid = signal["signal_id"]
             rows.append({**signal, "candidate_scope": "INCLUDED" if sid in included else "TRUNCATED" if sid in truncated else "PENDING_SCOPE", "simulation": self._public_event(trades.get(sid, {"status": "WAITING_ENTRY"})), "push": self._public_event(pushes.get(sid)) or None})
         rows.sort(key=lambda row: (-int(row.get("signal_time_ms", 0)), -float(row.get("trend_strength_96", 0)), str(row.get("signal_id", ""))))
-        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "error_type": None}, "_all_signals": rows}
+        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "error_type": None}, "_all_signals": rows, "_source_alerts": source_alerts}
 
     def _summary(self, rows):
         closed = [row for row in rows if row["simulation"].get("status") == "CLOSED"]
@@ -369,14 +375,63 @@ class SignalDeskService:
         pending = [self._public_event(event) for event in interactions if event.get("event_type") == "DISCIPLINE_CHANGE_REQUESTED" and int(event.get("effective_at_ms") or 0) > now]
         notifications = self.spec.get("notifications", {})
         market = self.spec.get("market", {})
+        bound_account_id = binding.get("account_id")
+        binding_conflict = bool(bound_account_id and any(row.get("exchange_account_id") == bound_account_id and row.get("status") in {"ACTIVE", "STOPPING"} for row in self.binding_reader()))
         return {
             "service": {"enabled": bool(control.get("enabled", False)), "running": bool(control.get("enabled", False)) and not stale, "last_scan_at_ms": latest_scan_ms, "market_data_fresh": not stale, "error_count": push_failures + int(health.get("status") == "LEDGER_ERROR")},
             "pushover": {"configured": bool(push.get("api_token_reference") and push.get("user_key_reference")), "enabled": bool(push.get("enabled", False)), "api_token_fingerprint": push.get("api_token_fingerprint"), "user_key_fingerprint": push.get("user_key_fingerprint"), "today_sent": sum((row.get("push") or {}).get("event_type") == "PUSH_SUCCEEDED" for row in rows), "daily_limit": notifications.get("daily_success_limit", 3)},
-            "binding": {"account_id": binding.get("account_id"), "optional": True, "purpose": "只用于真实成交自动配对，不参与信号扫描或模拟"},
+            "binding": {"account_id": bound_account_id, "optional": True, "conflict": binding_conflict, "purpose": "只用于真实成交自动配对，不参与信号扫描或模拟"},
             "parameters": {"liquidity_threshold_usdt": (market.get("liquidity") or {}).get("minimum_median_daily_quote_volume_usdt", 200000000), "candidate_limit": (self.spec.get("workload") or {}).get("daily_candidate_limit", 30), "push_thresholds": notifications.get("trend_strength_minimum_by_family", {}), "signal_interval": market.get("signal_interval", "15m")},
             "pending_discipline_changes": pending,
             "backup": {"required_paths": [str(self.ledger_directory), str(self.interaction_directory)]},
         }
+
+    def _alerts(self, source_events, interactions, health, discipline, operations):
+        alerts = []
+        latest_heartbeat = max((int(event.get("recorded_at_ms") or 0) for event in interactions if event.get("event_type") == "SERVICE_HEARTBEAT"), default=0)
+        latest_test_success = max((int(event.get("recorded_at_ms") or 0) for event in interactions if event.get("event_type") == "PUSHOVER_TEST_SUCCEEDED"), default=0)
+        push_success_by_signal = {}
+        for event in source_events:
+            if event.get("event_type") == "PUSH_SUCCEEDED":
+                push_success_by_signal[event.get("signal_id")] = max(int(event.get("recorded_at_ms") or 0), push_success_by_signal.get(event.get("signal_id"), 0))
+        for event in source_events:
+            if event.get("event_type") == "PUSH_SUCCEEDED": continue
+            recorded = int(event.get("recorded_at_ms") or 0); signal_id = str(event.get("signal_id") or "未知信号")
+            recovered = push_success_by_signal.get(event.get("signal_id"), 0) > recorded
+            exhausted = event.get("event_type") == "PUSH_RETRY_EXHAUSTED"
+            alerts.append(self._alert(f'{event.get("event_type")}:{signal_id}:{recorded}', "ERROR" if exhausted else "WARNING", "推送", "手机推送重试耗尽" if exhausted else "手机推送失败", f"信号 {signal_id} 未能发送到手机。", recorded, "RECOVERED" if recovered else "ACTIVE"))
+        for event in interactions:
+            kind = event.get("event_type"); recorded = int(event.get("recorded_at_ms") or 0)
+            if kind == "SERVICE_SCAN_FAILED":
+                alerts.append(self._alert(f"SERVICE_SCAN_FAILED:{recorded}", "ERROR", "服务", "信号扫描失败", f"扫描任务发生 {event.get('error_type') or '未知错误'}。", recorded, "RECOVERED" if latest_heartbeat > recorded else "ACTIVE"))
+            elif kind == "PUSHOVER_TEST_FAILED":
+                alerts.append(self._alert(f"PUSHOVER_TEST_FAILED:{recorded}", "WARNING", "推送", "测试通知失败", f"Pushover 返回 {event.get('error_type') or '未知错误'}。", recorded, "RECOVERED" if latest_test_success > recorded else "ACTIVE"))
+            elif kind == "OUTSIDE_SIGNAL_TRADE_DETECTED":
+                alerts.append(self._alert(f"OUTSIDE_SIGNAL_TRADE:{event.get('trade_id')}:{recorded}", "WARNING", "账户", "发现计划外交易", f"{event.get('symbol') or '未知标的'} 的成交或持仓未匹配到正式信号。", recorded))
+        now = self.clock_ms()
+        service = operations.get("service", {})
+        if service.get("enabled") and not service.get("market_data_fresh"):
+            alerts.append(self._alert("MARKET_DATA_STALE", "ERROR", "行情", "行情或扫描已超时", "最近 30 分钟没有新的成功扫描，请检查 Binance 网络与信号服务日志。", int(service.get("last_scan_at_ms") or now)))
+        if service.get("enabled") and not operations.get("pushover", {}).get("configured"):
+            alerts.append(self._alert("PUSHOVER_NOT_CONFIGURED", "WARNING", "推送", "手机推送尚未配置", "信号仍会进入网页，但无法发送到手机。", now))
+        binding = operations.get("binding", {})
+        if binding.get("conflict"):
+            alerts.append(self._alert("ACCOUNT_BINDING_CONFLICT", "CRITICAL", "账户", "成交对照账户与 TB4 冲突", f"账户 {binding.get('account_id')} 已被 TB4 使用，自动成交配对已停止。", now))
+        if discipline.get("circuit_breaker_active"):
+            alerts.append(self._alert("DISCIPLINE_CIRCUIT_BREAKER", "CRITICAL", "纪律", "当日交易熔断已触发", f"连续亏损 {discipline.get('consecutive_losses', 0)} 笔，当日累计 {discipline.get('daily_realized_r', 0):.2f}R。", now))
+        for cooldown in discipline.get("cooldowns", []):
+            alerts.append(self._alert(f'COOLDOWN:{cooldown["symbol"]}:{cooldown["direction"]}', "WARNING", "纪律", "止损后冷静期", f'{cooldown["symbol"]} {cooldown["direction"]} 在解禁前不能登记新交易。', now, "ACTIVE", cooldown.get("until_ms")))
+        alerts.sort(key=lambda row: (row["status"] != "ACTIVE", -int(row.get("recorded_at_ms") or 0)))
+        return alerts[:200]
+
+    @staticmethod
+    def _alert(alert_id, severity, category, title, message, recorded_at_ms, status="ACTIVE", until_ms=None):
+        return {"alert_id": alert_id, "severity": severity, "category": category, "title": title, "message": message, "recorded_at_ms": int(recorded_at_ms or 0), "status": status, "until_ms": until_ms}
+
+    @staticmethod
+    def _alert_summary(alerts):
+        active = [row for row in alerts if row.get("status") == "ACTIVE"]
+        return {"total": len(alerts), "active": len(active), "critical": sum(row.get("severity") == "CRITICAL" for row in active), "error": sum(row.get("severity") == "ERROR" for row in active), "warning": sum(row.get("severity") == "WARNING" for row in active)}
 
     def _signal(self, signal_id):
         if not (self.ledger_directory / "manifest.json").exists(): raise ValueError("信号服务尚不可用")
@@ -449,7 +504,7 @@ class SignalDeskService:
     def _events_for(self, signal_id): return [row for row in self._read_interactions() if row.get("signal_id") == signal_id]
 
     def _empty(self, day, status):
-        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": day, "health": {"status": status, "manifest_exists": False, "events_exists": False, "event_count": 0, "head_hash": None, "latest_recorded_at_ms": None, "latest_scan": None, "error_type": None}, "summary": {"signal_count": 0, "included_count": 0, "truncated_count": 0, "taken_count": 0, "skipped_count": 0, "undecided_count": 0, "open_count": 0, "closed_count": 0, "push_succeeded_count": 0, "realized_r_total": 0.0}, "discipline": {"stop_attached": "ENFORCED", "averaging_down": "BLOCKED", "cooldown_after_stop_minutes": 240, "cooldown_symbols": [], "outside_signal_trade": "BLOCKED", "outside_signal_count": 0}, "review": {}, "signals": []}
+        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": day, "health": {"status": status, "manifest_exists": False, "events_exists": False, "event_count": 0, "head_hash": None, "latest_recorded_at_ms": None, "latest_scan": None, "error_type": None}, "summary": {"signal_count": 0, "included_count": 0, "truncated_count": 0, "taken_count": 0, "skipped_count": 0, "undecided_count": 0, "open_count": 0, "closed_count": 0, "push_succeeded_count": 0, "realized_r_total": 0.0}, "discipline": {"stop_attached": "ENFORCED", "averaging_down": "BLOCKED", "cooldown_after_stop_minutes": 240, "cooldown_symbols": [], "outside_signal_trade": "BLOCKED", "outside_signal_count": 0}, "review": {}, "signals": [], "alerts": [], "alert_summary": {"total": 0, "active": 0, "critical": 0, "error": 0, "warning": 0}}
 
     @staticmethod
     def _public_event(event):
