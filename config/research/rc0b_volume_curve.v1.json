@@ -1,0 +1,76 @@
+{
+  "protocol": "ORBIT_RC0B_VOLUME_CURVE_V1",
+  "status": "FROZEN_DESCRIPTIVE_COUNT_DIAGNOSTIC",
+  "dataset_fingerprint": "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
+  "training_end_ms": 1735689599999,
+  "lockbox_start_ms": 1735689600000,
+  "source_rc0_report": "docs/evidence/rc0/rc0_funnel_v1_20260814.json",
+  "source_rc0_report_sha256": "0095357397cdd12929e5cf0366f03d50010f9bc721dd93ae1e80391bf8cd932f",
+  "source_event_count": 434558,
+  "event_identity": [
+    "FAMILY_ID",
+    "SYMBOL",
+    "SIGNAL_TIME_MS",
+    "DIRECTION"
+  ],
+  "source_pool": {
+    "BREAKOUT_MOMENTUM": {
+      "event_count": 406245,
+      "baseline_shape": {
+        "channel_lookback_candles": 32,
+        "minimum_relative_quote_volume": "1.5",
+        "volume_lookback_candles": 96
+      }
+    },
+    "OVERSOLD_REBOUND": {
+      "event_count": 28313,
+      "baseline_shape": "RC0_DEDUPLICATED_FROZEN_OVERSOLD_DEFINITION"
+    }
+  },
+  "liquidity": {
+    "measure": "MEDIAN_OF_PREVIOUS_3_COMPLETE_UTC_DAYS_QUOTE_VOLUME_USDT",
+    "minimum_qualified_contracts_per_snapshot": 3,
+    "thresholds_usdt": [
+      30000000,
+      100000000,
+      200000000,
+      500000000
+    ]
+  },
+  "breakout_shape_scan": {
+    "channel_lookback_candles": [
+      32,
+      96,
+      288
+    ],
+    "minimum_relative_quote_volume": [
+      "1.5",
+      "2.5",
+      "4.0"
+    ],
+    "relative_volume_denominator": "MEDIAN_PREVIOUS_96_COMPLETED_15M_CANDLES"
+  },
+  "oversold_shape_scan": "NONE_KEEP_FROZEN_SOURCE_POOL_DEFINITION",
+  "large_opportunity_reference": {
+    "horizon_candles": 960,
+    "minimum_mfe_r": "10",
+    "denominator": "LARGE_OPPORTUNITIES_IN_EACH_FAMILY_SOURCE_POOL_WITH_COMPLETE_960_CANDLE_LABEL"
+  },
+  "metrics": [
+    "MEAN_SIGNALS_PER_CALENDAR_DAY",
+    "MEAN_SIGNALS_PER_MONTH",
+    "MONTHLY_SIGNAL_COUNT_P90",
+    "MAX_SIGNALS_PER_DAY",
+    "MAX_SIGNALS_PER_MONTH",
+    "SIMULTANEOUSLY_ELIGIBLE_MARKETS_DAILY_DISTRIBUTION",
+    "RETAINED_10D_10R_LARGE_OPPORTUNITY_FRACTION"
+  ],
+  "discipline": {
+    "descriptive_counts_only": true,
+    "predictive_filter_added": false,
+    "selection_or_gate_effect": "NONE",
+    "lockbox_access": "PROHIBITED",
+    "user_selects_final_combination": true,
+    "live_or_automatic_trading_authorized": false
+  }
+}
