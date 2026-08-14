@@ -1,0 +1,42 @@
+{
+  "protocol": "ORBIT_RB2_OPPORTUNITY_PROFILE_V1",
+  "status": "FROZEN_DESCRIPTIVE_DIAGNOSTIC",
+  "dataset_fingerprint": "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
+  "training_end_ms": 1735689599999,
+  "lockbox_start_ms": 1735689600000,
+  "signal": {
+    "definition_id": "S1_DROP_STABILIZATION",
+    "direction": "LONG_ONLY",
+    "minimum_drop_fraction": "0.10",
+    "return_lookback_candles": [16, 32],
+    "r0_holding_candles": [8, 16]
+  },
+  "exit_profiles": [
+    "R0_FIXED_EXIT_2_ATR_STOP",
+    "RB1_ST_B_EX_B"
+  ],
+  "opportunity_profile": {
+    "r_multiple_quantiles": [0.50, 0.75, 0.90, 0.95, 0.99],
+    "r_touch_levels": [1, 2, 3, 5, 10],
+    "histogram_edges_r": [0, 0.5, 1, 2, 3, 5, 10],
+    "tail_fractions": [0.01, 0.05, 0.10, 0.20],
+    "outcome_groups": ["TOP_10_PCT", "MIDDLE_80_PCT", "BOTTOM_10_PCT"],
+    "observable_features": [
+      "drop_depth_pct",
+      "relative_quote_volume",
+      "volume_trend_3d",
+      "btc_same_window_return_pct",
+      "tier",
+      "utc_hour",
+      "listing_age",
+      "atr_relative_pct"
+    ]
+  },
+  "discipline": {
+    "descriptive_only": true,
+    "selection_or_gate_effect": "NONE",
+    "lockbox_access": "PROHIBITED",
+    "contains_threshold_or_verdict": false,
+    "live_or_automatic_trading_authorized": false
+  }
+}
