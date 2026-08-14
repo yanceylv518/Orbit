@@ -14,7 +14,7 @@ class RB2OpportunityProfileTests(unittest.TestCase):
 
     def test_four_profile_groups_are_complete(self):
         result = profile_events(self.rows())
-        self.assertEqual(set(result), {"event_count", "r_multiple_distribution", "tail_contribution", "frequency", "identifiability"})
+        self.assertEqual(set(result), {"event_count", "r_multiple_distribution", "tail_contribution", "selection_effort_curve", "frequency", "identifiability"})
         self.assertEqual(result["identifiability"]["group_counts"], {"TOP_10_PCT": 10, "MIDDLE_80_PCT": 80, "BOTTOM_10_PCT": 10})
         self.assertEqual(len(result["identifiability"]["features"]), 8)
         self.assertEqual(set(result["r_multiple_distribution"]["mfe_touch_rate"]), {"gte_1r", "gte_2r", "gte_3r", "gte_5r", "gte_10r"})
@@ -24,6 +24,13 @@ class RB2OpportunityProfileTests(unittest.TestCase):
         self.assertEqual(result["denominator"], "SUM_OF_POSITIVE_NET_RETURNS")
         self.assertEqual(set(result["contribution_share"]), {"top_1_pct", "top_5_pct", "top_10_pct", "top_20_pct"})
         self.assertEqual(result["sign_after_removing_top_10_pct"], "NEGATIVE")
+
+    def test_selection_effort_curve_is_hindsight_only_and_complete(self):
+        curve = profile_events(self.rows())["selection_effort_curve"]
+        self.assertTrue(curve["hindsight_only_difficulty_lower_bound"])
+        self.assertEqual(len(curve["remove_worst_curve"]), 8)
+        self.assertEqual(len(curve["retain_best_curve"]), 8)
+        self.assertEqual(curve["minimum_worst_removal_fraction_to_exceed_target"], .05)
 
     def test_output_is_descriptive_not_decisive(self):
         result = profile_events(self.rows())

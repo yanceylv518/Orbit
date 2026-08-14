@@ -15,11 +15,19 @@
     "R0_FIXED_EXIT_2_ATR_STOP",
     "RB1_ST_B_EX_B"
   ],
+  "comparison_family": {
+    "family_id": "BREAKOUT_MOMENTUM",
+    "frozen_parameter_combinations": 8,
+    "exit_profiles": ["R0_FIXED_EXIT_2_ATR_STOP"]
+  },
   "opportunity_profile": {
     "r_multiple_quantiles": [0.50, 0.75, 0.90, 0.95, 0.99],
     "r_touch_levels": [1, 2, 3, 5, 10],
     "histogram_edges_r": [0, 0.5, 1, 2, 3, 5, 10],
     "tail_fractions": [0.01, 0.05, 0.10, 0.20],
+    "worst_event_removal_fractions": [0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.60],
+    "best_event_retention_fractions": [0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.60],
+    "descriptive_target_mean_pct": "0.3",
     "outcome_groups": ["TOP_10_PCT", "MIDDLE_80_PCT", "BOTTOM_10_PCT"],
     "observable_features": [
       "drop_depth_pct",

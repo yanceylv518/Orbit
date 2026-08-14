@@ -64,6 +64,7 @@ def profile_events(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "event_count": len(rows),
         "r_multiple_distribution": _r_distribution(rows),
         "tail_contribution": _tail(rows),
+        "selection_effort_curve": _selection_effort(rows),
         "frequency": _frequency(rows),
         "identifiability": _identifiability(ranked),
     }
@@ -93,6 +94,24 @@ def _tail(rows):
     return {"denominator": "SUM_OF_POSITIVE_NET_RETURNS", "profit_pool_pct_points": profit_pool, "contribution_share": contributions, "mean_after_removing_top_10_pct": mean, "sign_after_removing_top_10_pct": "POSITIVE" if mean > 0 else ("NEGATIVE" if mean < 0 else "ZERO")}
 
 
+def _selection_effort(rows):
+    ordered = sorted(float(x["net_return_pct"]) for x in rows)
+    fractions = (.05, .10, .15, .20, .30, .40, .50, .60)
+    removal, retention = [], []
+    minimum = None
+    for fraction in fractions:
+        removed = math.ceil(len(ordered) * fraction)
+        kept = ordered[removed:]
+        mean = statistics.fmean(kept)
+        removal.append({"removed_worst_fraction": fraction, "remaining_event_count": len(kept), "remaining_mean_net_return_pct": mean})
+        if minimum is None and mean > .3:
+            minimum = fraction
+        count = max(1, math.ceil(len(ordered) * fraction))
+        best = ordered[-count:]
+        retention.append({"retained_best_fraction": fraction, "retained_event_count": len(best), "retained_mean_net_return_pct": statistics.fmean(best)})
+    return {"hindsight_only_difficulty_lower_bound": True, "descriptive_target_mean_pct": .3, "minimum_worst_removal_fraction_to_exceed_target": minimum, "remove_worst_curve": removal, "retain_best_curve": retention}
+
+
 def _frequency(rows):
     weeks, months, days, symbols = Counter(), Counter(), Counter(), Counter()
     for row in rows:
@@ -120,10 +139,14 @@ def _identifiability(rows):
 
 def _numeric(values):
     values = sorted(float(x) for x in values if x is not None)
+    if not values:
+        return {"count": 0, "mean": None, "p25": None, "p50": None, "p75": None, "p90": None}
     return {"count": len(values), "mean": statistics.fmean(values), "p25": _quantile(values, .25), "p50": _quantile(values, .5), "p75": _quantile(values, .75), "p90": _quantile(values, .9)}
 
 
 def _difference(summaries):
+    if summaries["TOP_10_PCT"]["mean"] is None or summaries["BOTTOM_10_PCT"]["mean"] is None:
+        return None
     return summaries["TOP_10_PCT"]["mean"] - summaries["BOTTOM_10_PCT"]["mean"]
 
 

@@ -91,7 +91,7 @@ def main() -> None:
         if [int(x["signal_time_ms"]) for x in r0_rows] != [int(x["signal_time_ms"]) for x in rb1_rows]:
             raise RuntimeError("RB-2 comparable signal identity differs between exits")
         for exit_id, rows in (("R0_FIXED_EXIT_2_ATR_STOP", r0_rows), ("RB1_ST_B_EX_B", rb1_rows)):
-            profiles.append({"parameter_id": parameter_id, "parameters": {"return_lookback_candles": lookback, "minimum_drop_fraction": "0.10", "holding_candles": holding}, "exit_profile": exit_id, "signal_identity": {"frozen_r0_source_event_count": source_count, "comparable_event_count": len(rows), "source_matches_frozen_r0": True, "same_signals_across_exit_profiles": True, "exclusion_reason": "RB1_32_CANDLE_PATH_UNAVAILABLE_OR_NONPOSITIVE_INITIAL_R"}, "profile": profile_events(rows)})
+            profiles.append({"family_id": "OVERSOLD_REBOUND", "parameter_id": parameter_id, "parameters": {"return_lookback_candles": lookback, "minimum_drop_fraction": "0.10", "holding_candles": holding}, "exit_profile": exit_id, "signal_identity": {"frozen_r0_source_event_count": source_count, "comparable_event_count": len(rows), "source_matches_frozen_r0": True, "same_signals_across_exit_profiles": True, "exclusion_reason": "RB1_32_CANDLE_PATH_UNAVAILABLE_OR_NONPOSITIVE_INITIAL_R"}, "profile": profile_events(rows)})
     report = {
         "protocol": "ORBIT_RB2_OPPORTUNITY_PROFILE_REPORT_V1",
         "purpose": "DESCRIBE_SEMI_AUTOMATIC_SIGNAL_OPPORTUNITIES_ONLY",
