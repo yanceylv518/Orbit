@@ -1,0 +1,82 @@
+{
+  "protocol": "ORBIT_RC0_FUNNEL_V1",
+  "status": "FROZEN_DESCRIPTIVE_DIAGNOSTIC",
+  "dataset_fingerprint": "dcb60c95ecd796e9ade32fcc8bf600a958ba7e88c47a2fdbd7d55569b56ca546",
+  "training_end_ms": 1735689599999,
+  "lockbox_start_ms": 1735689600000,
+  "source_joint_report_sha256": "c76ecd064770396c96d7c012fba66b67f32774889532fd800f6392ded40f2c0d",
+  "event_identity": [
+    "FAMILY_ID",
+    "SYMBOL",
+    "SIGNAL_TIME_MS",
+    "DIRECTION"
+  ],
+  "deduplicate_parameter_hits": true,
+  "families": [
+    "BREAKOUT_MOMENTUM",
+    "OVERSOLD_REBOUND"
+  ],
+  "feature_windows_candles": [
+    96,
+    288
+  ],
+  "outcome_horizons_candles": [
+    96,
+    288,
+    960
+  ],
+  "primary_large_opportunity": {
+    "horizon_candles": 960,
+    "minimum_mfe_r": "10"
+  },
+  "companion_large_opportunity": {
+    "minimum_mfe_r": "10",
+    "purpose": "SAME_MEASUREMENT_AT_1D_3D_10D_FOR_COMPARABILITY"
+  },
+  "features": {
+    "efficiency_ratio": "ABS(CLOSE_T_MINUS_CLOSE_T_MINUS_N)_DIV_SUM_ABS_CONSECUTIVE_CLOSE_CHANGES",
+    "direction_aligned_trend_strength": "DIRECTION_SIGN_X_CLOSE_T_MINUS_CLOSE_T_MINUS_N_DIV_ATR14",
+    "wickiness": "MEAN_UPPER_PLUS_LOWER_WICK_DIV_MAX_BODY_CLOSE_X_1E_MINUS_6",
+    "direction_sign": {
+      "LONG": 1,
+      "SHORT": -1
+    },
+    "completed_signal_candle_included": true,
+    "future_data_used": false
+  },
+  "filters": {
+    "EFFICIENCY_RATIO": "HIGHER_IS_BETTER",
+    "TREND_STRENGTH": "HIGHER_IS_BETTER",
+    "WICKINESS": "LOWER_IS_BETTER",
+    "COMBINED": "ALL_THREE_MARGINAL_REQUIREMENTS_MUST_HOLD"
+  },
+  "retained_fraction_scan": [
+    "0.50",
+    "0.20",
+    "0.10",
+    "0.05",
+    "0.02",
+    "0.01",
+    "0.005",
+    "0.002",
+    "0.001"
+  ],
+  "usable_workload_mean_signals_per_month": {
+    "minimum": 10,
+    "maximum": 30
+  },
+  "metrics": [
+    "MONTHLY_REMAINING_SIGNAL_COUNT",
+    "LARGE_OPPORTUNITY_RECALL",
+    "LARGE_OPPORTUNITY_PRECISION",
+    "ENRICHMENT"
+  ],
+  "discipline": {
+    "descriptive_only": true,
+    "selection_or_gate_effect": "NONE",
+    "lockbox_access": "PROHIBITED",
+    "thresholds_are_exploratory": true,
+    "independent_validation_required": true,
+    "live_or_automatic_trading_authorized": false
+  }
+}
