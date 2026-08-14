@@ -90,6 +90,27 @@ class CachedToolEvaluator:
         self._cancelled_runs: set[str] = set()
 
     def r0_status(self) -> dict[str, Any]:
+        manifest_path = self.shortline_root / "manifest.json"
+        if not manifest_path.exists():
+            contract_raw = self.r0_spec.read_bytes()
+            contract = json.loads(contract_raw)
+            return {
+                "protocol": contract["protocol"],
+                "contract_sha256": hashlib.sha256(contract_raw).hexdigest(),
+                "dataset_available": False,
+                "dataset_unavailable_reason": "SHORTLINE_DATASET_MANIFEST_NOT_FOUND",
+                "dataset_manifest_path": str(manifest_path),
+                "dataset_fingerprint": None,
+                "training_report_path": None,
+                "training_report": None,
+                "training_complete": False,
+                "training_passed": False,
+                "training_active": False,
+                "external_training": None,
+                "lockbox_opened": False,
+                "lockbox_report": None,
+                "lockbox_confirmation_phrase": "打开一次性锁箱",
+            }
         context = verify_frozen_context(self.r0_spec, self.shortline_root)
         training_path, training = self._latest_valid_training(context)
         external_training = self._active_external_training() if training is None else None
@@ -99,6 +120,9 @@ class CachedToolEvaluator:
         return {
             "protocol": context["contract"]["protocol"],
             "contract_sha256": context["contract_sha256"],
+            "dataset_available": True,
+            "dataset_unavailable_reason": None,
+            "dataset_manifest_path": str(self.shortline_root / "manifest.json"),
             "dataset_fingerprint": context["manifest"]["dataset_fingerprint"],
             "training_report_path": str(training_path) if training_path else None,
             "training_report": training,
@@ -791,6 +815,10 @@ class ResearchWorkflowService:
             if active:
                 raise RuntimeError("another research run is already active")
             status = self.evaluator.r0_status()
+            if not status.get("dataset_available", True):
+                raise RuntimeError(
+                    "DATA-1R research dataset is not available; build the dataset before starting R-0"
+                )
             if normalized == "training" and status.get("training_active"):
                 raise RuntimeError("R-0 training is already running outside the page")
             if normalized == "training" and status["training_complete"]:

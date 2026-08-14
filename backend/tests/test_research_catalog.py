@@ -317,6 +317,28 @@ class ResearchCatalogTests(unittest.TestCase):
         self.assertEqual(status["pid"], os.getpid())
         self.assertFalse(status["progress_available"])
 
+    def test_r0_status_is_structured_when_shortline_dataset_is_not_deployed(self):
+        evaluator = CachedToolEvaluator(BACKEND_ROOT.parent, self.calibration_dir)
+
+        status = evaluator.r0_status()
+
+        self.assertFalse(status["dataset_available"])
+        self.assertEqual(
+            status["dataset_unavailable_reason"],
+            "SHORTLINE_DATASET_MANIFEST_NOT_FOUND",
+        )
+        self.assertIsNone(status["dataset_fingerprint"])
+        self.assertFalse(status["training_complete"])
+        self.assertFalse(status["training_active"])
+
+    def test_r0_page_disables_training_when_dataset_is_not_deployed(self):
+        template = (BACKEND_ROOT.parent / "frontend" / "src" / "pages" / "ResearchPage.vue").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("r0Status?.dataset_available === false", template)
+        self.assertIn("全市场历史研究数据尚未部署", template)
+
     def test_r0_page_has_no_parameter_inputs(self):
         template = (BACKEND_ROOT.parent / "frontend" / "src" / "pages" / "ResearchPage.vue").read_text(
             encoding="utf-8"

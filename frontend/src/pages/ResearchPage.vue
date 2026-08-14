@@ -106,6 +106,10 @@
         />
       </div>
 
+      <div v-if="r0Status && r0Status.dataset_available === false" class="service-alert">
+        全市场历史研究数据尚未部署。当前可以查看已有研究档案，但不能启动短线筛查；请先到“数据”页面构建 DATA-1R 数据集。
+      </div>
+
       <div class="r0-identity-grid">
         <div><span>检验规则</span><strong>第二版 · 已冻结</strong><small class="mono">{{ shortHash(r0Status?.contract_sha256) }}</small></div>
         <div><span>历史数据</span><strong>{{ r0Status?.dataset_fingerprint ? '校验一致' : '等待校验' }}</strong><small class="mono">{{ shortHash(r0Status?.dataset_fingerprint) }}</small></div>
@@ -135,7 +139,7 @@
       <div class="r0-actions">
         <button
           class="button primary"
-          :disabled="Boolean(r0Active || r0Status?.training_active || r0Status?.training_complete || store.researchWorkflowBusy)"
+          :disabled="Boolean(r0Status?.dataset_available === false || r0Active || r0Status?.training_active || r0Status?.training_complete || store.researchWorkflowBusy)"
           @click="startR0Training"
         >{{ store.researchWorkflowBusy ? '正在提交…' : '按冻结规则启动训练' }}</button>
         <button v-if="r0Run?.job_type === 'r0_training' && r0Active" class="button danger" @click="stopR0Training">停止训练</button>

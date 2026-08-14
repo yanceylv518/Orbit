@@ -1264,6 +1264,8 @@ RC-0B 验收通过（`62b5e69`,`482 passed`,锁箱未碰,报告明确不代选�
 
 **SIG-1 完成记录（Codex，2026-08-14）：信号服务最小可用版已实现，尚未部署。** 已冻结 `ORBIT_SIG1_SIGNAL_SERVICE_V1`（配置 SHA-256 `cfa1bf88…b98ae`）：逐根已收盘 15m K 线扫描 3 日成交额中位数 ≥2 亿的 Binance USDT 永续市场，执行突破 `32根/4倍` 与超跌 `16根/跌10%后企稳` 两族定义；每个信号先进入只追加 SHA-256 哈希链，再建立次根开盘、`2×ATR14` 止损、最多 32 根退出的独立可重叠模拟单。每日 30 条只限制人工候选范围，被截断信号仍完整入账和模拟。Pushover 按同族趋势强度 p90 即时推送、成功上限 3 条/UTC 日，支持跨日重置、最多 3 次重试与 30 分钟过期；Token/User Key 仅允许 `env:/dpapi:/aesgcm:` 凭证库引用，失败只记旁路事件，不阻断信号或模拟账。RC-0B 参考池 `29,311/9,183` 条和两族 p90 已从本地训练证据复现，锁箱未打开、未读取；同时明确 RC-0B 的持仓期研究去重只用于工作量/门槛校准，运行时不作为隐藏信号门。证据 `docs/evidence/sig1/sig1_scope_replay_20260814.json`（SHA-256 `04670c5d…dbe8`），设计说明 `docs/design/SIG1_SIGNAL_SERVICE.md`。验收：SIG-1/K 线专项 `14 passed`，后端全量 `496 passed`（仅 2 条既有 Pydantic 弃用警告），`MODULAR_BASELINE_PASS`，TB4 受保护文件零改动。真实运行仍需后续部署到可访问 Binance 与 Pushover 的服务器，并注入凭证引用；SIG-1 不含 UI、不下真实订单。
 
+**生产兼容修复（Codex，2026-08-14）：** 首次把研究页面部署到未安装 DATA-1R 的生产主机时，`/api/research/r0` 因缺少 `shortline-data-v1/manifest.json` 返回非 JSON HTTP 500。现改为结构化返回 `dataset_available=false` 与稳定原因码，页面明确提示历史研究数据尚未部署并禁用 R-0 训练；既有研究档案、数据构建入口、TB4 与 SIG-1 均保持可用。专项 `20 passed`、后端全量 `498 passed`、前端 check/build 通过、`MODULAR_BASELINE_PASS`。
+
 ### 候选概念 RC-1：强势平滑上涨顺势入场（2026-08-14 用户提出,**待 RB-2 结果后正式预注册**）
 
 **用户原话**：「也可以不做回调买,就是选上涨趋势中的点买入,关键是判断此上涨趋势强势、上涨比较顺、没有大幅来回插针;这种机会可能很少,一个月一次甚至没有,那就做到尽可能低频。」
