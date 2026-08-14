@@ -70,6 +70,17 @@ def profile_events(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def identifiability_by_metric(events: Sequence[Mapping[str, Any]], metric: str) -> dict[str, Any]:
+    rows = sorted((dict(item) for item in events), key=lambda x: (float(x[metric]), int(x["signal_time_ms"]), str(x["symbol"])))
+    cut = max(1, math.ceil(len(rows) * .10))
+    for index, row in enumerate(rows):
+        row["outcome_group"] = "BOTTOM_10_PCT" if index < cut else ("TOP_10_PCT" if index >= len(rows) - cut else "MIDDLE_80_PCT")
+    result = _identifiability(rows)
+    result["ranking_metric"] = metric
+    result["multiple_testing_note"] = "TRAINING_SLICE_REQUIRES_INDEPENDENT_VALIDATION"
+    return result
+
+
 def _r_distribution(rows):
     mfe, final = sorted(float(x["mfe_r"]) for x in rows), sorted(float(x["final_return_r"]) for x in rows)
     edges = (0, .5, 1, 2, 3, 5, 10)

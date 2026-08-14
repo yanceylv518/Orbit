@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from orbit.application.rb2_opportunity_profile import profile_events
+from orbit.application.rb2_opportunity_profile import identifiability_by_metric, profile_events
 
 
 class RB2OpportunityProfileTests(unittest.TestCase):
@@ -38,6 +38,15 @@ class RB2OpportunityProfileTests(unittest.TestCase):
         for forbidden in ("verdict", "passed", "failed", "threshold"):
             self.assertNotIn(forbidden, text)
 
+    def test_identifiability_can_rank_by_smoothness(self):
+        rows = self.rows()
+        for index, row in enumerate(rows):
+            row["smoothness"] = float(index)
+        result = identifiability_by_metric(rows, "smoothness")
+        self.assertEqual(result["ranking_metric"], "smoothness")
+        self.assertEqual(result["group_counts"], {"TOP_10_PCT": 10, "MIDDLE_80_PCT": 80, "BOTTOM_10_PCT": 10})
+        self.assertEqual(result["multiple_testing_note"], "TRAINING_SLICE_REQUIRES_INDEPENDENT_VALIDATION")
+
     def test_report_contract_prohibits_lockbox_and_decision_fields(self):
         import json
         from pathlib import Path
@@ -52,6 +61,11 @@ class RB2OpportunityProfileTests(unittest.TestCase):
         self.assertNotIn("lockbox_end_ms", source)
         self.assertNotIn("confirm-open-lockbox", source)
         self.assertIn('maximum_time_ms=end_ms', source)
+
+        long_cycle_source = (Path(__file__).parents[1] / "tools/run_rb2_long_cycle.py").read_text()
+        self.assertNotIn("lockbox_end_ms", long_cycle_source)
+        self.assertNotIn("confirm-open-lockbox", long_cycle_source)
+        self.assertIn("maximum_time_ms=end", long_cycle_source)
 
 
 if __name__ == "__main__": unittest.main()
