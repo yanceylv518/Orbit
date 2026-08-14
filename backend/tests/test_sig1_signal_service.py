@@ -9,6 +9,7 @@ from orbit.application.sig1_signal_service import Sig1SignalService
 from orbit.domain.calibration.r0_shortline import ShortlineCandle
 from orbit.domain.signals.sig1 import detect_sig1_signals
 from orbit.infrastructure.persistence.signal_ledger import AppendOnlySignalLedger
+from backend.tools.run_sig1_signal_service import BinanceSig1Source
 
 
 MS = 900_000
@@ -109,7 +110,34 @@ class FakeNotifier:
         return {"request_id": f"request-{len(self.messages)}"}
 
 
+class FakeScanFeed:
+    def closed_klines(self, symbol, interval, limit):
+        return []
+
+
+class FakeScanService:
+    def required_symbols(self):
+        return {"TRACKUSDT"}
+
+    def process_closed_candle(self, windows, signal_close_time_ms, *, processed_at_ms):
+        return {"processed_market_count": len(windows)}
+
+
 class Sig1SignalServiceTests(unittest.TestCase):
+    def test_scan_once_counts_tracked_symbols_without_list_set_type_error(self):
+        source = BinanceSig1Source(FakeScanFeed(), spec(), FakeScanService(), clock=lambda: 1_000)
+        source._universe_day = "1970-01-01"
+        source._daily_volumes = {
+            symbol: [300_000_000, 310_000_000, 320_000_000]
+            for symbol in ("AAAUSDT", "BBBUSDT", "CCCUSDT")
+        }
+
+        result = source.scan_once()
+
+        self.assertEqual(result["qualified_market_count"], 3)
+        self.assertEqual(result["tracked_trade_symbol_count"], 1)
+        self.assertEqual(result["processed_market_count"], 4)
+
     def test_detector_matches_frozen_breakout_and_oversold_scope(self):
         target = 101 * MS - 1
         windows = {

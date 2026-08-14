@@ -144,8 +144,8 @@ class BinanceSig1Source:
             for symbol, values in self._daily_volumes.items()
             if len(values) == 3 and statistics.median(values) >= minimum
         }
-        symbols = sorted(qualified | self.service.required_symbols())
-        windows = self._intraday_windows(symbols, qualified)
+        symbol_set = qualified | self.service.required_symbols()
+        windows = self._intraday_windows(sorted(symbol_set), qualified)
         if len(qualified) >= int(self.spec["market"]["minimum_simultaneously_eligible_markets"]) and len(windows) < int(self.spec["market"]["minimum_simultaneously_eligible_markets"]):
             raise RuntimeError("Binance 15m market data is unavailable for the minimum eligible universe")
         close_time_ms = now_ms // INTERVAL_MS * INTERVAL_MS - 1
@@ -154,7 +154,7 @@ class BinanceSig1Source:
         )
         return result | {
             "qualified_market_count": len(qualified),
-            "tracked_trade_symbol_count": len(symbols - qualified),
+            "tracked_trade_symbol_count": len(symbol_set - qualified),
         }
 
     def _refresh_universe(self) -> None:
