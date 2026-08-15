@@ -44,6 +44,7 @@
 
     <div class="strategy-rules-grid">
       <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">02</span><h3>用到哪些指标</h3></div></div><dl class="plain-rule-list"><template v-for="row in definition.indicators" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl></article>
+      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">03</span><h3>参数取什么值</h3></div></div><dl class="plain-rule-list"><template v-for="row in definition.parameters" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl><div class="param-action"><button v-if="!isTrend" class="button ghost small" @click="setActivePage('signals')">去配置面板调整</button><p v-else class="muted">这些值与正在运行的自动交易绑定，页面上只读；调整需重新授权运行。</p></div></article>
       <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">04</span><h3>找信号之前排除什么</h3></div></div><ul class="human-rule-list"><li v-for="row in definition.before" :key="row">{{ row }}</li></ul></article>
       <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">05</span><h3>找到信号之后筛掉什么</h3></div></div><ul class="human-rule-list"><li v-for="row in definition.after" :key="row">{{ row }}</li></ul></article>
       <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">06</span><h3>怎样进场与出场</h3></div></div><ol class="entry-exit-list"><li v-for="row in definition.trading" :key="row">{{ row }}</li></ol></article>
@@ -55,8 +56,8 @@
     </article>
 
     <details class="panel strategy-tech-details">
-      <summary><span><span class="section-number">03</span><b>技术详情与参数</b><small>参数最后看；可调整的信号偏好统一去配置面板。</small></span><span>展开</span></summary>
-      <div class="tech-detail-body"><dl class="plain-rule-list"><template v-for="row in definition.parameters" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl><button v-if="!isTrend" class="button" @click="setActivePage('signals')">打开信号配置</button><p v-else class="muted">这套自动策略已与实际运行绑定。变更会改变正在执行的规则，因此当前页面只读。</p></div>
+      <summary><span><b>技术详情</b><small>供排查问题使用，日常无需关注。</small></span><span>展开</span></summary>
+      <div class="tech-detail-body"><dl class="plain-rule-list"><dt>策略编号</dt><dd>{{ slug }}</dd><dt>运行方式</dt><dd>{{ isTrend ? "自动执行" : "发出提醒，由你决定是否交易" }}</dd><dt>数据来源</dt><dd>Binance USDT 永续合约，仅使用已收盘 K 线</dd></dl></div>
     </details>
   </section>
 </template>
