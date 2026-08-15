@@ -1,4 +1,5 @@
 import { computed, reactive } from "vue";
+import { createCurrentMarketStream } from "../api/currentMarketStream.js";
 import {
   cancelResearchRunRequest,
   createResearchCandidateRequest,
@@ -9,6 +10,7 @@ import {
   fetchAppState,
   fetchDataQuality,
   fetchDataSummary,
+  fetchCurrentMarkets,
   fetchResearchCandidate,
   fetchResearchCandidates,
   fetchResearchDatasets,
@@ -37,6 +39,9 @@ import {
   bindSignalAccountRequest,
   resumeStoppedSymbolRequest,
 } from "../api/client.js";
+
+let currentMarketsNoticeTimer = null;
+let currentMarketStream = null;
 import { LEGACY_PAGE_ALIASES } from "../domain/labels.js";
 
 export const store = reactive({
@@ -64,6 +69,12 @@ export const store = reactive({
   dataBusy: false,
   dataCatalogLoadedAt: "",
   dataSummary: null,
+  currentMarkets: [],
+  currentMarketsUpdatedAt: "",
+  currentMarketsBusy: false,
+  currentMarketsError: "",
+  currentMarketsNotice: "",
+  currentMarketStreamStatus: "offline",
   dataQuality: null,
   dataQualityBusy: false,
   researchResultBusy: false,
@@ -385,6 +396,84 @@ export async function loadDataCatalog() {
   } finally {
     store.dataBusy = false;
   }
+}
+
+export async function loadCurrentMarkets(refresh = false) {
+  if (store.currentMarketsBusy) return false;
+  if (currentMarketsNoticeTimer) {
+    clearTimeout(currentMarketsNoticeTimer);
+    currentMarketsNoticeTimer = null;
+  }
+  store.currentMarketsBusy = true;
+  store.currentMarketsError = "";
+  store.currentMarketsNotice = refresh ? "正在从交易所刷新当前币种…" : "";
+  try {
+    const { response, data } = await fetchCurrentMarkets(refresh);
+    if (!response.ok || data.error || data.detail) throw new Error(data.error || data.detail || "读取当前币种失败");
+    store.currentMarkets = data.items || [];
+    store.currentMarketsUpdatedAt = data.updated_at || "";
+    store.currentMarketsNotice = refresh ? `刷新完成，共 ${store.currentMarkets.length.toLocaleString("zh-CN")} 个当前币种` : "";
+    if (refresh) {
+      currentMarketsNoticeTimer = setTimeout(() => {
+        store.currentMarketsNotice = "";
+        currentMarketsNoticeTimer = null;
+      }, 3000);
+    }
+    return true;
+  } catch (error) {
+    store.currentMarketsError = error instanceof Error ? error.message : "读取当前币种失败";
+    store.currentMarketsNotice = "";
+    return false;
+  } finally {
+    store.currentMarketsBusy = false;
+  }
+}
+
+export function connectCurrentMarketStream() {
+  if (currentMarketStream) return;
+  const rowsBySymbol = () => new Map(store.currentMarkets.map((row) => [row.symbol, row]));
+  currentMarketStream = createCurrentMarketStream({
+    onStatus(status) { store.currentMarketStreamStatus = status; },
+    onTicker(rows) {
+      const index = rowsBySymbol();
+      rows.forEach((ticker) => {
+        if (ticker.st !== undefined && Number(ticker.st) !== 1) return;
+        const row = index.get(ticker.s);
+        if (!row) return;
+        Object.assign(row, {
+          last_price: Number(ticker.c || 0),
+          change_24h_pct: Number(ticker.P || 0),
+          open_24h: Number(ticker.o || 0),
+          high_24h: Number(ticker.h || 0),
+          low_24h: Number(ticker.l || 0),
+          weighted_average_24h: Number(ticker.w || 0),
+          volume_24h_base: Number(ticker.v || 0),
+          volume_24h_usdt: Number(ticker.q || 0),
+          trade_count_24h: Number(ticker.n || 0),
+          ticker_updated_at_ms: Number(ticker.E || Date.now()),
+        });
+      });
+    },
+    onMarkPrice(rows) {
+      const index = rowsBySymbol();
+      rows.forEach((ticker) => {
+        if (ticker.st !== undefined && Number(ticker.st) !== 1) return;
+        const row = index.get(ticker.s);
+        if (!row) return;
+        Object.assign(row, {
+          mark_price: Number(ticker.p || 0),
+          index_price: Number(ticker.i || 0),
+          funding_rate: Number(ticker.r || 0),
+          next_funding_at_ms: Number(ticker.T || 0),
+        });
+      });
+    },
+  });
+}
+
+export function disconnectCurrentMarketStream() {
+  currentMarketStream?.stop();
+  currentMarketStream = null;
 }
 
 export async function loadDataQuality(kind = "halts", page = 1, pageSize = 50) {

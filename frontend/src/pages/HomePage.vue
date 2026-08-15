@@ -1,5 +1,4 @@
 <template><section class="page active dashboard-v2">
-  <div class="answer"><span class="eyebrow">首页</span><h2>系统正常吗？</h2><strong>{{ attentionCount ? `有 ${attentionCount} 件事需要处理` : "一切正常" }}</strong></div>
   <div class="metric-grid four"><MetricCard label="自动实盘" :value="liveOk ? '正常' : '需检查'"/><MetricCard label="信号扫描" :value="signalOk ? '正常' : '需检查'"/><MetricCard label="行情数据" :value="feedOk ? '正常' : '中断'"/><MetricCard label="消息" :value="store.messagesUnread" note="条未读"/></div>
   <div class="content-columns">
     <article v-if="attentionCount" class="panel"><h3>等你处理</h3><p v-if="store.messagesUnread">有 {{ store.messagesUnread }} 条未读消息。</p><p v-if="!feedOk">实时行情需要检查。</p><button class="button small" @click="$emit('messages')">查看消息</button></article>

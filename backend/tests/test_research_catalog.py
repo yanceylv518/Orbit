@@ -448,7 +448,7 @@ class ResearchCatalogTests(unittest.TestCase):
         self.assertEqual(cancelling["status"], "cancelling")
         self.assertIn(queued["id"], evaluator.cancelled)
 
-    def test_interrupted_run_is_failed_on_service_restart(self):
+    def test_interrupted_shortline_run_resumes_on_service_restart(self):
         created_at = "2026-07-14T00:00:00+00:00"
         self.run_ledger.append({
             "id": "run_interrupted",
@@ -458,18 +458,30 @@ class ResearchCatalogTests(unittest.TestCase):
             "protocol": "FETCH_KLINES",
             "status": "running",
             "progress": 10,
+            "request": {"confirm_full_download": True, "workers": 3},
             "created_at": created_at,
             "updated_at": created_at,
         })
 
-        ResearchWorkflowService(self.catalog, self.run_ledger, FakeEvaluator())
+        callbacks = []
+        ResearchWorkflowService(
+            self.catalog,
+            self.run_ledger,
+            FakeEvaluator(),
+            submitter=callbacks.append,
+        )
 
         recovered = self.run_ledger.get("run_interrupted")
-        self.assertEqual(recovered["status"], "failed")
-        self.assertIn("restarted", recovered["error"])
+        self.assertEqual(recovered["status"], "queued")
         self.assertTrue(recovered["resumable"])
-        self.assertEqual(recovered["phase"], "interrupted")
+        self.assertEqual(recovered["phase"], "restarting")
         self.assertEqual(recovered["progress"], 10)
+        self.assertEqual(len(callbacks), 1)
+
+        callbacks[0]()
+        completed = self.run_ledger.get("run_interrupted")
+        self.assertEqual(completed["status"], "succeeded")
+        self.assertEqual(completed["progress"], 100)
 
     def test_r0_training_progress_and_one_time_lockbox_guard(self):
         evaluator = FakeEvaluator()

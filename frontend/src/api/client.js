@@ -82,6 +82,7 @@ export function fetchR0GallerySamples(parameterId, filters = {}) {
 export function fetchDataSummary() {
   return getJson("/api/data/summary");
 }
+export function fetchCurrentMarkets(refresh = false) { return getJson(`/api/data/markets?refresh=${refresh ? "true" : "false"}`); }
 
 export function fetchDataQuality(kind = "halts", page = 1, pageSize = 50) {
   return getJson(

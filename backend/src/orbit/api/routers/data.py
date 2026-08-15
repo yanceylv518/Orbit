@@ -11,6 +11,14 @@ from orbit.application.data_summary import DataSummaryError
 router = APIRouter(prefix="/api/data", tags=["data"])
 
 
+@router.get("/markets")
+def markets(request: Request, refresh: bool = False, _user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return app_state(request).market_directory.current(refresh=refresh)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="当前市场数据暂时无法读取") from exc
+
+
 @router.get("/summary")
 def summary(request: Request, _user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     try:

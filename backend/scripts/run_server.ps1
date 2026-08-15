@@ -7,4 +7,11 @@ New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot "runtime") | O
 
 . (Join-Path $ScriptRoot "resolve_python.ps1")
 $Python = Get-OrbitPython -ProjectRoot $ProjectRoot
-& $Python (Join-Path $BackendRoot "main.py") *> (Join-Path $ProjectRoot "runtime\server.log")
+$LogPath = Join-Path $ProjectRoot "runtime\server.log"
+
+# Uvicorn writes normal lifecycle messages to stderr. Windows PowerShell turns
+# native stderr into error records when ErrorActionPreference is Stop, which
+# previously terminated an otherwise healthy server during startup.
+$ErrorActionPreference = "Continue"
+& $Python (Join-Path $BackendRoot "main.py") *> $LogPath
+exit $LASTEXITCODE

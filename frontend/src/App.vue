@@ -48,72 +48,18 @@
         </div>
       </nav>
 
-      <div class="operator-card">
-        <span>当前用户</span>
-        <strong>{{ currentUser ? `${currentUser.name} / ${currentUser.role}` : "-" }}</strong>
-        <small>{{ modeLabel(store.state?.strategy?.mode) }} · {{ statusLabel(store.state?.strategy?.status) }}</small>
-        <div class="operator-actions" v-if="store.state?.auth?.login_required !== false">
-          <button class="button ghost small" @click="logout">切换用户</button>
-          <button class="button ghost small" @click="logout">退出登录</button>
-        </div>
-      </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <div class="global-brand"><strong>ORBIT</strong></div>
-        <button class="global-status" :class="globalHealthy ? 'ok' : 'warn'" @click="setActivePage('forward')"><i></i>{{ globalHealthy ? '实盘与行情正常' : '系统需要检查' }}</button>
-        <div class="page-heading">
-          <span class="eyebrow">{{ pageMeta[0] }}</span>
-          <h1>{{ pageMeta[1] }}</h1>
-          <p>{{ pageMeta[2] }}</p>
-        </div>
-        <div class="toolbar">
+        <div class="topbar-title"><span v-if="pageMeta[0]" class="eyebrow">{{ pageMeta[0] }}</span><h1>{{ pageMeta[1] }}</h1></div>
+        <div class="topbar-right">
+          <button class="global-status" :class="globalHealthy ? 'ok' : 'warn'" @click="setActivePage('forward')"><i></i>{{ globalHealthy ? '实盘与行情正常' : '系统需要检查' }}</button>
           <button class="message-bell" aria-label="打开消息中心" @click="messagesOpen=true">🔔<b v-if="store.messagesUnread">{{store.messagesUnread}}</b></button>
-          <button class="button ghost" @click="glossaryOpen = true">术语帮助</button>
-          <button class="risk-pill" :class="riskStatusClass" @click="setActivePage('forward/live-small')" title="查看量化实例的风险与停止状态">
-            风控 {{ riskStatusText }}
-          </button>
-          <!-- 只读模式：第一阶段主动作；模拟模式：dry_run 控件 -->
-          <template v-if="store.activePage === 'strategy'">
-            <span class="pill">冻结定义 · 只读</span>
-          </template>
-          <template v-else-if="store.activePage === 'data'">
-            <span class="pill">历史研究数据 · 与实盘隔离</span>
-          </template>
-          <template v-else-if="store.activePage === 'research'">
-            <span class="pill">预注册 · 结果只追加</span>
-          </template>
-          <template v-else-if="store.activePage === 'signals'">
-            <span class="pill">人工决策 · 不自动下单</span>
-          </template>
-          <template v-else-if="store.activePage === 'forward'">
-            <span class="pill">自动执行与核对</span>
-          </template>
-          <template v-else-if="store.activePage === 'review'">
-            <span class="pill">只读复盘 · 不修改执行状态</span>
-          </template>
-          <template v-else-if="store.activePage === 'risk'">
-            <span class="pill" title="协议阶段：LIVE-SMALL">小资金实盘 · 30% 强制停机线</span>
-          </template>
-          <template v-else-if="store.activePage === 'accounts'">
-            <button class="button ghost" :disabled="store.syncAllBusy" @click="syncAllAccounts">
-              {{ store.syncAllBusy ? "同步中..." : "同步全部账户" }}
-            </button>
-          </template>
-          <template v-else-if="readOnlyMode">
-            <button class="button ghost" :disabled="store.syncAllBusy" @click="syncAllAccounts">
-              {{ store.syncAllBusy ? "同步中..." : "同步全部账户" }}
-            </button>
-            <button class="button" @click="generateExecutionPlans('')">生成执行计划</button>
-          </template>
-          <template v-else>
-            <span class="pill">Tick {{ store.state?.tick_index ?? "--" }}</span>
-            <button class="button ghost" @click="tick">执行 Tick</button>
-            <button class="button" @click="toggleRunning">{{ store.state?.running ? "暂停" : "启动" }}</button>
-            <button class="button danger" @click="resetRuntime">重置</button>
-          </template>
-          <button class="button ghost" v-if="store.state?.auth?.login_required !== false" @click="logout">退出登录</button>
+          <div ref="userMenuRef" class="user-menu-wrap">
+            <button class="user-menu-button" aria-label="用户菜单" @click="userMenuOpen = !userMenuOpen"><span class="user-avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.5-4.1 2.8-6.2 7-6.2s6.5 2.1 7 6.2"/></svg></span><span class="user-copy"><strong>{{ currentUser?.name || '用户' }}</strong></span><span class="user-chevron">⌄</span></button>
+            <div v-if="userMenuOpen" class="user-menu-popover"><div><span>当前账户</span><strong>{{ currentUser?.id || '-' }}</strong><small>{{ userRoleText }}</small></div><button v-if="store.state?.auth?.login_required !== false" class="button ghost small" @click="logout">退出登录</button></div>
+          </div>
         </div>
       </header>
 
@@ -121,7 +67,6 @@
 
       <component :is="activeComponent" v-if="store.state" @messages="messagesOpen=true" />
     </main>
-    <GlossaryModal :open="glossaryOpen" @close="glossaryOpen = false" />
     <MessageCenter :open="messagesOpen" @close="messagesOpen=false" />
   </div>
 </template>
@@ -129,7 +74,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import NavIcon from "./components/NavIcon.vue";
-import GlossaryModal from "./components/GlossaryModal.vue";
 import AccountsPage from "./pages/AccountsPage.vue";
 import DataPage from "./pages/DataPage.vue";
 import HomePage from "./pages/HomePage.vue";
@@ -148,26 +92,23 @@ import SignalPage from "./pages/SignalPage.vue";
 import StrategyPage from "./pages/StrategyPage.vue";
 import {
   currentUser,
-  generateExecutionPlans,
   isAuthenticated,
   loadState,
   loadMessages,
   logout,
-  resetRuntime,
   setActivePage,
   store,
-  syncAllAccounts,
-  tick,
-  toggleRunning,
 } from "./stores/appStore.js";
-import { LEGACY_PAGE_ALIASES, PAGE_META, modeLabel, statusLabel } from "./domain/labels.js";
+import { LEGACY_PAGE_ALIASES, PAGE_META } from "./domain/labels.js";
 import { login } from "./stores/appStore.js";
 
 const loginId = ref("admin_001");
 const password = ref("");
-const glossaryOpen = ref(false);
 const messagesOpen = ref(false);
+const userMenuOpen = ref(false);
+const userMenuRef = ref(null);
 let timer = null;
+let messageTimer = null;
 
 const navGroups = [
   {
@@ -184,11 +125,9 @@ const navGroups = [
   },
 ];
 
-const pageMeta = computed(() => PAGE_META[store.activePage] || PAGE_META.forward);
-const readOnlyMode = computed(() => store.state?.strategy?.mode === "read_only");
-const riskStatusText = computed(() => statusLabel(store.state?.strategy?.risk_status || "normal"));
-const riskStatusClass = computed(() => (store.state?.strategy?.risk_status === "normal" ? "ok" : "warn"));
 const globalHealthy = computed(() => !store.stateError && !store.state?.market_feed?.last_error && !store.state?.risk_state?.global_stop);
+const pageMeta = computed(() => PAGE_META[store.activePage] || PAGE_META.forward);
+const userRoleText = computed(() => ({ admin: "管理员", super_admin: "超级管理员" }[currentUser.value?.role] || "用户"));
 const pageComponents = {
   home: HomePage,
   data: DataPage,
@@ -227,17 +166,28 @@ function syncHash() {
   }
 }
 
+function closeUserMenu(event) {
+  if (event.type === "keydown" && event.key !== "Escape") return;
+  if (event.type === "pointerdown" && userMenuRef.value?.contains(event.target)) return;
+  userMenuOpen.value = false;
+}
+
 onMounted(() => {
   syncHash();
   loadState();
   loadMessages();
   window.addEventListener("hashchange", syncHash);
+  document.addEventListener("pointerdown", closeUserMenu);
+  document.addEventListener("keydown", closeUserMenu);
   timer = window.setInterval(loadState, 2500);
-  window.setInterval(loadMessages, 15000);
+  messageTimer = window.setInterval(loadMessages, 15000);
 });
 
 onUnmounted(() => {
   window.removeEventListener("hashchange", syncHash);
+  document.removeEventListener("pointerdown", closeUserMenu);
+  document.removeEventListener("keydown", closeUserMenu);
   window.clearInterval(timer);
+  window.clearInterval(messageTimer);
 });
 </script>

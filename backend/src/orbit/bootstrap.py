@@ -14,6 +14,7 @@ from orbit.application.credentials import CredentialService
 from orbit.application.data_summary import DataSummaryService
 from orbit.application.execution_plans import ExecutionPlanRefreshService, ExecutionPlanService
 from orbit.application.market_data import MarketFeedService
+from orbit.application.market_directory import MarketDirectoryService
 from orbit.application.message_center import MessageCenter
 from orbit.application.data_update_scheduler import DataUpdateScheduler
 from orbit.application.metrics import MetricHistoryService
@@ -114,6 +115,7 @@ class ApplicationContainer:
     strategy_control_plane_repository: Any
     strategy_control_plane_service: Any
     data_summary: Any
+    market_directory: Any
     research_catalog: Any
     research_workflow: Any
     signal_desk: Any
@@ -297,6 +299,10 @@ def build_application_container(
         run_ledger_path = root / run_ledger_path
     run_ledger = AppendOnlyResearchRunLedger(run_ledger_path)
     data_summary = DataSummaryService(calibration_dir / "shortline-data-v1")
+    market_directory = MarketDirectoryService(
+        base_url=str(feed_config.get("base_url", "https://fapi.binance.com")),
+        minimum_volume_usdt=float(research_config.get("current_market_minimum_volume_usdt", 30_000_000)),
+    )
     research_catalog = ResearchCatalogService(
         calibration_dir,
         AppendOnlyResearchRegistry(registry_path),
@@ -578,6 +584,7 @@ def build_application_container(
         strategy_control_plane_repository=strategy_control_plane_repository,
         strategy_control_plane_service=strategy_control_plane_service,
         data_summary=data_summary,
+        market_directory=market_directory,
         research_catalog=research_catalog,
         research_workflow=research_workflow,
         signal_desk=signal_desk,

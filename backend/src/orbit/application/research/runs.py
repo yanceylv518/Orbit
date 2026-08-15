@@ -18,7 +18,7 @@ from orbit.application.research.protocols import build_candidate, protocol_templ
 from orbit.application.research.candidates import canonical_json
 from orbit.application.r0_shortline_screen import validate_training_report, verify_frozen_context
 from orbit.application.r0_signal_gallery import R0SignalGalleryStore
-from orbit.infrastructure.persistence.dataset_job_lock import DatasetJobLock
+from orbit.infrastructure.persistence.dataset_job_lock import DatasetJobLock, DatasetJobLockBusy
 
 
 FETCH_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"}
@@ -1004,6 +1004,19 @@ class ResearchWorkflowService:
         for run in self.run_ledger.runs():
             if run["status"] not in ACTIVE_RUN_STATUSES:
                 continue
+            if run.get("job_type") == "shortline_dataset" and run["status"] != "cancelling":
+                recovered_at = now_iso()
+                self.run_ledger.append({
+                    **self._identity(run),
+                    "status": "queued",
+                    "phase": "restarting",
+                    "progress": int(run.get("progress") or 0),
+                    "resumable": True,
+                    "message": "服务已重启，正在从已完成文件继续任务",
+                    "updated_at": recovered_at,
+                })
+                self._submitter(lambda run_id=run["id"]: self._resume_shortline_after_restart(run_id))
+                continue
             recovered_at = now_iso()
             self.run_ledger.append({
                 **self._identity(run),
@@ -1016,6 +1029,51 @@ class ResearchWorkflowService:
                 "completed_at": recovered_at,
                 "updated_at": recovered_at,
             })
+
+    def _resume_shortline_after_restart(self, run_id: str) -> None:
+        deadline = time.monotonic() + 300
+        while True:
+            try:
+                reservation = self.evaluator.reserve_shortline_dataset(run_id)
+                break
+            except DatasetJobLockBusy:
+                if time.monotonic() >= deadline:
+                    self._fail_recovery(run_id, "旧的数据工作进程在 5 分钟内没有释放数据锁")
+                    return
+                time.sleep(1)
+            except Exception as exc:
+                self._fail_recovery(run_id, str(exc))
+                return
+        run = self.run_ledger.get(run_id)
+        if not run or run.get("status") not in ACTIVE_RUN_STATUSES:
+            self.evaluator.cancel_shortline_dataset(run_id)
+            return
+        resumed_at = now_iso()
+        self.run_ledger.append({
+            **self._identity(run),
+            "status": "queued",
+            "phase": "restarting",
+            "message": "数据锁已恢复，正在继续未完成阶段",
+            "updated_at": resumed_at,
+            **reservation,
+        })
+        self._execute(run_id)
+
+    def _fail_recovery(self, run_id: str, error: str) -> None:
+        run = self.run_ledger.get(run_id)
+        if not run:
+            return
+        failed_at = now_iso()
+        self.run_ledger.append({
+            **self._identity(run),
+            "status": "failed",
+            "phase": "interrupted",
+            "resumable": True,
+            "message": "服务重启后无法自动继续；已完成文件仍然保留",
+            "error": error[:2000],
+            "completed_at": failed_at,
+            "updated_at": failed_at,
+        })
 
     def _record_progress(self, run: dict[str, Any], detail: dict[str, Any]) -> None:
         timestamp = now_iso()
