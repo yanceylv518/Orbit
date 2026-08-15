@@ -72,6 +72,24 @@ def test_missing_signal_service_is_an_honest_empty_state(tmp_path):
     result = SignalDeskService(tmp_path / "sig1", tmp_path / "sig2").snapshot(day="2026-08-14")
     assert result["health"]["status"] == "NOT_DEPLOYED"
     assert result["signals"] == []
+    assert result["operations"]["parameters"] == {
+        "liquidity_threshold_usdt": 200000000,
+        "candidate_limit": 30,
+        "push_thresholds": {},
+        "signal_interval": "15m",
+    }
+
+
+def test_snapshot_projects_rolling_counts_and_recent_real_sample(tmp_path):
+    signals = [
+        _signal("recent", day="2026-08-14"),
+        _signal("within-window", day="2026-07-20"),
+        _signal("outside-window", day="2026-07-15"),
+    ]
+    result = _service(tmp_path, signals).snapshot(day="2026-08-14")
+    assert result["rolling_30d_by_family"]["BREAKOUT_MOMENTUM"] == 2
+    assert result["recent_samples_by_family"]["BREAKOUT_MOMENTUM"]["signal_id"] == "recent"
+    assert result["recent_samples_by_family"]["BREAKOUT_MOMENTUM"]["chart_before"]
 
 
 def test_taken_decision_requires_valid_stop_and_is_append_only(tmp_path):

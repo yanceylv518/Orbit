@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -328,7 +328,18 @@ class SignalDeskService:
             sid = signal["signal_id"]
             rows.append({**signal, "candidate_scope": "INCLUDED" if sid in included else "TRUNCATED" if sid in truncated else "PENDING_SCOPE", "simulation": self._public_event(trades.get(sid, {"status": "WAITING_ENTRY"})), "push": self._public_event(pushes.get(sid)) or None})
         rows.sort(key=lambda row: (-int(row.get("signal_time_ms", 0)), -float(row.get("trend_strength_96", 0)), str(row.get("signal_id", ""))))
-        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "error_type": None}, "_all_signals": rows, "_source_alerts": source_alerts}
+        selected_date = datetime.strptime(selected_day, "%Y-%m-%d").date()
+        rolling_cutoff = selected_date - timedelta(days=29)
+        rolling_30d_by_family: dict[str, int] = {}
+        recent_samples_by_family: dict[str, dict[str, Any]] = {}
+        for signal in sorted(signals.values(), key=lambda item: -int(item.get("signal_time_ms", 0))):
+            family = str(signal.get("family_id") or signal.get("family") or signal.get("type") or "")
+            signal_day = datetime.strptime(str(signal.get("signal_day_utc")), "%Y-%m-%d").date()
+            if rolling_cutoff <= signal_day <= selected_date:
+                rolling_30d_by_family[family] = rolling_30d_by_family.get(family, 0) + 1
+            if family and family not in recent_samples_by_family and signal.get("chart_before"):
+                recent_samples_by_family[family] = self._public_event(signal)
+        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "error_type": None}, "rolling_30d_by_family": rolling_30d_by_family, "recent_samples_by_family": recent_samples_by_family, "_all_signals": rows, "_source_alerts": source_alerts}
 
     def _summary(self, rows):
         closed = [row for row in rows if row["simulation"].get("status") == "CLOSED"]
@@ -504,7 +515,8 @@ class SignalDeskService:
     def _events_for(self, signal_id): return [row for row in self._read_interactions() if row.get("signal_id") == signal_id]
 
     def _empty(self, day, status):
-        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": day, "health": {"status": status, "manifest_exists": False, "events_exists": False, "event_count": 0, "head_hash": None, "latest_recorded_at_ms": None, "latest_scan": None, "error_type": None}, "summary": {"signal_count": 0, "included_count": 0, "truncated_count": 0, "taken_count": 0, "skipped_count": 0, "undecided_count": 0, "open_count": 0, "closed_count": 0, "push_succeeded_count": 0, "realized_r_total": 0.0}, "discipline": {"stop_attached": "ENFORCED", "averaging_down": "BLOCKED", "cooldown_after_stop_minutes": 240, "cooldown_symbols": [], "outside_signal_trade": "BLOCKED", "outside_signal_count": 0}, "review": {}, "signals": [], "alerts": [], "alert_summary": {"total": 0, "active": 0, "critical": 0, "error": 0, "warning": 0}}
+        health = {"status": status, "manifest_exists": False, "events_exists": False, "event_count": 0, "head_hash": None, "latest_recorded_at_ms": None, "latest_scan": None, "error_type": None}
+        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": day, "health": health, "summary": {"signal_count": 0, "included_count": 0, "truncated_count": 0, "taken_count": 0, "skipped_count": 0, "undecided_count": 0, "open_count": 0, "closed_count": 0, "push_succeeded_count": 0, "realized_r_total": 0.0}, "discipline": {"stop_attached": "ENFORCED", "averaging_down": "BLOCKED", "cooldown_after_stop_minutes": 240, "cooldown_symbols": [], "outside_signal_trade": "BLOCKED", "outside_signal_count": 0}, "review": {}, "signals": [], "operations": self._operations([], health, []), "alerts": [], "alert_summary": {"total": 0, "active": 0, "critical": 0, "error": 0, "warning": 0}}
 
     @staticmethod
     def _public_event(event):

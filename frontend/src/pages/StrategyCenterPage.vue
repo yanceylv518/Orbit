@@ -26,6 +26,16 @@
       </article>
     </div>
 
+    <article class="panel strategy-control-panel">
+      <div><span class="eyebrow">运行控制</span><h3>{{ runtimeStatus }}</h3><p class="muted">{{ isTrend ? '停止自动策略会立即关闭真钱执行闸门，模拟记录仍会保留。' : '这里只控制提醒扫描，不会自动下单。' }}</p></div>
+      <div v-if="isAdmin" class="action-row">
+        <button v-if="isTrend && trendLiveEnabled" class="button danger" :disabled="controlBusy" @click="stopTrend">停止自动策略</button>
+        <button v-else-if="isTrend" class="button" @click="setActivePage('forward')">前往实盘启用</button>
+        <button v-else class="button" :class="{ danger: signalEnabled }" :disabled="controlBusy" @click="toggleSignal">{{ signalEnabled ? '停用提醒' : '启用提醒' }}</button>
+      </div>
+      <p v-else class="muted">只有管理员可以启用或停用策略。</p>
+    </article>
+
     <article class="panel strategy-section">
       <div class="panel-head"><div><span class="section-number">01</span><h3>这个策略在找什么</h3></div><button class="button ghost small" @click="setActivePage(detailReplayRoute)">查看回放</button></div>
       <p class="strategy-lead">{{ definition.finds }}</p>
@@ -56,11 +66,13 @@ import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import MultiLineChart from "../components/MultiLineChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import StrategyPositionChart from "../components/StrategyPositionChart.vue";
-import { isAuthenticated, loadSignalDesk, loadStrategyCatalog, setActivePage, store } from "../stores/appStore.js";
+import { controlSignalService, isAdmin, isAuthenticated, loadSignalDesk, loadStrategyCatalog, post, setActivePage, store } from "../stores/appStore.js";
 
 const slug = computed(() => store.activeRoute.split('/')[1] || 'trend');
 const isTrend = computed(() => slug.value === 'trend' || slug.value === 'tb4');
-const signalEnabled = computed(() => Boolean(store.signalDesk?.service?.enabled ?? store.signalDesk?.service_enabled));
+const signalEnabled = computed(() => Boolean(store.signalDesk?.operations?.service?.enabled));
+const trendLiveEnabled = computed(() => Boolean(store.state?.live_execution?.enabled));
+const controlBusy = ref(false);
 const definitions = {
   trend: { name:'多周期趋势', kind:'自动策略', summary:'跟随多个市场的中长期方向，并按风险分配仓位。', finds:'寻找多个时间尺度方向一致、且风险可以被组合承受的上涨或下跌趋势。', success:'不同时间尺度多数同向，波动可控，组合中没有单一市场过重。', failure:'方向来回反转、多个时间尺度互相冲突，或组合风险已经过高。', indicators:[['趋势投票','分别观察五段历史的涨跌，多数意见决定方向。'],['近期波动','价格跳动越大，分到的仓位越小。'],['组合风险','把所有持仓放在一起检查，避免总体波动失控。']], before:['只使用已经收盘的 4 小时价格。','只看目录内可交易的永续合约。','数据未对齐或缺失时不产生新仓位。'], after:['总仓位价值不能超过账户资金。','单个市场按波动缩小权重。','账户回撤触及 30% 停止线时停止新增风险。'], trading:['每 7 天计算一次新的目标仓位。','下一根完整 4 小时周期按目标差额调整。','趋势转向时反向；没有方向时降为零仓位。','触及账户停止线时停止执行。'], parameters:[['观察周期','14 / 28 / 56 / 84 / 168 天'],['波动观察','28 天'],['调仓间隔','7 天'],['目标组合波动','年化 10%'],['总仓位上限','资金的 100%']], steps:[['收完一根 K 线','每 4 小时只读取已经结束的行情。'],['逐个判断方向','对每个市场分别询问五个时间尺度最近在涨还是在跌。'],['计算下周仓位','按投票方向和各市场波动大小分配权重。'],['统一调仓','每 7 天按新目标自动调整一次。'],['守住停止线','实盘按 3 倍风险投影运行，亏损触及 30% 时自动停止。']] },
   breakout: { name:'放量突破', kind:'信号策略', summary:'价格冲出近期区间且成交明显活跃时发出提醒。', finds:'寻找价格带着明显成交量突破近期高点的时刻。', success:'突破后价格站稳区间外，成交量同时放大。', failure:'只有瞬间刺穿、收盘回到区间内，或成交没有配合。', indicators:[['通道高点','近期价格曾到达的最高位置。'],['成交量比','当前成交量相对平时放大了多少。'],['趋势强度','判断突破是不是顺着更大的方向。'],['真实波幅','用近期日常波动决定止损距离。']], before:['市场仍可正常交易且数据连续。','大方向不能明显向下。','黑名单中的市场不参与。'], after:['同一天提醒达到上限后不再推送。','同一市场冷却期内不重复提醒。','多个机会同时出现时，优先保留更强的。'], trading:['信号后的下一根 K 线开盘作为计划进场。','止损放在按真实波幅计算的保护位置。','先触及止损则退出，否则到最长持有时间退出。'], parameters:[['回放与筛选值','由用户在信号配置面板设置'],['每日提醒上限','以当前配置为准'],['不可修改项','成交顺序与账本规则用于保证回放一致']], steps:[['等待收盘','只在一根完整 K 线结束后判断。'],['检查突破','确认价格是否真正离开近期区间。'],['检查成交','确认市场参与度同步放大。'],['排序提醒','通过过滤后按强弱保留机会。'],['跟踪结果','记录进场、止损与退出，供以后回放。']] },
@@ -81,6 +93,14 @@ const runtimeColor = computed(() => /运行中|已启用/.test(runtimeStatus.val
 const detailReplayRoute = computed(() => isTrend.value ? 'review' : 'signals');
 const pct = value => `${(Number(value || 0) * 100).toFixed(1)}%`;
 function refresh(){ loadStrategyCatalog(); loadSignalDesk(); }
+async function toggleSignal(){ controlBusy.value=true;try{await controlSignalService(!signalEnabled.value);await loadSignalDesk();}finally{controlBusy.value=false;} }
+async function stopTrend(){
+  if(!confirm('确认停止自动策略？这会关闭真钱执行，现有持仓不会在此页面自动平仓。'))return;
+  if(!confirm('再次确认：立即停止自动执行？'))return;
+  const reason=prompt('请填写停用原因，供以后查看。','管理员从策略详情页停用');
+  if(!reason?.trim())return;
+  controlBusy.value=true;try{await post('/api/admin/live-execution/emergency-stop',{reason:reason.trim()});}finally{controlBusy.value=false;}
+}
 onMounted(() => { if(isAuthenticated.value) refresh(); });
 watch(isAuthenticated, value => { if(value) refresh(); });
 </script>
