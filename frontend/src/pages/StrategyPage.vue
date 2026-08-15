@@ -6,10 +6,11 @@
       <div class="data-overview-metrics strategy-overview-metrics"><div><span>全部策略</span><strong>{{ cards.length }}</strong><small>套已配置规则</small></div><div><span>自动执行</span><strong>1</strong><small>机器负责调仓</small></div><div><span>推给你决定</span><strong>3</strong><small>你决定是否交易</small></div><div><span>今日信号</span><strong>{{ signals.length }}</strong><small>个已记录机会</small></div></div>
     </article>
     <div v-if="store.strategyCatalogError || store.signalDeskError" class="service-alert">{{ store.strategyCatalogError || store.signalDeskError }} <button class="button ghost small" @click="refresh">重试</button></div>
-    <section v-for="group in groups" :key="group.title" class="strategy-group">
+    <section v-for="group in groups" :key="group.title" class="panel strategy-group">
       <div class="strategy-group-head"><div><h3>{{ group.title }}</h3><p>{{ group.description }}</p></div><span>{{ group.items.length }} 套</span></div>
+      <div class="strategy-row-columns" aria-hidden="true"><span>策略与用途</span><span>最近形态</span><span>当前动态</span><span>状态</span></div>
       <div class="strategy-row-list">
-        <article v-for="item in group.items" :key="item.slug" class="panel strategy-directory-row">
+        <article v-for="item in group.items" :key="item.slug" class="strategy-directory-row">
           <div class="strategy-row-name"><span class="eyebrow">{{ item.kind }}</span><h3>{{ item.name }}</h3><p>{{ item.summary }}</p></div>
           <StrategyThumbnail :points="item.points" :signal="item.signal" :empty-text="item.emptyText" />
           <div class="strategy-row-dynamics"><span v-for="metric in item.metrics" :key="metric.label"><small>{{ metric.label }}</small><b>{{ metric.value }}</b></span></div>
