@@ -88,6 +88,9 @@ export function fetchDataQuality(kind = "halts", page = 1, pageSize = 50) {
     `/api/data/quality?kind=${encodeURIComponent(kind)}&page=${encodeURIComponent(page)}&page_size=${encodeURIComponent(pageSize)}`,
   );
 }
+export function fetchMessages() { return getJson("/api/messages?limit=100"); }
+export function readMessageRequest(id) { return postJson(`/api/messages/${encodeURIComponent(id)}/read`); }
+export function readAllMessagesRequest() { return postJson("/api/messages/read-all"); }
 
 export function fetchStrategies() {
   return getJson("/api/strategies");

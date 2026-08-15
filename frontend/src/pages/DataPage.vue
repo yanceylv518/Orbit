@@ -1,7 +1,12 @@
-<template>
-  <ResearchPage mode="data" />
-</template>
-
-<script setup>
-import ResearchPage from "./ResearchPage.vue";
-</script>
+<template><section class="page active data-v2">
+ <div class="answer"><span class="eyebrow">数据</span><h2>数据够新、够全吗？</h2><strong>{{ healthy ? '数据完整，可以使用' : '有数据问题需要检查' }}</strong></div>
+ <div class="metric-grid four"><MetricCard label="覆盖币种数" :value="summary?.contracts?.total ?? '—'"/><MetricCard label="更新到何时" :value="cutoff"/><MetricCard label="数据缺失情况" :value="healthy?'完整':'需检查'"/><MetricCard label="时间尺度" value="15分 / 1时 / 4时"/></div>
+ <div class="content-columns"><main>
+  <article class="panel"><div class="panel-head"><div><h3>历史数据仓</h3><p class="muted">全量历史保留在服务器，日常只增量更新。</p></div><button class="button" @click="start">检查并更新</button></div><div class="warehouse"><div><span>覆盖范围</span><strong>{{summary?.contracts?.total??'尚未生成'}} 个合约</strong></div><div><span>完整性</span><strong>{{healthy?'没有未解释缺口':'存在未解释缺口'}}</strong></div><div><span>最近成功</span><strong>{{cutoff}}</strong></div></div></article>
+  <article class="panel"><div class="panel-head"><div><h3>币种列表</h3><p class="muted">默认按 24 小时成交额降序；完整市场目录接入后自动显示。</p></div><div><select v-model="category"><option>全部分类</option><option>主流币</option><option>山寨币</option><option>股票类</option><option>大宗商品</option></select><select v-model="scope"><option>全部范围</option><option>扫描中</option><option>未扫描</option></select></div></div><div class="table-wrap"><table><thead><tr><th>币种</th><th>24小时成交额</th><th>上市时间</th><th>分类</th><th>扫描范围</th><th>近7天</th><th>长周期状态</th><th>数据完整性</th></tr></thead><tbody><tr v-if="!coins.length"><td colspan="8" class="muted">当前数据接口尚未提供逐币运营字段；历史数据仓与任务仍可正常使用，不展示虚构数据。</td></tr><tr v-for="coin in coins" :key="coin.symbol"><td>{{coin.symbol}}</td><td>{{coin.volume}}</td><td>{{coin.listed}}</td><td>{{coin.category}}</td><td>{{coin.scope}}</td><td>{{coin.change}}</td><td>{{coin.trend}}</td><td>{{coin.quality}}</td></tr></tbody></table></div></article>
+  <article v-if="activeRun" class="panel"><h3>后台任务</h3><p>{{activeRun.message}}</p><progress :value="activeRun.progress||0" max="100"/></article>
+  <article class="panel"><h3>最近历史任务</h3><p v-if="!recentRuns.length" class="muted">还没有历史任务。</p><p v-for="run in recentRuns" :key="run.id">{{run.message||run.status}}</p></article>
+ </main><aside class="panel coin-query"><h3>单币查询</h3><input v-model.trim="query" placeholder="输入币种，如 BTCUSDT"/><div class="mini-chart"><span v-if="!query">输入币种后查看走势与完整性</span><strong v-else>{{query.toUpperCase()}}</strong></div><p class="muted">支持查询列表外币种；无数据时明确提示，不使用演示走势。</p></aside></div>
+ <details class="panel"><summary>技术详情</summary><p class="mono">数据校验码：{{summary?.dataset_fingerprint||'—'}}</p></details>
+</section></template>
+<script setup>import { computed,onMounted,ref } from 'vue'; import MetricCard from '../components/MetricCard.vue'; import { startShortlineDatasetBuild, loadDataCatalog, store } from '../stores/appStore.js'; const query=ref(''); const category=ref('全部分类'); const scope=ref('全部范围'); const summary=computed(()=>store.dataSummary); const healthy=computed(()=>summary.value?.dataset_state==='COMPLETE'&&!summary.value?.quality?.unverified_missing_15m_candles); const cutoff=computed(()=>summary.value?.dataset_cutoff_ms?new Date(summary.value.dataset_cutoff_ms).toLocaleDateString('zh-CN'):'尚未生成'); const coins=computed(()=>summary.value?.coins||[]); const recentRuns=computed(()=>store.researchRuns.filter(x=>x.job_type==='shortline_dataset').slice(0,5)); const activeRun=computed(()=>recentRuns.value.find(x=>['queued','running','cancelling'].includes(x.status))); onMounted(loadDataCatalog); function start(){startShortlineDatasetBuild({confirm_full_download:true,workers:4})}</script>

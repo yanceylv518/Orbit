@@ -39,8 +39,8 @@
             v-for="item in group.items"
             :key="item.id"
             href="#"
-            :class="{ active: store.activePage === item.id }"
-            @click.prevent="setActivePage(item.id)"
+            :class="{ active: store.activeRoute === item.route || store.activeRoute.startsWith(`${item.route}/`) }"
+            @click.prevent="setActivePage(item.route)"
           >
             <NavIcon :name="item.id" />
             <span>{{ item.label }}</span>
@@ -61,12 +61,15 @@
 
     <main class="main">
       <header class="topbar">
+        <div class="global-brand"><strong>ORBIT</strong></div>
+        <button class="global-status" :class="globalHealthy ? 'ok' : 'warn'" @click="setActivePage('forward')"><i></i>{{ globalHealthy ? '实盘与行情正常' : '系统需要检查' }}</button>
         <div class="page-heading">
           <span class="eyebrow">{{ pageMeta[0] }}</span>
           <h1>{{ pageMeta[1] }}</h1>
           <p>{{ pageMeta[2] }}</p>
         </div>
         <div class="toolbar">
+          <button class="message-bell" aria-label="打开消息中心" @click="messagesOpen=true">🔔<b v-if="store.messagesUnread">{{store.messagesUnread}}</b></button>
           <button class="button ghost" @click="glossaryOpen = true">术语帮助</button>
           <button class="risk-pill" :class="riskStatusClass" @click="setActivePage('forward/live-small')" title="查看量化实例的风险与停止状态">
             风控 {{ riskStatusText }}
@@ -116,9 +119,10 @@
 
       <div v-if="store.stateError" class="service-alert">{{ store.stateError }}</div>
 
-      <component :is="activeComponent" v-if="store.state" />
+      <component :is="activeComponent" v-if="store.state" @messages="messagesOpen=true" />
     </main>
     <GlossaryModal :open="glossaryOpen" @close="glossaryOpen = false" />
+    <MessageCenter :open="messagesOpen" @close="messagesOpen=false" />
   </div>
 </template>
 
@@ -128,6 +132,16 @@ import NavIcon from "./components/NavIcon.vue";
 import GlossaryModal from "./components/GlossaryModal.vue";
 import AccountsPage from "./pages/AccountsPage.vue";
 import DataPage from "./pages/DataPage.vue";
+import HomePage from "./pages/HomePage.vue";
+import ResearchPage from "./pages/ResearchPage.vue";
+import DashboardPage from "./pages/DashboardPage.vue";
+import PlansPage from "./pages/PlansPage.vue";
+import SymbolPage from "./pages/SymbolPage.vue";
+import RiskPage from "./pages/RiskPage.vue";
+import ReportsPage from "./pages/ReportsPage.vue";
+import LogsPage from "./pages/LogsPage.vue";
+import ReviewPage from "./pages/ReviewPage.vue";
+import MessageCenter from "./components/MessageCenter.vue";
 import ForwardPage from "./pages/ForwardPage.vue";
 import QuantPage from "./pages/QuantPage.vue";
 import SignalPage from "./pages/SignalPage.vue";
@@ -137,6 +151,7 @@ import {
   generateExecutionPlans,
   isAuthenticated,
   loadState,
+  loadMessages,
   logout,
   resetRuntime,
   setActivePage,
@@ -151,17 +166,20 @@ import { login } from "./stores/appStore.js";
 const loginId = ref("admin_001");
 const password = ref("");
 const glossaryOpen = ref(false);
+const messagesOpen = ref(false);
 let timer = null;
 
 const navGroups = [
   {
     label: "",
     items: [
-      { id: "data", label: "数据" },
-      { id: "strategy", label: "策略与研究" },
-      { id: "forward", label: "量化" },
-      { id: "signals", label: "信号" },
-      { id: "accounts", label: "账户" },
+      { id: "home", route: "home", label: "首页" },
+      { id: "forward", route: "forward", label: "实盘" },
+      { id: "signals", route: "signals", label: "信号" },
+      { id: "strategy", route: "strategy", label: "策略" },
+      { id: "research", route: "research", label: "研究" },
+      { id: "data", route: "data", label: "数据" },
+      { id: "accounts", route: "accounts", label: "账户" },
     ],
   },
 ];
@@ -170,12 +188,22 @@ const pageMeta = computed(() => PAGE_META[store.activePage] || PAGE_META.forward
 const readOnlyMode = computed(() => store.state?.strategy?.mode === "read_only");
 const riskStatusText = computed(() => statusLabel(store.state?.strategy?.risk_status || "normal"));
 const riskStatusClass = computed(() => (store.state?.strategy?.risk_status === "normal" ? "ok" : "warn"));
+const globalHealthy = computed(() => !store.stateError && !store.state?.market_feed?.last_error && !store.state?.risk_state?.global_stop);
 const pageComponents = {
+  home: HomePage,
   data: DataPage,
   strategy: StrategyPage,
   accounts: AccountsPage,
   forward: QuantPage,
   signals: SignalPage,
+  research: ResearchPage,
+  dashboard: DashboardPage,
+  plans: PlansPage,
+  symbol: SymbolPage,
+  risk: RiskPage,
+  reports: ReportsPage,
+  logs: LogsPage,
+  review: ReviewPage,
 };
 const activeComponent = computed(() => (
   store.activeRoute === "forward/legacy"
@@ -189,10 +217,10 @@ async function submitLogin() {
 }
 
 function syncHash() {
-  const raw = location.hash.replace("#", "") || "forward";
+  const raw = location.hash.replace("#", "") || "home";
   const route = LEGACY_PAGE_ALIASES[raw] || raw;
   const base = route.split("/")[0];
-  if (PAGE_META[base]) {
+  if (pageComponents[base]) {
     setActivePage(route);
   } else {
     setActivePage("forward");
@@ -202,8 +230,10 @@ function syncHash() {
 onMounted(() => {
   syncHash();
   loadState();
+  loadMessages();
   window.addEventListener("hashchange", syncHash);
   timer = window.setInterval(loadState, 2500);
+  window.setInterval(loadMessages, 15000);
 });
 
 onUnmounted(() => {

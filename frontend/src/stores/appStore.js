@@ -23,6 +23,9 @@ import {
   fetchStrategy,
   fetchLiveExecutionReports,
   fetchSignalDesk,
+  fetchMessages,
+  readMessageRequest,
+  readAllMessagesRequest,
   loginRequest,
   logoutRequest,
   postJson,
@@ -77,7 +80,13 @@ export const store = reactive({
   signalDesk: null,
   signalDeskBusy: false,
   signalDeskError: "",
+  messages: [],
+  messagesUnread: 0,
 });
+
+export async function loadMessages() { const {response,data}=await fetchMessages(); if(response.ok&&!data.error){store.messages=data.items||[];store.messagesUnread=data.unread_count||0;} }
+export async function markMessageRead(id) { const {response,data}=await readMessageRequest(id); if(response.ok&&!data.error){await loadMessages();} }
+export async function markAllMessagesRead() { const {response}=await readAllMessagesRequest(); if(response.ok) await loadMessages(); }
 
 export async function loadSignalDesk(day = "") {
   if (store.signalDeskBusy) return null;

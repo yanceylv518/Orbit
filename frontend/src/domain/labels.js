@@ -1,9 +1,10 @@
 export const PAGE_META = {
+  home: ["首页", "系统正常吗？", "只显示需要行动的事情和今天最重要的结果。"],
   strategy: ["策略与研究", "我们为什么相信这套方法？", "查看正式策略、研究证据和从想法到上线的完整过程。"],
   dashboard: ["概览", "现在有什么要处理？", "从账户同步到计划确认，按顺序检查每个环节。"],
   accounts: ["账户", "钱和交易权限接在哪里？", "管理用户、交易账户、API 凭证和连接状态。"],
   data: ["数据", "研究数据准备好了吗？", "检查历史覆盖、数据质量和构建任务；这里不控制实盘行情。"],
-  research: ["研究", "量价关系真的存在吗？", "先验证关系是否稳定成立，再讨论具体入场信号和策略组合。"],
+  research: ["研究", "哪些方向值得继续验证？", "保留现有研究页面与流程，本批不改其内容。"],
   forward: ["量化", "系统现在正常吗？", "先看运行结论，再进入实例或复盘核对细节。"],
   signals: ["信号", "今天有值得出手的信号吗？", "查看真实信号、登记做或不做，并对比模拟结果与实际成交。"],
   plans: ["计划", "这次准备怎么调仓？", "先看动作和风险检查，再决定是否确认。"],
@@ -16,15 +17,7 @@ export const PAGE_META = {
 // 已移除页面和旧路由锚点统一回到仍在维护的页面。
 export const LEGACY_PAGE_ALIASES = {
   live: "forward",
-  dashboard: "forward",
-  plans: "forward",
-  symbol: "strategy",
-  reports: "forward/review",
-  research: "strategy/research",
-  events: "forward",
-  review: "forward/review",
-  risk: "forward/live-small",
-  logs: "forward/review",
+  events: "logs",
 };
 
 const ENUM_LABELS = {

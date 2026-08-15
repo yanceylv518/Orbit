@@ -14,6 +14,8 @@ from orbit.application.credentials import CredentialService
 from orbit.application.data_summary import DataSummaryService
 from orbit.application.execution_plans import ExecutionPlanRefreshService, ExecutionPlanService
 from orbit.application.market_data import MarketFeedService
+from orbit.application.message_center import MessageCenter
+from orbit.application.data_update_scheduler import DataUpdateScheduler
 from orbit.application.metrics import MetricHistoryService
 from orbit.application.live_reconciliation import LiveReconciliationService
 from orbit.application.live_execution import LiveExecutionService
@@ -115,6 +117,8 @@ class ApplicationContainer:
     research_catalog: Any
     research_workflow: Any
     signal_desk: Any
+    message_center: Any
+    data_update_scheduler: Any
     app_uow: Any
 
     def install(self, target: Any) -> None:
@@ -333,6 +337,29 @@ def build_application_container(
         binding_reader=lambda: strategy_control_plane_service.bindings(),
         gateway_factory=lambda account: BinanceFuturesClient.from_account(account, credential_vault),
         spec=signal_spec,
+    )
+    message_directory = root / str(plan_runtime.get("messages", {}).get("directory", "var/messages"))
+    push = signal_config.get("pushover", {})
+    message_notifier = None
+    if push.get("api_token_reference") and push.get("user_key_reference"):
+        message_notifier = PushoverNotifier(
+            credential_vault,
+            api_token_reference=push["api_token_reference"],
+            user_key_reference=push["user_key_reference"],
+        )
+    message_center = MessageCenter(
+        message_directory,
+        notifier=message_notifier,
+        push_important=bool(plan_runtime.get("messages", {}).get("push_important", False)),
+    )
+
+    def start_daily_data_job() -> Any:
+        return research_workflow.create_shortline_dataset_build(
+            {"confirm_full_download": True, "workers": 4}
+        )
+
+    data_update_scheduler = DataUpdateScheduler(
+        start_daily_data_job, message_center, state_path=message_directory / "data_update_state.json"
     )
     trend_config = plan_runtime.get("trend_forward", {})
     live_control = live_pilot_control
@@ -554,5 +581,7 @@ def build_application_container(
         research_catalog=research_catalog,
         research_workflow=research_workflow,
         signal_desk=signal_desk,
+        message_center=message_center,
+        data_update_scheduler=data_update_scheduler,
         app_uow=app_uow,
     )
