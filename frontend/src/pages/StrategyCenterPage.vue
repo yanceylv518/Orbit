@@ -2,84 +2,85 @@
   <section class="page active strategy-detail-page">
     <div class="page-toolbar quant-toolbar">
       <div>
-        <button class="text-link back-link" @click="setActivePage('strategy')">← 返回策略与研究</button>
-        <span class="eyebrow">正式策略</span>
-        <h2>{{ strategy?.name || "TB4 趋势篮子" }}</h2>
-        <p>{{ strategy?.summary || "正在读取正式策略说明…" }}</p>
+        <button class="text-link back-link" @click="setActivePage('strategy')">← 返回全部策略</button>
+        <span class="eyebrow">{{ definition.kind }}</span>
+        <h2>{{ definition.name }}</h2>
+        <p>{{ definition.summary }}</p>
       </div>
-      <StatusBadge v-if="strategy" :text="phaseText(strategy.lifecycle.primary)" :color="phaseColor(strategy.lifecycle.primary)" />
+      <StatusBadge :text="runtimeStatus" :color="runtimeColor" />
     </div>
 
-    <div v-if="store.strategyCatalogError" class="service-alert">{{ store.strategyCatalogError }} <button class="button ghost small" @click="loadStrategyCatalog">重试</button></div>
-    <div v-else-if="!strategy" class="panel empty-state">{{ store.strategyCatalogBusy ? "正在读取正式策略…" : "当前没有可展示的正式策略。" }}</div>
-
-    <template v-else>
-      <div class="review-answer-strip strategy-status-strip">
-        <div><span>交易什么</span><strong>{{ strategy.spec.symbols.length }} 个永续合约</strong></div>
-        <div><span>依据什么</span><strong>趋势强弱与波动风险</strong></div>
-        <div><span>多久调整</span><strong>每 {{ strategy.display.rebalance_days }} 天</strong></div>
-        <div><span>现在在哪一步</span><strong>{{ phaseText(strategy.lifecycle.primary) }}</strong></div>
-      </div>
-
-      <article class="panel strategy-process-panel">
-        <div class="panel-head"><div><h3>这套策略是怎样工作的？</h3><p class="muted">按真实决策顺序解释，不用内部编号和文件校验码。</p></div></div>
-        <ol class="strategy-five-answers">
-          <li>
-            <span>第一步</span><div><h4>观察市场</h4><p>使用 Binance 永续合约的历史价格与资金费率；15 分钟数据统一生成 1 小时和 4 小时序列。</p></div>
-          </li>
-          <li>
-            <span>第二步</span><div><h4>判断方向</h4><p>比较不同时间长度的价格趋势，决定每个市场偏多、偏空或不持仓。</p></div>
-          </li>
-          <li>
-            <span>第三步</span><div><h4>控制每个市场的分量</h4><p>波动大的市场分配更小仓位，避免某个市场独自决定组合结果。</p></div>
-          </li>
-          <li>
-            <span>第四步</span><div><h4>形成组合并定期调整</h4><p>组合目标波动程度为 {{ strategy.display.target_portfolio_vol_pct }}%，仓位总价值不超过资金的 {{ strategy.display.gross_cap_pct }}%，每 {{ strategy.display.rebalance_days }} 天统一调整。</p></div>
-          </li>
-          <li>
-            <span>第五步</span><div><h4>先模拟观察，再受控实盘</h4><p>冻结规则先在未来行情中持续计分；进入小资金实盘后仍与模拟基准并行，并接受持仓核对和强制停止保护。</p></div>
-          </li>
-        </ol>
+    <div class="strategy-visual-grid">
+      <article class="panel strategy-chart-panel">
+        <div class="panel-head"><div><span class="eyebrow">运行结果</span><h3>权益曲线</h3><p class="muted">只画账本已经记录的观测；没有记录时不补造走势。</p></div></div>
+        <div v-if="equityPoints.length" class="strategy-equity-chart"><MultiLineChart :data="equityPoints" :keys="['strategy','actual']" :colors="['#4aa3ff','#64d3aa']" :width="720" :height="230" /></div>
+        <div v-else class="strategy-chart-empty"><span>等待第一笔权益观测</span><small>策略开始计分后，曲线会从这里生长。</small></div>
+        <div class="chart-legend"><span class="strategy-line-key">策略</span><span class="actual-line-key">实际账户</span></div>
       </article>
 
-      <div class="strategy-center-grid">
-        <article class="panel">
-          <div class="panel-head"><div><h3>已经固定的关键规则</h3><p class="muted">运行中不能随意修改，修改必须重新研究和评审。</p></div></div>
-          <dl class="facts strategy-facts">
-            <dt>决策使用的 K 线</dt><dd>{{ strategy.display.interval_hours }} 小时</dd>
-            <dt>观察趋势的时间</dt><dd>{{ strategy.display.momentum_lookback_days.join(" / ") }} 天</dd>
-            <dt>估计波动的时间</dt><dd>{{ strategy.display.volatility_lookback_days }} 天</dd>
-            <dt>每次买卖的成本假设</dt><dd>{{ strategy.spec.roundtrip_cost_pct }}%</dd>
-            <dt>永续合约资金费</dt><dd>使用实际历史资金费率</dd>
-          </dl>
-        </article>
-        <article class="panel">
-          <div class="panel-head"><h3>需要始终记住的风险</h3></div>
-          <ul class="risk-list"><li v-for="risk in strategy.known_risks" :key="risk">{{ humanText(risk) }}</li></ul>
-          <p class="muted">历史验证只能说明规则过去如何表现，不能保证未来盈利。</p>
-        </article>
-      </div>
-
-      <article class="panel strategy-links">
-        <div><h3>接下来做什么？</h3><p class="muted">查看研究证据，或进入量化实例观察真实运行。</p></div>
-        <div class="action-row">
-          <button class="button ghost" @click="setActivePage('strategy/research')">查看研究</button>
-          <button class="button" @click="setActivePage('forward')">查看量化运行</button>
-        </div>
+      <article class="panel strategy-chart-panel">
+        <div class="panel-head"><div><span class="eyebrow">当前持仓</span><h3>{{ chartSymbol || '价格与持仓位置' }}</h3><p class="muted">进场点、当前价和持仓方向使用当前运行快照。</p></div><select v-if="holdingRows.length > 1" v-model="chartSymbol"><option v-for="row in holdingRows" :key="row.symbol">{{ row.symbol }}</option></select></div>
+        <StrategyPositionChart :points="pricePoints" :direction="selectedHolding?.direction" :entry="selectedHolding?.entry" />
+        <div v-if="selectedHolding" class="holding-explanation"><strong>{{ selectedHolding.direction }} · 权重 {{ pct(selectedHolding.weight) }}</strong><span>{{ selectedHolding.reason }}</span></div>
+        <div v-else class="holding-explanation"><strong>当前没有持仓</strong><span>产生下一次有效调仓或进场信号后，这里会显示真实位置。</span></div>
       </article>
-    </template>
+    </div>
+
+    <article class="panel strategy-section">
+      <div class="panel-head"><div><span class="section-number">01</span><h3>这个策略在找什么</h3></div><button class="button ghost small" @click="setActivePage(detailReplayRoute)">查看回放</button></div>
+      <p class="strategy-lead">{{ definition.finds }}</p>
+      <div class="sample-pair"><div class="sample-card success"><b>符合</b><span>{{ definition.success }}</span></div><div class="sample-card failure"><b>不符合</b><span>{{ definition.failure }}</span></div></div>
+    </article>
+
+    <div class="strategy-rules-grid">
+      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">02</span><h3>用到哪些指标</h3></div></div><dl class="plain-rule-list"><template v-for="row in definition.indicators" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl></article>
+      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">04</span><h3>找信号之前排除什么</h3></div></div><ul class="human-rule-list"><li v-for="row in definition.before" :key="row">{{ row }}</li></ul></article>
+      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">05</span><h3>找到信号之后筛掉什么</h3></div></div><ul class="human-rule-list"><li v-for="row in definition.after" :key="row">{{ row }}</li></ul></article>
+      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">06</span><h3>怎样进场与出场</h3></div></div><ol class="entry-exit-list"><li v-for="row in definition.trading" :key="row">{{ row }}</li></ol></article>
+    </div>
+
+    <article class="panel strategy-process-panel">
+      <div class="panel-head"><div><h3>它是怎样运转的？</h3><p class="muted">从收盘到风控停止，一个周期只做这五件事。</p></div></div>
+      <ol class="strategy-five-answers"><li v-for="(step,index) in definition.steps" :key="step[0]"><span>第 {{ index + 1 }} 步</span><div><h4>{{ step[0] }}</h4><p>{{ step[1] }}</p></div></li></ol>
+    </article>
+
+    <details class="panel strategy-tech-details">
+      <summary><span><span class="section-number">03</span><b>技术详情与参数</b><small>参数最后看；可调整的信号偏好统一去配置面板。</small></span><span>展开</span></summary>
+      <div class="tech-detail-body"><dl class="plain-rule-list"><template v-for="row in definition.parameters" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl><button v-if="!isTrend" class="button" @click="setActivePage('signals')">打开信号配置</button><p v-else class="muted">这套自动策略已与实际运行绑定。变更会改变正在执行的规则，因此当前页面只读。</p></div>
+    </details>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, ref, watch, watchEffect } from "vue";
+import MultiLineChart from "../components/MultiLineChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
-import { enumLabel } from "../domain/labels.js";
-import { isAuthenticated, loadStrategyCatalog, setActivePage, store } from "../stores/appStore.js";
-const strategy = computed(() => store.selectedStrategy);
-function phaseText(value) { return enumLabel(value); }
-function phaseColor(value) { return value === "LIVE_PILOT" ? "orange" : (value === "PAPER_FORWARD" ? "blue" : "green"); }
-function humanText(value) { return String(value || "").replace(/\bpaper\b/gi, "模拟盘").replace(/\blive\b/gi, "实盘").replace(/\bFunding\b/g, "资金费率"); }
-onMounted(() => { if (isAuthenticated.value) loadStrategyCatalog(); });
-watch(isAuthenticated, (value) => { if (value) loadStrategyCatalog(); });
+import StrategyPositionChart from "../components/StrategyPositionChart.vue";
+import { isAuthenticated, loadSignalDesk, loadStrategyCatalog, setActivePage, store } from "../stores/appStore.js";
+
+const slug = computed(() => store.activeRoute.split('/')[1] || 'trend');
+const isTrend = computed(() => slug.value === 'trend' || slug.value === 'tb4');
+const signalEnabled = computed(() => Boolean(store.signalDesk?.service?.enabled ?? store.signalDesk?.service_enabled));
+const definitions = {
+  trend: { name:'多周期趋势', kind:'自动策略', summary:'跟随多个市场的中长期方向，并按风险分配仓位。', finds:'寻找多个时间尺度方向一致、且风险可以被组合承受的上涨或下跌趋势。', success:'不同时间尺度多数同向，波动可控，组合中没有单一市场过重。', failure:'方向来回反转、多个时间尺度互相冲突，或组合风险已经过高。', indicators:[['趋势投票','分别观察五段历史的涨跌，多数意见决定方向。'],['近期波动','价格跳动越大，分到的仓位越小。'],['组合风险','把所有持仓放在一起检查，避免总体波动失控。']], before:['只使用已经收盘的 4 小时价格。','只看目录内可交易的永续合约。','数据未对齐或缺失时不产生新仓位。'], after:['总仓位价值不能超过账户资金。','单个市场按波动缩小权重。','账户回撤触及 30% 停止线时停止新增风险。'], trading:['每 7 天计算一次新的目标仓位。','下一根完整 4 小时周期按目标差额调整。','趋势转向时反向；没有方向时降为零仓位。','触及账户停止线时停止执行。'], parameters:[['观察周期','14 / 28 / 56 / 84 / 168 天'],['波动观察','28 天'],['调仓间隔','7 天'],['目标组合波动','年化 10%'],['总仓位上限','资金的 100%']], steps:[['收完一根 K 线','每 4 小时只读取已经结束的行情。'],['逐个判断方向','对每个市场分别询问五个时间尺度最近在涨还是在跌。'],['计算下周仓位','按投票方向和各市场波动大小分配权重。'],['统一调仓','每 7 天按新目标自动调整一次。'],['守住停止线','实盘按 3 倍风险投影运行，亏损触及 30% 时自动停止。']] },
+  breakout: { name:'放量突破', kind:'信号策略', summary:'价格冲出近期区间且成交明显活跃时发出提醒。', finds:'寻找价格带着明显成交量突破近期高点的时刻。', success:'突破后价格站稳区间外，成交量同时放大。', failure:'只有瞬间刺穿、收盘回到区间内，或成交没有配合。', indicators:[['通道高点','近期价格曾到达的最高位置。'],['成交量比','当前成交量相对平时放大了多少。'],['趋势强度','判断突破是不是顺着更大的方向。'],['真实波幅','用近期日常波动决定止损距离。']], before:['市场仍可正常交易且数据连续。','大方向不能明显向下。','黑名单中的市场不参与。'], after:['同一天提醒达到上限后不再推送。','同一市场冷却期内不重复提醒。','多个机会同时出现时，优先保留更强的。'], trading:['信号后的下一根 K 线开盘作为计划进场。','止损放在按真实波幅计算的保护位置。','先触及止损则退出，否则到最长持有时间退出。'], parameters:[['回放与筛选值','由用户在信号配置面板设置'],['每日提醒上限','以当前配置为准'],['不可修改项','成交顺序与账本规则用于保证回放一致']], steps:[['等待收盘','只在一根完整 K 线结束后判断。'],['检查突破','确认价格是否真正离开近期区间。'],['检查成交','确认市场参与度同步放大。'],['排序提醒','通过过滤后按强弱保留机会。'],['跟踪结果','记录进场、止损与退出，供以后回放。']] },
+  oversold: { name:'快速超跌', kind:'信号策略', summary:'寻找急跌后的修复机会，同时避开持续崩塌。', finds:'寻找短时间跌幅异常、但下跌速度开始缓和的市场。', success:'急跌后不再创新低，成交恢复，价格出现修复。', failure:'跌势仍在加速，市场连续破位，没有止跌证据。', indicators:[['短期跌幅','衡量价格在短时间内下跌了多少。'],['真实波幅','区分正常波动与异常急跌。'],['成交量比','观察恐慌成交是否集中出现。'],['长周期方向','避免在大级别崩塌中贸然接刀。']], before:['市场可交易且 K 线完整。','排除流动性不足与黑名单市场。','长期状态过弱时不找反弹。'], after:['崩塌保护触发时全部丢弃。','同一市场冷却期内不重复提醒。','达到每日提醒上限后只入账、不推送。'], trading:['下一根 K 线开盘作为计划进场。','止损优先，避免反弹判断失败后扩大亏损。','在规定持有时间内未修复则退出。'], parameters:[['回放与筛选值','由用户在信号配置面板设置'],['提醒与冷却','以当前配置为准'],['不可修改项','止损优先与最晚退出顺序保持固定']], steps:[['观察急跌','比较短期跌幅与平时波动。'],['排除崩塌','确认更大方向和市场状态允许观察反弹。'],['等待确认','只保留跌速缓和且成交有响应的样本。'],['发出提醒','按强弱排序后推送有限数量。'],['记录结果','跟踪止损或时间退出，供回放判断。']] },
+  strength: { name:'持续强势', kind:'信号策略', summary:'寻找价格和成交持续配合、方向没有转弱的市场。', finds:'寻找不是一根 K 线冲高，而是连续保持强势的市场。', success:'价格沿趋势推进，回撤有限，成交没有突然枯竭。', failure:'冲高后立即回落，或相对大盘的优势快速消失。', indicators:[['趋势强度','衡量上涨是否连续而非偶然。'],['长周期均线','检查大方向有没有转弱。'],['成交量比','确认上涨时有人持续参与。'],['相对强弱','比较该市场与同期大盘表现。']], before:['市场与数据必须可用。','长周期价格保持在健康区域。','黑名单市场不参与。'], after:['重复机会处于冷却期时筛掉。','市场整体快速下跌时暂停提醒。','超过每日上限的机会只保存记录。'], trading:['下一根 K 线开盘作为计划进场。','保护位随日常波动设置。','趋势破坏、触及止损或到期时退出。'], parameters:[['回放与筛选值','由用户在信号配置面板设置'],['提醒数量','以当前配置为准'],['不可修改项','入账与回放的成交先后规则']], steps:[['确认大方向','先检查长周期状态。'],['寻找持续性','判断强势是否延续而非瞬间冲高。'],['检查成交','成交活跃度必须与价格配合。'],['过滤与提醒','按强弱排序并控制重复提醒。'],['跟踪退出','记录趋势破坏、止损或到期结果。']] }
+};
+const definition = computed(() => definitions[isTrend.value ? 'trend' : slug.value] || definitions.breakout);
+const trend = computed(() => store.state?.trend_forward || {});
+const equity = computed(() => store.state?.live_reconciliation?.equity || {});
+const equityPoints = computed(() => (equity.value.points || []).map(row => ({ strategy:Number(row.paper_normalized), actual:Number(row.live_normalized) })).filter(row => Number.isFinite(row.strategy) && Number.isFinite(row.actual)));
+const holdingRows = computed(() => isTrend.value ? Object.entries(trend.value.runner?.weights || {}).filter(([,weight]) => Math.abs(Number(weight)) > 1e-9).map(([symbol,weight]) => ({ symbol, weight:Number(weight), direction:Number(weight)>0?'做多':'做空', entry:null, reason:'多个时间尺度的趋势投票决定方向，近期波动决定权重。' })) : []);
+const chartSymbol = ref('');
+watchEffect(() => { if (!holdingRows.value.some(row => row.symbol === chartSymbol.value)) chartSymbol.value = holdingRows.value[0]?.symbol || ''; });
+const selectedHolding = computed(() => holdingRows.value.find(row => row.symbol === chartSymbol.value));
+const pricePoints = computed(() => (store.state?.price_history?.[chartSymbol.value] || []).map(row => ({ time:row.timestamp || row.tick, price:Number(row.price) })).filter(row => Number.isFinite(row.price)));
+const runtimeStatus = computed(() => isTrend.value ? (trend.value.status === 'NOT_STARTED' ? '尚未启动' : '运行中') : (signalEnabled.value ? '提醒已启用' : '提醒未启用'));
+const runtimeColor = computed(() => /运行中|已启用/.test(runtimeStatus.value) ? 'green' : 'orange');
+const detailReplayRoute = computed(() => isTrend.value ? 'review' : 'signals');
+const pct = value => `${(Number(value || 0) * 100).toFixed(1)}%`;
+function refresh(){ loadStrategyCatalog(); loadSignalDesk(); }
+onMounted(() => { if(isAuthenticated.value) refresh(); });
+watch(isAuthenticated, value => { if(value) refresh(); });
 </script>

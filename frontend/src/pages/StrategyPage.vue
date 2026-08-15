@@ -1,77 +1,64 @@
 <template>
-  <ResearchPage v-if="store.activeRoute === 'strategy/research'" mode="research" />
-  <StrategyCenterPage v-else-if="store.activeRoute === 'strategy/tb4'" />
+  <StrategyCenterPage v-if="store.activeRoute !== 'strategy'" />
   <section v-else class="page active strategy-hub-page">
-    <div class="strategy-hub-answer">
-      <div>
-        <span class="eyebrow">策略与研究</span>
-        <h2>先证明关系，再冻结规则，最后交给量化实例运行。</h2>
-        <p>这里把“我们相信什么、证据到哪一步、哪些规则已经正式使用”放在同一条业务线上。</p>
-      </div>
-    </div>
-
-    <div class="review-answer-strip strategy-status-strip">
-      <div><span>正式策略</span><strong>{{ strategies.length ? `${strategies.length} 套` : "尚未读取" }}</strong></div>
-      <div><span>当前研究主题</span><strong>量价关系</strong></div>
-      <div><span>正式运行实例</span><strong>{{ runtimeCount }} 个</strong></div>
-      <div><span>研究原则</span><strong>先验证，后组合</strong></div>
-    </div>
-
-    <div class="strategy-hub-grid">
-      <article class="panel strategy-hub-card">
-        <div>
-          <span class="eyebrow">正式策略</span>
-          <h3>TB4 趋势篮子</h3>
-          <p>规则已经冻结，持续运行模拟观察，并可在严格保护下进行小资金实盘。</p>
-        </div>
-        <dl class="facts">
-          <dt>交易市场</dt><dd>Binance USDT 永续合约</dd>
-          <dt>基础数据</dt><dd>15 分钟 K 线，统一聚合为 1 小时和 4 小时</dd>
-          <dt>调整频率</dt><dd>{{ selectedStrategy?.display?.rebalance_days ? `每 ${selectedStrategy.display.rebalance_days} 天` : "每周" }}</dd>
-          <dt>当前阶段</dt><dd>{{ lifecycleText }}</dd>
-        </dl>
-        <button class="button" @click="setActivePage('strategy/tb4')">查看策略为什么这样做</button>
-      </article>
-
-      <article class="panel strategy-hub-card">
-        <div>
-          <span class="eyebrow">研究中的问题</span>
-          <h3>量价关系真的存在吗？</h3>
-          <p>暂不拼入场信号，先检验成交量与未来价格变化的关系是否稳定、可重复、跨市场成立。</p>
-        </div>
-        <ol class="mini-process">
-          <li>先写清楚假设和判断门槛</li>
-          <li>使用统一历史数据运行实验</li>
-          <li>区分“程序跑完”和“关系成立”</li>
-        </ol>
-        <button class="button ghost" @click="setActivePage('strategy/research')">进入量价关系研究</button>
-      </article>
-    </div>
-
-    <article class="panel strategy-lifecycle-card">
-      <div class="panel-head"><div><h3>一个想法怎样变成可运行的量化策略？</h3><p class="muted">所有策略都遵循同一条路径，研究结果不会直接触发交易。</p></div></div>
-      <ol class="five-step-flow">
-        <li><span>1</span><b>提出问题</b><small>说明想验证的市场关系</small></li>
-        <li><span>2</span><b>预先登记</b><small>实验前写死数据、方法和门槛</small></li>
-        <li><span>3</span><b>验证证据</b><small>检验稳定性、成本和市场差异</small></li>
-        <li><span>4</span><b>冻结策略</b><small>通过评审后形成不可随意改动的规则</small></li>
-        <li><span>5</span><b>运行与复盘</b><small>模拟观察、小资金实盘、持续核对</small></li>
-      </ol>
+    <article class="panel data-overview-card strategy-overview-card">
+      <div class="data-overview-head"><div><h2>策略中心</h2><p class="muted">自动调仓与提醒信号统一管理，点开策略查看图形和完整规则。</p></div><button class="button ghost small" :disabled="store.strategyCatalogBusy || store.signalDeskBusy" @click="refresh">{{ store.strategyCatalogBusy || store.signalDeskBusy ? "刷新中…" : "刷新策略" }}</button></div>
+      <div class="data-overview-metrics strategy-overview-metrics"><div><span>全部策略</span><strong>{{ strategyCards.length }}</strong><small>套已配置规则</small></div><div><span>当前启用</span><strong>{{ enabledCount }}</strong><small>运行或提醒中</small></div><div><span>今日信号</span><strong>{{ todaySignals }}</strong><small>个已记录机会</small></div><div><span>策略类型</span><strong>自动 / 信号</strong><small>统一目录</small></div></div>
     </article>
+
+    <div v-if="store.strategyCatalogError" class="service-alert">{{ store.strategyCatalogError }} <button class="button ghost small" @click="refresh">重试</button></div>
+    <div class="strategy-card-list">
+      <article v-for="item in strategyCards" :key="item.slug" class="panel strategy-directory-card">
+        <div class="strategy-card-title">
+          <div><span class="eyebrow">{{ item.kind }}</span><h3>{{ item.name }}</h3></div>
+          <StatusBadge :text="item.status" :color="item.color" />
+        </div>
+        <p>{{ item.summary }}</p>
+        <dl class="strategy-card-rules">
+          <dt>核心指标</dt><dd>{{ item.indicators }}</dd>
+          <dt>当前参数</dt><dd>{{ item.parameters }}</dd>
+        </dl>
+        <div class="strategy-card-stats">
+          <span><small>今天</small><b>{{ item.today }}</b></span>
+          <span><small>当前持有</small><b>{{ item.holdings }}</b></span>
+          <span><small>动作方式</small><b>{{ item.action }}</b></span>
+        </div>
+        <button class="button" @click="setActivePage(`strategy/${item.slug}`)">查看图形与完整规则</button>
+      </article>
+    </div>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, watch } from "vue";
-import ResearchPage from "./ResearchPage.vue";
+import StatusBadge from "../components/StatusBadge.vue";
 import StrategyCenterPage from "./StrategyCenterPage.vue";
-import { enumLabel } from "../domain/labels.js";
-import { isAuthenticated, loadStrategyCatalog, setActivePage, store } from "../stores/appStore.js";
+import { isAuthenticated, loadSignalDesk, loadStrategyCatalog, setActivePage, store } from "../stores/appStore.js";
 
-const strategies = computed(() => store.strategies || []);
-const selectedStrategy = computed(() => store.selectedStrategy);
-const runtimeCount = computed(() => store.state?.trend_forward?.status && store.state.trend_forward.status !== "NOT_STARTED" ? 2 : 0);
-const lifecycleText = computed(() => enumLabel(selectedStrategy.value?.lifecycle?.primary || "PAPER_FORWARD"));
-onMounted(() => { if (isAuthenticated.value) loadStrategyCatalog(); });
-watch(isAuthenticated, (value) => { if (value) loadStrategyCatalog(); });
+const signalItems = computed(() => store.signalDesk?.items || store.signalDesk?.signals || []);
+const trendWeights = computed(() => store.state?.trend_forward?.runner?.weights || {});
+const todaySignals = computed(() => signalItems.value.length);
+const signalCount = (pattern) => signalItems.value.filter((row) => pattern.test(String(row.family || row.type || row.strategy || row.name || ""))).length;
+const activeTrend = computed(() => Object.values(trendWeights.value).filter((value) => Math.abs(Number(value)) > 1e-9).length);
+const serviceEnabled = computed(() => Boolean(store.signalDesk?.service?.enabled ?? store.signalDesk?.service_enabled));
+const signalParameters = computed(() => store.signalDesk?.operations?.parameters || {});
+const signalParameterSummary = computed(() => {
+  const params = signalParameters.value;
+  const parts = [];
+  if (params.signal_interval) parts.push(`${params.signal_interval} K 线`);
+  if (params.candidate_limit) parts.push(`每日最多 ${params.candidate_limit} 个候选`);
+  if (params.liquidity_threshold_usdt) parts.push(`成交额门槛 ${(Number(params.liquidity_threshold_usdt) / 1000000).toFixed(0)}M USDT`);
+  return parts.length ? parts.join(" · ") : "登录后读取当前配置";
+});
+
+const strategyCards = computed(() => [
+  { slug: "trend", name: "多周期趋势", kind: "自动策略", summary: "让多个时间尺度共同判断涨跌，并让波动较小的市场承担更多仓位。", indicators: "趋势投票 · 近期波动 · 组合风险", parameters: "观察 14 / 28 / 56 / 84 / 168 天 · 每 7 天调仓 · 目标波动 10%", status: store.state?.trend_forward?.status === "NOT_STARTED" ? "尚未启动" : "运行中", color: store.state?.trend_forward?.status === "NOT_STARTED" ? "orange" : "green", today: "每周调仓", holdings: `${activeTrend.value} 个市场`, action: "自动调仓" },
+  { slug: "breakout", name: "放量突破", kind: "信号策略", summary: "寻找成交突然活跃、价格冲出近期区间的机会。", indicators: "通道高点 · 成交量比 · 趋势强度 · 真实波幅", parameters: signalParameterSummary.value, status: serviceEnabled.value ? "提醒已启用" : "提醒未启用", color: serviceEnabled.value ? "green" : "orange", today: `${signalCount(/break|突破/i)} 个`, holdings: "手动决定", action: "发出提醒" },
+  { slug: "oversold", name: "快速超跌", kind: "信号策略", summary: "寻找短时间急跌后可能出现修复的机会，同时避开仍在加速下跌的市场。", indicators: "短期跌幅 · 真实波幅 · 成交量比 · 长周期方向", parameters: signalParameterSummary.value, status: serviceEnabled.value ? "提醒已启用" : "提醒未启用", color: serviceEnabled.value ? "green" : "orange", today: `${signalCount(/oversold|超跌/i)} 个`, holdings: "手动决定", action: "发出提醒" },
+  { slug: "strength", name: "持续强势", kind: "信号策略", summary: "寻找价格保持强势、成交持续配合且大方向没有转弱的市场。", indicators: "趋势强度 · 长周期均线 · 成交量比 · 相对强弱", parameters: signalParameterSummary.value, status: serviceEnabled.value ? "提醒已启用" : "提醒未启用", color: serviceEnabled.value ? "green" : "orange", today: `${signalCount(/strong|强势/i)} 个`, holdings: "手动决定", action: "发出提醒" },
+]);
+const enabledCount = computed(() => strategyCards.value.filter((item) => /运行中|已启用/.test(item.status)).length);
+function refresh() { loadStrategyCatalog(); loadSignalDesk(); }
+onMounted(() => { if (isAuthenticated.value) refresh(); });
+watch(isAuthenticated, (value) => { if (value) refresh(); });
 </script>
