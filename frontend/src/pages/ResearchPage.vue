@@ -97,7 +97,7 @@
         <div>
           <span class="eyebrow">冻结规则评估</span>
           <h3>全市场短线必要条件筛查</h3>
-          <p class="muted">按已经冻结的规则检查突破与超跌反弹两类现象。这里不能修改参数；程序完成也不等于可以交易。</p>
+          <p class="muted">按已经冻结的规则检查突破与高位回调两类现象。这里不能修改参数；程序完成也不等于可以交易。</p>
         </div>
         <StatusBadge
           :text="r0Run ? runStatusLabel(r0Run) : r0Status?.training_complete ? '训练结果已生成' : r0Status?.training_active ? '后台运行中' : '等待启动'"
@@ -1256,7 +1256,7 @@ function r0PhaseLabel(value) {
 }
 
 function r0FamilyLabel(value) {
-  return value === "BREAKOUT_MOMENTUM" ? "突破与动量" : "超跌反弹";
+  return value === "BREAKOUT_MOMENTUM" ? "突破与动量" : "高位回调";
 }
 
 function r0ParameterLabel(row) {
