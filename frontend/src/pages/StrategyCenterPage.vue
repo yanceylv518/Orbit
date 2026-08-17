@@ -57,7 +57,7 @@
 
     <details class="panel strategy-tech-details">
       <summary><span><b>技术详情</b><small>供排查问题使用，日常无需关注。</small></span><span>展开</span></summary>
-      <div class="tech-detail-body"><dl class="plain-rule-list"><dt>策略编号</dt><dd>{{ slug }}</dd><dt>运行方式</dt><dd>{{ isTrend ? "自动执行" : "发出提醒，由你决定是否交易" }}</dd><dt>数据来源</dt><dd>Binance USDT 永续合约，仅使用已收盘 K 线</dd></dl></div>
+      <div class="tech-detail-body"><dl class="plain-rule-list"><dt>策略名称</dt><dd>{{ definition.name }}</dd><dt>运行方式</dt><dd>{{ isTrend ? "自动执行" : "发出提醒，由你决定是否交易" }}</dd><dt>数据来源</dt><dd>Binance USDT 永续合约，仅使用已收盘 K 线</dd></dl></div>
     </details>
   </section>
 </template>
@@ -67,11 +67,13 @@ import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import MultiLineChart from "../components/MultiLineChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import StrategyPositionChart from "../components/StrategyPositionChart.vue";
-import { controlSignalService, isAdmin, isAuthenticated, loadSignalDesk, loadStrategyCatalog, post, setActivePage, store } from "../stores/appStore.js";
+import { controlSignalFamily, isAdmin, isAuthenticated, loadSignalDesk, loadStrategyCatalog, post, setActivePage, store } from "../stores/appStore.js";
 
 const slug = computed(() => store.activeRoute.split('/')[1] || 'trend');
 const isTrend = computed(() => slug.value === 'trend' || slug.value === 'tb4');
-const signalEnabled = computed(() => Boolean(store.signalDesk?.operations?.service?.enabled));
+const familyId = computed(() => ({ breakout:'BREAKOUT_MOMENTUM', oversold:'OVERSOLD_REBOUND', strength:'SUSTAINED_STRENGTH' })[slug.value]);
+const familyControl = computed(() => store.signalDesk?.operations?.family_controls?.[familyId.value] || { enabled:true });
+const signalEnabled = computed(() => Boolean(familyControl.value.enabled));
 const trendLiveEnabled = computed(() => Boolean(store.state?.live_execution?.enabled));
 const controlBusy = ref(false);
 const definitions = {
@@ -89,12 +91,17 @@ const chartSymbol = ref('');
 watchEffect(() => { if (!holdingRows.value.some(row => row.symbol === chartSymbol.value)) chartSymbol.value = holdingRows.value[0]?.symbol || ''; });
 const selectedHolding = computed(() => holdingRows.value.find(row => row.symbol === chartSymbol.value));
 const pricePoints = computed(() => (store.state?.price_history?.[chartSymbol.value] || []).map(row => ({ time:row.timestamp || row.tick, price:Number(row.price) })).filter(row => Number.isFinite(row.price)));
-const runtimeStatus = computed(() => isTrend.value ? (trend.value.status === 'NOT_STARTED' ? '尚未启动' : '运行中') : (signalEnabled.value ? '提醒已启用' : '提醒未启用'));
+const runtimeStatus = computed(() => isTrend.value ? (trend.value.status === 'NOT_STARTED' ? '尚未启动' : '运行中') : (signalEnabled.value ? '提醒已启用' : `提醒未启用${familyControl.value.disabled_reason ? `：${familyControl.value.disabled_reason}` : ''}`));
 const runtimeColor = computed(() => /运行中|已启用/.test(runtimeStatus.value) ? 'green' : 'orange');
 const detailReplayRoute = computed(() => isTrend.value ? 'review' : 'signals');
 const pct = value => `${(Number(value || 0) * 100).toFixed(1)}%`;
 function refresh(){ loadStrategyCatalog(); loadSignalDesk(); }
-async function toggleSignal(){ controlBusy.value=true;try{await controlSignalService(!signalEnabled.value);await loadSignalDesk();}finally{controlBusy.value=false;} }
+async function toggleSignal(){
+  const enabled=!signalEnabled.value;
+  const reason=enabled?'重新启用':prompt('请填写停用原因，停用后会显示在策略页与配置页。','管理员从策略详情页停用');
+  if(!enabled&&!reason?.trim())return;
+  controlBusy.value=true;try{await controlSignalFamily(familyId.value,enabled,reason?.trim()||null);await loadSignalDesk();}finally{controlBusy.value=false;}
+}
 async function stopTrend(){
   if(!confirm('确认停止自动策略？这会关闭真钱执行，现有持仓不会在此页面自动平仓。'))return;
   if(!confirm('再次确认：立即停止自动执行？'))return;

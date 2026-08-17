@@ -122,6 +122,7 @@ export function recordSignalExecutionRequest(payload) {
 export function configureSignalPushoverRequest(payload) { return postJson("/api/signals/pushover", payload); }
 export function testSignalPushoverRequest() { return postJson("/api/signals/pushover/test"); }
 export function controlSignalServiceRequest(enabled) { return postJson("/api/signals/service", { enabled }); }
+export function controlSignalFamilyRequest(familyId, enabled, reason) { return postJson("/api/signals/families/control", { family_id: familyId, enabled, reason }); }
 export function bindSignalAccountRequest(accountId) { return postJson("/api/signals/binding", { account_id: accountId || null }); }
 
 export async function postJson(path, payload = {}) {

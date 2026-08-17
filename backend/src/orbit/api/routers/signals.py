@@ -36,6 +36,12 @@ class SignalServiceControlRequest(BaseModel):
     enabled: bool
 
 
+class SignalFamilyControlRequest(BaseModel):
+    family_id: Literal["BREAKOUT_MOMENTUM", "OVERSOLD_REBOUND", "SUSTAINED_STRENGTH"]
+    enabled: bool
+    reason: str | None = Field(default=None, max_length=200)
+
+
 class SignalAccountBindingRequest(BaseModel):
     account_id: str | None = Field(default=None, max_length=64)
 
@@ -98,6 +104,14 @@ def test_pushover(request: Request, user: dict = Depends(require_admin)) -> dict
 @router.post("/service")
 def control_signal_service(request: Request, payload: SignalServiceControlRequest, user: dict = Depends(require_admin)) -> dict:
     return app_state(request).signal_desk.set_service_enabled(enabled=payload.enabled, actor=str(user["id"]))
+
+
+@router.post("/families/control")
+def control_signal_family(request: Request, payload: SignalFamilyControlRequest, user: dict = Depends(require_admin)) -> dict:
+    try:
+        return app_state(request).signal_desk.set_family_enabled(**payload.model_dump(), actor=str(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/binding")

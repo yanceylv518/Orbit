@@ -65,7 +65,9 @@ def _service(tmp_path: Path, signals=None):
         source.append({"event_type": "SIGNAL_DETECTED", "recorded_at_ms": item["signal_time_ms"], "signal": item})
         source.append({"event_type": "SIM_TRADE_PLANNED", "recorded_at_ms": item["signal_time_ms"], "signal_id": item["signal_id"]})
     source.append({"event_type": "DAILY_SCOPE_RECONCILED", "recorded_at_ms": 1786665600000, "signal_day_utc": "2026-08-14", "included_signal_ids": [s["signal_id"] for s in signals or [_signal()]], "truncated_signal_ids": []})
-    return SignalDeskService(tmp_path / "sig1", tmp_path / "sig2", clock_ms=lambda: 1786665700000)
+    import json
+    contract = json.loads((Path(__file__).parents[2] / "config/signals/sig1.v1.json").read_text(encoding="utf-8"))
+    return SignalDeskService(tmp_path / "sig1", tmp_path / "sig2", spec=contract, clock_ms=lambda: 1786665700000)
 
 
 def test_missing_signal_service_is_an_honest_empty_state(tmp_path):
@@ -73,7 +75,8 @@ def test_missing_signal_service_is_an_honest_empty_state(tmp_path):
     assert result["health"]["status"] == "NOT_DEPLOYED"
     assert result["signals"] == []
     assert result["operations"]["parameters"] == {
-        "liquidity_threshold_usdt": 200000000,
+        "liquidity_threshold_usdt": 2000000,
+        "liquidity_lookback_complete_utc_days": 30,
         "candidate_limit": 30,
         "push_thresholds": {},
         "signal_interval": "15m",
@@ -90,6 +93,20 @@ def test_snapshot_projects_rolling_counts_and_recent_real_sample(tmp_path):
     assert result["rolling_30d_by_family"]["BREAKOUT_MOMENTUM"] == 2
     assert result["recent_samples_by_family"]["BREAKOUT_MOMENTUM"]["signal_id"] == "recent"
     assert result["recent_samples_by_family"]["BREAKOUT_MOMENTUM"]["chart_before"]
+    assert result["rolling_30d_daily_average_by_family"]["BREAKOUT_MOMENTUM"] == 0.07
+
+
+def test_family_disable_requires_reason_and_reason_is_audited_and_visible(tmp_path):
+    service = _service(tmp_path)
+    with pytest.raises(ValueError, match="必须填写原因"):
+        service.set_family_enabled(family_id="OVERSOLD_REBOUND", enabled=False, reason="", actor="admin")
+    result = service.set_family_enabled(family_id="OVERSOLD_REBOUND", enabled=False, reason="研究显示下行阶段无效", actor="admin")
+    control = result["operations"]["family_controls"]["OVERSOLD_REBOUND"]
+    assert control["enabled"] is False
+    assert control["disabled_reason"] == "研究显示下行阶段无效"
+    events = service._read_interactions()
+    assert events[-1]["event_type"] == "SIGNAL_FAMILY_CONTROL_CHANGED"
+    assert events[-1]["actor"] == "admin"
 
 
 def test_taken_decision_requires_valid_stop_and_is_append_only(tmp_path):

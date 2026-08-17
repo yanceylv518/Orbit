@@ -20,6 +20,16 @@ def spec():
     return json.loads((ROOT / "config/signals/sig1.v1.json").read_text(encoding="utf-8"))
 
 
+def long_cycle(state="UP"):
+    if state == "UP":
+        closes = [100 + index * 0.1 for index in range(361)]
+    elif state == "DOWN":
+        closes = [200 - index * 0.1 for index in range(361)]
+    else:
+        closes = [100 + (index % 2) for index in range(361)]
+    return [{"close": close} for close in closes]
+
+
 def breakout_window(symbol: str, *, start_ms: int = 0, count: int = 101, stop_next=False):
     rows = []
     for index in range(count):
@@ -59,7 +69,8 @@ def breakout_window(symbol: str, *, start_ms: int = 0, count: int = 101, stop_ne
         )
     return {
         "candles": rows,
-        "daily_quote_volumes": [300_000_000, 310_000_000, 320_000_000],
+        "daily_quote_volumes": [3_000_000] * 30,
+        "long_cycle_candles": long_cycle(),
     }
 
 
@@ -78,7 +89,7 @@ def neutral_window(*, start_ms=0):
                 1_000,
             )
         )
-    return {"candles": rows, "daily_quote_volumes": [300_000_000] * 3}
+    return {"candles": rows, "daily_quote_volumes": [3_000_000] * 30, "long_cycle_candles": long_cycle("RANGE")}
 
 
 def oversold_window(*, start_ms=0):
@@ -94,7 +105,17 @@ def oversold_window(*, start_ms=0):
     rows[100] = ShortlineCandle(
         rows[100].open_time_ms, rows[100].close_time_ms, 87.9, 89.5, 87.5, 89, 1_000,
     )
+    window["long_cycle_candles"] = long_cycle("UP")
     return window
+
+
+def sustained_window(*, start_ms=0, count=1344):
+    rows = []
+    for index in range(count):
+        price = 50 + index * 0.03
+        volume = 2_000 if index >= count - 288 else 1_000
+        rows.append(ShortlineCandle(start_ms + index * MS, start_ms + (index + 1) * MS - 1, price, price + 0.05, price - 0.05, price + 0.02, volume))
+    return {"candles": rows, "daily_quote_volumes": [3_000_000] * 30, "long_cycle_candles": long_cycle("UP")}
 
 
 class FakeNotifier:
@@ -128,7 +149,7 @@ class Sig1SignalServiceTests(unittest.TestCase):
         source = BinanceSig1Source(FakeScanFeed(), spec(), FakeScanService(), clock=lambda: 1_000)
         source._universe_day = "1970-01-01"
         source._daily_volumes = {
-            symbol: [300_000_000, 310_000_000, 320_000_000]
+            symbol: [3_000_000] * 30
             for symbol in ("AAAUSDT", "BBBUSDT", "CCCUSDT")
         }
 
@@ -151,6 +172,54 @@ class Sig1SignalServiceTests(unittest.TestCase):
         self.assertIn(("DROPUSDT", "OVERSOLD_REBOUND", "LONG"), identities)
         self.assertEqual(len(identities), 2)
         self.assertEqual(detect_sig1_signals(dict(list(windows.items())[:2]), target, spec()), [])
+
+    def test_oversold_is_zero_in_down_and_range_long_cycle_states(self):
+        contract = spec()
+        contract["market"]["minimum_simultaneously_eligible_markets"] = 1
+        for state in ("DOWN", "RANGE"):
+            window = oversold_window()
+            window["long_cycle_candles"] = long_cycle(state)
+            found = detect_sig1_signals({"TUTUSDT": window}, 101 * MS - 1, contract)
+            self.assertFalse(any(row["family_id"] == "OVERSOLD_REBOUND" for row in found))
+
+    def test_tut_collapse_replay_suppresses_oversold_at_thirty_percent_drawdown(self):
+        contract = spec()
+        contract["market"]["minimum_simultaneously_eligible_markets"] = 1
+        window = oversold_window()
+        rows = window["candles"]
+        rows[84] = ShortlineCandle(rows[84].open_time_ms, rows[84].close_time_ms, 100, 100, 99, 100, 1_000)
+        for index in range(85, 100):
+            close = 94 - (index - 85) * 1.8
+            rows[index] = ShortlineCandle(rows[index].open_time_ms, rows[index].close_time_ms, close + 0.2, close + 0.5, close - 0.5, close, 1_000)
+        rows[100] = ShortlineCandle(rows[100].open_time_ms, rows[100].close_time_ms, 69, 71, 68, 70, 1_000)
+        found = detect_sig1_signals({"TUTUSDT": window}, 101 * MS - 1, contract)
+        self.assertFalse(any(row["family_id"] == "OVERSOLD_REBOUND" for row in found))
+
+    def test_high_pullback_requires_drop_to_start_within_fifteen_percent_of_high(self):
+        contract = spec()
+        contract["market"]["minimum_simultaneously_eligible_markets"] = 1
+        window = oversold_window()
+        rows = window["candles"]
+        rows[0] = ShortlineCandle(rows[0].open_time_ms, rows[0].close_time_ms, 119, 120, 118, 119, 1_000)
+        found = detect_sig1_signals({"TUTUSDT": window}, 101 * MS - 1, contract)
+        self.assertFalse(any(row["family_id"] == "OVERSOLD_REBOUND" for row in found))
+
+    def test_sustained_strength_emits_and_same_symbol_cools_down_for_24_hours(self):
+        contract = spec()
+        contract["market"]["minimum_simultaneously_eligible_markets"] = 1
+        contract["signals"]["SUSTAINED_STRENGTH"]["trend_strength_minimum"] = "-999"
+        contract["notifications"]["enabled"] = False
+        first = sustained_window()
+        close = 1344 * MS - 1
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = self._ledger(directory)
+            service = Sig1SignalService(contract, ledger)
+            service.process_closed_candle({"ACEUSDT": first}, close, processed_at_ms=close + 1)
+            second = sustained_window(start_ms=MS)
+            service.process_closed_candle({"ACEUSDT": second}, close + MS, processed_at_ms=close + MS + 1)
+            detected = [row["payload"]["signal"] for row in ledger.read_all() if row["payload"]["event_type"] == "SIGNAL_DETECTED" and row["payload"]["signal"]["family_id"] == "SUSTAINED_STRENGTH"]
+            self.assertEqual(len(detected), 1)
+            self.assertEqual(detected[0]["scope_version"], "SIG3_SCOPE_V1")
 
     def test_all_signals_create_trades_even_beyond_daily_30_scope(self):
         contract = spec()
@@ -232,6 +301,8 @@ class Sig1SignalServiceTests(unittest.TestCase):
             self.assertEqual(opened["entry_time_ms"], 101 * MS)
             self.assertEqual(closed["exit_reason"], "STOP")
             self.assertLessEqual(closed["exit_price"], opened["stop_price"])
+            self.assertEqual(opened["scope_version"], "SIG3_SCOPE_V1")
+            self.assertEqual(closed["scope_version"], "SIG3_SCOPE_V1")
 
     def test_virtual_trade_uses_frozen_32_candle_time_exit(self):
         contract = spec()
@@ -297,9 +368,14 @@ class Sig1SignalServiceTests(unittest.TestCase):
         import hashlib
 
         self.assertEqual(contract["source_rc0b_report_sha256"], hashlib.sha256(rc0b.read_bytes()).hexdigest())
-        self.assertEqual(contract["market"]["liquidity"]["minimum_median_daily_quote_volume_usdt"], 200_000_000)
+        self.assertEqual(contract["market"]["liquidity"]["minimum_median_daily_quote_volume_usdt"], 2_000_000)
+        self.assertEqual(contract["market"]["liquidity"]["lookback_complete_utc_days"], 30)
         self.assertEqual(contract["signals"]["BREAKOUT_MOMENTUM"]["channel_lookback_candles"], 32)
-        self.assertEqual(contract["signals"]["BREAKOUT_MOMENTUM"]["minimum_relative_quote_volume"], "4.0")
+        self.assertEqual(contract["signals"]["BREAKOUT_MOMENTUM"]["minimum_relative_quote_volume"], "2.0")
+        self.assertEqual(contract["signals"]["OVERSOLD_REBOUND"]["required_long_cycle_state"], "UP")
+        self.assertEqual(contract["signals"]["OVERSOLD_REBOUND"]["maximum_drawdown_from_high"], "0.30")
+        self.assertEqual(contract["signals"]["OVERSOLD_REBOUND"]["maximum_start_drawdown_from_high"], "0.15")
+        self.assertIn("SUSTAINED_STRENGTH", contract["signals"])
         self.assertEqual(contract["workload"]["daily_candidate_limit"], 30)
         self.assertEqual(contract["event_stream_source"], "EVERY_COMPLETED_15M_CANDLE")
         self.assertFalse(

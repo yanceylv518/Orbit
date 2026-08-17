@@ -36,6 +36,7 @@ import {
   configureSignalPushoverRequest,
   testSignalPushoverRequest,
   controlSignalServiceRequest,
+  controlSignalFamilyRequest,
   bindSignalAccountRequest,
   resumeStoppedSymbolRequest,
 } from "../api/client.js";
@@ -152,6 +153,7 @@ async function applySignalCommand(request) {
 export function configureSignalPushover(payload) { return applySignalCommand(configureSignalPushoverRequest(payload)); }
 export function testSignalPushover() { return applySignalCommand(testSignalPushoverRequest()); }
 export function controlSignalService(enabled) { return applySignalCommand(controlSignalServiceRequest(enabled)); }
+export function controlSignalFamily(familyId, enabled, reason = null) { return applySignalCommand(controlSignalFamilyRequest(familyId, enabled, reason)); }
 export function bindSignalAccount(accountId) { return applySignalCommand(bindSignalAccountRequest(accountId)); }
 
 export const isAuthenticated = computed(() => Boolean(store.state?.auth?.authenticated));

@@ -1,6 +1,7 @@
 {
   "protocol": "ORBIT_SIG1_SIGNAL_SERVICE_V1",
-  "status": "FROZEN_MVP",
+  "status": "SIG3_SCOPE_V1",
+  "scope_version": "SIG3_SCOPE_V1",
   "frozen_at": "2026-08-14",
   "source_rc0b_report_sha256": "2ade73c64e25d30678b6c5ea151c9cf0a926378fb61529d0f32b7c5654be8a19",
   "event_stream_source": "EVERY_COMPLETED_15M_CANDLE",
@@ -15,21 +16,39 @@
     "completed_candles_only": true,
     "minimum_simultaneously_eligible_markets": 3,
     "liquidity": {
-      "minimum_median_daily_quote_volume_usdt": 200000000,
-      "lookback_complete_utc_days": 3
+      "minimum_median_daily_quote_volume_usdt": 2000000,
+      "lookback_complete_utc_days": 30
     }
   },
   "signals": {
     "BREAKOUT_MOMENTUM": {
+      "enabled": true,
       "channel_lookback_candles": 32,
       "volume_lookback_candles": 96,
-      "minimum_relative_quote_volume": "4.0",
-      "direction": "LONG_AND_SHORT_SYMMETRIC"
+      "minimum_relative_quote_volume": "2.0",
+      "direction": "LONG_ONLY"
     },
     "OVERSOLD_REBOUND": {
+      "enabled": true,
       "return_lookback_candles": 16,
       "minimum_drop_fraction": "0.10",
       "stabilization": "CLOSE_ABOVE_PREVIOUS_CLOSE_AND_NOT_BELOW_OPEN",
+      "direction": "LONG_ONLY",
+      "required_long_cycle_state": "UP",
+      "collapse_lookback_days": 14,
+      "maximum_drawdown_from_high": "0.30",
+      "maximum_start_drawdown_from_high": "0.15"
+    },
+    "SUSTAINED_STRENGTH": {
+      "enabled": true,
+      "required_long_cycle_state": "UP",
+      "trend_strength_minimum": "9.94136807817591",
+      "short_volume_days": 3,
+      "long_volume_days": 10,
+      "minimum_volume_ratio": "1.3",
+      "high_lookback_days": 14,
+      "maximum_distance_from_high": "0.03",
+      "symbol_cooldown_hours": 24,
       "direction": "LONG_ONLY"
     }
   },
@@ -62,7 +81,8 @@
     "threshold_quantile_method": "LINEAR_INTERPOLATION_AT_INDEX_(N_MINUS_1)_TIMES_0.90",
     "trend_strength_minimum_by_family": {
       "BREAKOUT_MOMENTUM": "9.94136807817591",
-      "OVERSOLD_REBOUND": "1.4637837227420296"
+      "OVERSOLD_REBOUND": "1.4637837227420296",
+      "SUSTAINED_STRENGTH": "9.94136807817591"
     },
     "api_token_reference": "env:ORBIT_PUSHOVER_API_TOKEN",
     "user_key_reference": "env:ORBIT_PUSHOVER_USER_KEY",

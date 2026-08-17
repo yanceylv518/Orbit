@@ -52,12 +52,18 @@ def detect_sig1_signals(
         signal_index = indexes.get(int(signal_close_time_ms))
         if signal_index is None or signal_index < 96:
             continue
-        if not _contiguous(candles[max(0, signal_index - 288) : signal_index + 1]):
+        required_history = max(
+            288,
+            int((spec["signals"].get("OVERSOLD_REBOUND") or {}).get("collapse_lookback_days", 14)) * 96,
+            int((spec["signals"].get("SUSTAINED_STRENGTH") or {}).get("long_volume_days", 10)) * 96,
+        )
+        if not _contiguous(candles[max(0, signal_index - required_history + 1) : signal_index + 1]):
             continue
         atr_period = int(spec["simulation"]["atr_period"])
         atr14 = simple_atr(candles, signal_index, atr_period)
         if atr14 <= 0:
             continue
+        long_cycle = _long_cycle_state((market_windows.get(symbol) or {}).get("long_cycle_candles", []))
         breakout = spec["signals"]["BREAKOUT_MOMENTUM"]
         breakout_side = breakout_direction(
             candles,
@@ -66,7 +72,7 @@ def detect_sig1_signals(
             volume_lookback=int(breakout["volume_lookback_candles"]),
             minimum_relative_volume=float(breakout["minimum_relative_quote_volume"]),
         )
-        if breakout_side:
+        if breakout.get("enabled", True) and breakout_side and breakout_side > 0:
             results.append(
                 _signal(
                     symbol,
@@ -94,8 +100,22 @@ def detect_sig1_signals(
             return_lookback=int(oversold["return_lookback_candles"]),
             minimum_drop_fraction=float(oversold["minimum_drop_fraction"]),
         )
-        if oversold_side:
-            reference = float(candles[signal_index - int(oversold["return_lookback_candles"])].close)
+        collapse_drawdown = _drawdown_from_high(
+            candles, signal_index, int(oversold.get("collapse_lookback_days", 14)) * 96
+        )
+        lookback = int(oversold["return_lookback_candles"])
+        high_start = max(0, signal_index - int(oversold.get("collapse_lookback_days", 14)) * 96 + 1)
+        recent_high = max(float(row.high) for row in candles[high_start : signal_index + 1])
+        drop_start_close = float(candles[signal_index - lookback].close)
+        start_drawdown = 1.0 - drop_start_close / recent_high if recent_high > 0 else 1.0
+        if (
+            oversold.get("enabled", True)
+            and oversold_side
+            and long_cycle == str(oversold.get("required_long_cycle_state", "UP"))
+            and collapse_drawdown < float(oversold.get("maximum_drawdown_from_high", 0.30))
+            and start_drawdown <= float(oversold.get("maximum_start_drawdown_from_high", 0.15))
+        ):
+            reference = drop_start_close
             results.append(
                 _signal(
                     symbol,
@@ -110,9 +130,38 @@ def detect_sig1_signals(
                         "drop_fraction": 1.0 - float(candles[signal_index].close) / reference,
                         "minimum_drop_fraction": float(oversold["minimum_drop_fraction"]),
                         "stabilized": True,
+                        "long_cycle_state": long_cycle,
+                        "drawdown_from_high": collapse_drawdown,
+                        "start_drawdown_from_high": start_drawdown,
                     },
                 )
             )
+        strong = spec["signals"].get("SUSTAINED_STRENGTH") or {}
+        if strong.get("enabled", True):
+            volume_ratio = _sustained_volume_ratio(
+                candles,
+                signal_index,
+                int(strong.get("short_volume_days", 3)) * 96,
+                int(strong.get("long_volume_days", 10)) * 96,
+            )
+            distance = _distance_from_high(
+                candles, signal_index, int(strong.get("high_lookback_days", 14)) * 96
+            )
+            features = signal_features(candles, signal_index, "LONG", atr14, 96)
+            strength = float((features or {}).get("trend_strength", float("-inf")))
+            if (
+                long_cycle == str(strong.get("required_long_cycle_state", "UP"))
+                and strength >= float(strong.get("trend_strength_minimum", 0))
+                and volume_ratio >= float(strong.get("minimum_volume_ratio", 1.3))
+                and distance <= float(strong.get("maximum_distance_from_high", 0.03))
+            ):
+                results.append(_signal(
+                    symbol, candles, signal_index, atr14, liquidity,
+                    family_id="SUSTAINED_STRENGTH", direction="LONG",
+                    reason={"long_cycle_state": long_cycle, "volume_ratio_3d_10d": volume_ratio,
+                            "distance_from_14d_high": distance},
+                    scope_version=str(spec.get("scope_version", "SIG3_SCOPE_V1")),
+                ))
     btc_rows = list((market_windows.get("BTCUSDT") or {}).get("candles", []))
     btc_by_time = {int(row.open_time_ms): float(row.close) for row in btc_rows}
     for signal in results:
@@ -149,11 +198,16 @@ def notification_message(signal: Mapping[str, Any]) -> dict[str, str]:
     sign = 1.0 if direction == "LONG" else -1.0
     reason = signal["reason"]
     if signal["family_id"] == "BREAKOUT_MOMENTUM":
+        family_name = "突破信号"
         trigger = (
             f"32根突破 / 放量{float(reason['relative_quote_volume']):.2f}倍"
         )
-    else:
+    elif signal["family_id"] == "OVERSOLD_REBOUND":
+        family_name = "高位回调"
         trigger = f"16根跌幅{float(reason['drop_fraction']):.1%}后企稳"
+    else:
+        family_name = "持续强势"
+        trigger = f"持续强势 / 量能比{float(reason['volume_ratio_3d_10d']):.2f}"
     body = "\n".join(
         [
             f"{signal['symbol']} {direction}",
@@ -164,7 +218,7 @@ def notification_message(signal: Mapping[str, Any]) -> dict[str, str]:
             f"信号时间 {iso_utc(int(signal['signal_time_ms']))}",
         ]
     )
-    return {"title": f"Orbit 信号 · {signal['symbol']}", "message": body}
+    return {"title": f"Orbit {family_name} · {signal['symbol']}", "message": body}
 
 
 def signal_day(timestamp_ms: int) -> str:
@@ -175,7 +229,7 @@ def iso_utc(timestamp_ms: int) -> str:
     return datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).isoformat()
 
 
-def _signal(symbol, candles, signal_index, atr14, liquidity, *, family_id, direction, reason):
+def _signal(symbol, candles, signal_index, atr14, liquidity, *, family_id, direction, reason, scope_version="SIG3_SCOPE_V1"):
     candle = candles[signal_index]
     features = signal_features(candles, signal_index, direction, atr14, 96)
     if features is None:
@@ -185,6 +239,7 @@ def _signal(symbol, candles, signal_index, atr14, liquidity, *, family_id, direc
     sign = 1.0 if direction == "LONG" else -1.0
     identity = {
         "protocol": "ORBIT_SIG1_SIGNAL_ID_V1",
+        "scope_version": scope_version,
         "family_id": family_id,
         "symbol": symbol,
         "signal_time_ms": int(candle.close_time_ms),
@@ -203,6 +258,7 @@ def _signal(symbol, candles, signal_index, atr14, liquidity, *, family_id, direc
         "suggested_stop_price": reference_entry - sign * risk,
         "trend_strength_96": float(features["trend_strength"]),
         "median_daily_quote_volume_usdt": float(liquidity),
+        "scope_version": scope_version,
         "reason": reason,
         # Freeze the observable chart at decision time.  This is deliberately
         # limited to candles that had already closed when the signal fired.
@@ -232,3 +288,37 @@ def _contiguous(candles: Sequence[ShortlineCandle]) -> bool:
         int(right.open_time_ms) - int(left.open_time_ms) == INTERVAL_MS
         for left, right in zip(candles, candles[1:])
     )
+
+
+def _long_cycle_state(rows: Sequence[Any]) -> str:
+    closes = [float(row.close if hasattr(row, "close") else row["close"]) for row in rows]
+    if len(closes) < 361:
+        return "UNKNOWN"
+    current = closes[-1]
+    ma50 = sum(closes[-50:]) / 50
+    return20 = current / closes[-121] - 1
+    return60 = current / closes[-361] - 1
+    if current > ma50 and return20 > 0 and return60 > 0:
+        return "UP"
+    if current < ma50 and return20 < 0 and return60 < 0:
+        return "DOWN"
+    return "RANGE"
+
+
+def _drawdown_from_high(candles, signal_index, lookback):
+    start = max(0, signal_index - lookback + 1)
+    high = max(float(row.high) for row in candles[start : signal_index + 1])
+    return 1.0 - float(candles[signal_index].close) / high if high > 0 else 1.0
+
+
+def _distance_from_high(candles, signal_index, lookback):
+    return max(0.0, _drawdown_from_high(candles, signal_index, lookback))
+
+
+def _sustained_volume_ratio(candles, signal_index, short_lookback, long_lookback):
+    if signal_index + 1 < long_lookback:
+        return 0.0
+    short = [float(row.quote_volume) for row in candles[signal_index - short_lookback + 1 : signal_index + 1]]
+    long = [float(row.quote_volume) for row in candles[signal_index - long_lookback + 1 : signal_index + 1]]
+    long_mean = sum(long) / len(long) if long else 0.0
+    return (sum(short) / len(short)) / long_mean if long_mean > 0 else 0.0

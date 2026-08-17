@@ -82,6 +82,9 @@ def main() -> None:
     while True:
         controls = _runtime_controls(control_ledger)
         service.spec["notifications"]["enabled"] = bool(controls.get("pushover_enabled", False))
+        for family, enabled in (controls.get("family_enabled") or {}).items():
+            if family in service.spec.get("signals", {}):
+                service.spec["signals"][family]["enabled"] = bool(enabled)
         if controls.get("api_token_reference") and controls.get("user_key_reference"):
             service.notifier = PushoverNotifier(vault, api_token_reference=controls["api_token_reference"], user_key_reference=controls["user_key_reference"])
         if not controls.get("service_enabled", False):
@@ -110,13 +113,15 @@ def main() -> None:
 
 
 def _runtime_controls(ledger: AppendOnlySignalLedger) -> dict[str, Any]:
-    result = {"service_enabled": False, "pushover_enabled": False}
+    result = {"service_enabled": False, "pushover_enabled": False, "family_enabled": {}}
     for record in ledger.read_all():
         event = record["payload"]
         if event.get("event_type") == "SIGNAL_SERVICE_CONTROL_CHANGED":
             result["service_enabled"] = bool(event.get("enabled"))
         elif event.get("event_type") == "PUSHOVER_CONFIGURATION_CHANGED":
             result.update({"pushover_enabled": bool(event.get("enabled")), "api_token_reference": event.get("api_token_reference"), "user_key_reference": event.get("user_key_reference")})
+        elif event.get("event_type") == "SIGNAL_FAMILY_CONTROL_CHANGED":
+            result["family_enabled"][str(event.get("family_id"))] = bool(event.get("enabled"))
     return result
 
 
@@ -142,7 +147,8 @@ class BinanceSig1Source:
         qualified = {
             symbol
             for symbol, values in self._daily_volumes.items()
-            if len(values) == 3 and statistics.median(values) >= minimum
+            if len(values) == int(self.spec["market"]["liquidity"]["lookback_complete_utc_days"])
+            and statistics.median(values) >= minimum
         }
         symbol_set = qualified | self.service.required_symbols()
         windows = self._intraday_windows(sorted(symbol_set), qualified)
@@ -162,7 +168,10 @@ class BinanceSig1Source:
         volumes: dict[str, list[float]] = {}
         with ThreadPoolExecutor(max_workers=self.workers) as executor:
             futures = {
-                executor.submit(self.feed.closed_klines, symbol, "1d", 3): symbol
+                executor.submit(
+                    self.feed.closed_klines, symbol, "1d",
+                    int(self.spec["market"]["liquidity"]["lookback_complete_utc_days"]),
+                ): symbol
                 for symbol in symbols
             }
             for future in as_completed(futures):
@@ -172,7 +181,7 @@ class BinanceSig1Source:
                 except Exception:
                     continue
                 values = [float(row["quote_volume"]) for row in rows]
-                if len(values) == 3:
+                if len(values) == int(self.spec["market"]["liquidity"]["lookback_complete_utc_days"]):
                     volumes[symbol] = values
         self._daily_volumes = volumes
 
@@ -180,13 +189,13 @@ class BinanceSig1Source:
         result = {}
         with ThreadPoolExecutor(max_workers=self.workers) as executor:
             futures = {
-                executor.submit(self.feed.closed_klines, symbol, "15m", 320): symbol
+                executor.submit(self._market_window, symbol): symbol
                 for symbol in symbols
             }
             for future in as_completed(futures):
                 symbol = futures[future]
                 try:
-                    rows = future.result()
+                    intraday_rows, long_cycle_rows = future.result()
                 except Exception:
                     continue
                 result[symbol] = {
@@ -200,13 +209,26 @@ class BinanceSig1Source:
                             close=float(row["close"]),
                             quote_volume=float(row["quote_volume"]),
                         )
-                        for row in rows
+                        for row in intraday_rows
+                    ],
+                    "long_cycle_candles": [
+                        ShortlineCandle(
+                            open_time_ms=int(row["open_time"]), close_time_ms=int(row["close_time"]),
+                            open=float(row["open"]), high=float(row["high"]), low=float(row["low"]),
+                            close=float(row["close"]), quote_volume=float(row["quote_volume"]),
+                        ) for row in long_cycle_rows
                     ],
                     "daily_quote_volumes": self._daily_volumes.get(symbol, [])
                     if symbol in qualified
                     else [],
                 }
         return result
+
+    def _market_window(self, symbol):
+        return (
+            self.feed.closed_klines(symbol, "15m", 1440),
+            self.feed.closed_klines(symbol, "4h", 361),
+        )
 
 
 def _verify_spec(spec: dict[str, Any]) -> None:

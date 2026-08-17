@@ -142,6 +142,20 @@ class SignalDeskService:
         self._interaction_ledger().append({"event_type": "SIGNAL_SERVICE_CONTROL_CHANGED", "recorded_at_ms": self.clock_ms(), "enabled": bool(enabled), "actor": actor})
         return self.snapshot()
 
+    def set_family_enabled(self, *, family_id: str, enabled: bool, reason: str | None, actor: str) -> dict[str, Any]:
+        allowed = {"BREAKOUT_MOMENTUM", "OVERSOLD_REBOUND", "SUSTAINED_STRENGTH"}
+        if family_id not in allowed:
+            raise ValueError("未知的信号类型")
+        explanation = str(reason or "").strip()
+        if not enabled and not explanation:
+            raise ValueError("停用信号时必须填写原因")
+        self._interaction_ledger().append({
+            "event_type": "SIGNAL_FAMILY_CONTROL_CHANGED",
+            "recorded_at_ms": self.clock_ms(), "family_id": family_id,
+            "enabled": bool(enabled), "reason": explanation or None, "actor": actor,
+        })
+        return self.snapshot()
+
     def bind_account(self, *, account_id: str | None, actor: str) -> dict[str, Any]:
         value = str(account_id or "").strip()
         if value:
@@ -339,7 +353,7 @@ class SignalDeskService:
                 rolling_30d_by_family[family] = rolling_30d_by_family.get(family, 0) + 1
             if family and family not in recent_samples_by_family and signal.get("chart_before"):
                 recent_samples_by_family[family] = self._public_event(signal)
-        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "error_type": None}, "rolling_30d_by_family": rolling_30d_by_family, "recent_samples_by_family": recent_samples_by_family, "_all_signals": rows, "_source_alerts": source_alerts}
+        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "error_type": None}, "rolling_30d_by_family": rolling_30d_by_family, "rolling_30d_daily_average_by_family": {family: round(count / 30, 2) for family, count in rolling_30d_by_family.items()}, "recent_samples_by_family": recent_samples_by_family, "_all_signals": rows, "_source_alerts": source_alerts}
 
     def _summary(self, rows):
         closed = [row for row in rows if row["simulation"].get("status") == "CLOSED"]
@@ -384,6 +398,23 @@ class SignalDeskService:
         stale = latest_scan_ms is None or now - int(latest_scan_ms) > 30 * 60_000
         push_failures = sum(event.get("event_type") in {"PUSHOVER_TEST_FAILED", "SERVICE_SCAN_FAILED"} for event in interactions)
         pending = [self._public_event(event) for event in interactions if event.get("event_type") == "DISCIPLINE_CHANGE_REQUESTED" and int(event.get("effective_at_ms") or 0) > now]
+        latest_family = {}
+        for event in interactions:
+            if event.get("event_type") == "SIGNAL_FAMILY_CONTROL_CHANGED":
+                latest_family[str(event.get("family_id"))] = event
+        family_controls = {}
+        definitions = {
+            family_id: {"enabled": True}
+            for family_id in ("BREAKOUT_MOMENTUM", "OVERSOLD_REBOUND", "SUSTAINED_STRENGTH")
+        }
+        definitions.update(self.spec.get("signals") or {})
+        for family_id, definition in definitions.items():
+            event = latest_family.get(family_id) or {}
+            family_controls[family_id] = {
+                "enabled": bool(event.get("enabled", definition.get("enabled", True))),
+                "disabled_reason": event.get("reason") if event and not event.get("enabled") else None,
+                "changed_at_ms": event.get("recorded_at_ms"),
+            }
         notifications = self.spec.get("notifications", {})
         market = self.spec.get("market", {})
         bound_account_id = binding.get("account_id")
@@ -392,7 +423,9 @@ class SignalDeskService:
             "service": {"enabled": bool(control.get("enabled", False)), "running": bool(control.get("enabled", False)) and not stale, "last_scan_at_ms": latest_scan_ms, "market_data_fresh": not stale, "error_count": push_failures + int(health.get("status") == "LEDGER_ERROR")},
             "pushover": {"configured": bool(push.get("api_token_reference") and push.get("user_key_reference")), "enabled": bool(push.get("enabled", False)), "api_token_fingerprint": push.get("api_token_fingerprint"), "user_key_fingerprint": push.get("user_key_fingerprint"), "today_sent": sum((row.get("push") or {}).get("event_type") == "PUSH_SUCCEEDED" for row in rows), "daily_limit": notifications.get("daily_success_limit", 3)},
             "binding": {"account_id": bound_account_id, "optional": True, "conflict": binding_conflict, "purpose": "只用于真实成交自动配对，不参与信号扫描或模拟"},
-            "parameters": {"liquidity_threshold_usdt": (market.get("liquidity") or {}).get("minimum_median_daily_quote_volume_usdt", 200000000), "candidate_limit": (self.spec.get("workload") or {}).get("daily_candidate_limit", 30), "push_thresholds": notifications.get("trend_strength_minimum_by_family", {}), "signal_interval": market.get("signal_interval", "15m")},
+            "parameters": {"liquidity_threshold_usdt": (market.get("liquidity") or {}).get("minimum_median_daily_quote_volume_usdt", 2000000), "liquidity_lookback_complete_utc_days": (market.get("liquidity") or {}).get("lookback_complete_utc_days", 30), "candidate_limit": (self.spec.get("workload") or {}).get("daily_candidate_limit", 30), "push_thresholds": notifications.get("trend_strength_minimum_by_family", {}), "signal_interval": market.get("signal_interval", "15m")},
+            "family_controls": family_controls,
+            "scope_version": self.spec.get("scope_version", "SIG3_SCOPE_V1"),
             "pending_discipline_changes": pending,
             "backup": {"required_paths": [str(self.ledger_directory), str(self.interaction_directory)]},
         }

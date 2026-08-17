@@ -42,7 +42,9 @@ class Sig1SignalService:
         processed_at = int(processed_at_ms if processed_at_ms is not None else time.time() * 1000)
         self._advance_virtual_trades(market_windows, processed_at)
         state = self._state()
-        detected = detect_sig1_signals(market_windows, signal_close_time_ms, self.spec)
+        detected = self._apply_family_cooldowns(
+            detect_sig1_signals(market_windows, signal_close_time_ms, self.spec), state
+        )
         fresh = [row for row in detected if row["signal_id"] not in state["signals"]]
         for signal in fresh:
             self.ledger.append_many(
@@ -59,6 +61,7 @@ class Sig1SignalService:
                         maximum_holding_candles=int(
                             self.spec["simulation"]["maximum_holding_candles"]
                         ),
+                        scope_version=str(signal.get("scope_version") or self.spec.get("scope_version")),
                     ),
                 ]
             )
@@ -83,6 +86,30 @@ class Sig1SignalService:
             "new_signal_ids": [row["signal_id"] for row in fresh],
             "ledger": self.ledger.status(),
         }
+
+    def _apply_family_cooldowns(self, detected, state):
+        cooldown_ms = int(
+            (self.spec.get("signals", {}).get("SUSTAINED_STRENGTH") or {}).get(
+                "symbol_cooldown_hours", 24
+            )
+        ) * 60 * 60_000
+        prior = [
+            row for row in state["signals"].values()
+            if row.get("family_id") == "SUSTAINED_STRENGTH"
+        ]
+        accepted = []
+        for signal in detected:
+            if signal.get("family_id") != "SUSTAINED_STRENGTH":
+                accepted.append(signal)
+                continue
+            repeated = any(
+                row.get("symbol") == signal.get("symbol")
+                and 0 < int(signal["signal_time_ms"]) - int(row["signal_time_ms"]) < cooldown_ms
+                for row in prior + accepted
+            )
+            if not repeated:
+                accepted.append(signal)
+        return accepted
 
     def required_symbols(self) -> set[str]:
         state = self._state()
@@ -150,6 +177,7 @@ class Sig1SignalService:
                         "SIM_TRADE_OPENED",
                         processed_at,
                         signal_id=signal_id,
+                        scope_version=trade.get("scope_version") or self.spec.get("scope_version"),
                         **opened,
                     )
                 )
@@ -160,6 +188,7 @@ class Sig1SignalService:
                         "SIM_TRADE_CLOSED",
                         processed_at,
                         signal_id=signal_id,
+                        scope_version=trade.get("scope_version") or self.spec.get("scope_version"),
                         **exit_result,
                     )
                 )
