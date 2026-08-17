@@ -2073,6 +2073,26 @@ span.help-tip-trigger {
 .strategy-five-answers li > span { color: var(--accent); font-weight: 700; }
 .strategy-five-answers h4 { margin: 0 0 5px; font-size: 16px; }
 .strategy-five-answers p { margin: 0; color: var(--text-muted); line-height: 1.6; }
+/* 策略详情页密度收紧：面板间距由外层 grid 的 gap 统一控制，面板自身不再叠加 margin
+   （两者相加曾让每块之间空出 30px）；参数区独占整行，避免 2 列网格塞 3 块留下空洞。 */
+.strategy-detail-page { gap: 12px; }
+.strategy-detail-page .panel { margin-bottom: 0; padding: 14px 16px; }
+.strategy-detail-page .panel-head { margin-bottom: 10px; }
+.strategy-detail-page .strategy-rules-grid { gap: 12px; }
+.strategy-detail-page .strategy-rules-grid > .strategy-section:first-child { grid-column: 1 / -1; }
+.strategy-detail-page .plain-rule-list dt,
+.strategy-detail-page .plain-rule-list dd { padding: 8px 0; }
+.strategy-detail-page .human-rule-list li,
+.strategy-detail-page .entry-exit-list li { padding: 4px 0; }
+.strategy-detail-page .strategy-five-answers li { grid-template-columns: 62px minmax(0, 1fr); gap: 14px; padding: 11px 0; }
+.strategy-detail-page .strategy-five-answers h4 { margin: 0 0 2px; font-size: 15px; }
+/* 「刚才那一轮」每行末尾还有一个数字：两列网格会把它挤到下一行的第一列，需单独排。 */
+.strategy-detail-page .round-summary li { grid-template-columns: 28px minmax(0, 1fr) max-content; align-items: center; }
+.strategy-detail-page .round-summary li > b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.strategy-detail-page .tech-detail-body { padding-top: 12px; margin-top: 12px; }
+.strategy-detail-page .strategy-visual-grid { gap: 12px; }
+.strategy-detail-page .holding-explanation { margin-top: 9px; }
+
 @media (max-width: 640px) {
   .review-answer-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .review-answer-strip > div:nth-child(2) { border-right: 0; }
