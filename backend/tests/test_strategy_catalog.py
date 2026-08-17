@@ -6,6 +6,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
 from orbit.application.strategy_catalog import (
+    TB4_DEFINITION,
     TB4_STRATEGY_ID,
     StrategyCatalogService,
     tb4_spec_payload,
@@ -61,6 +62,10 @@ class StrategyCatalogTests(unittest.TestCase):
         service = StrategyCatalogService(lambda: {}, lambda: {}, live_capital_usdt=500)
         with self.assertRaises(KeyError):
             service.strategy("missing")
+
+    def test_public_strategy_name_contains_no_internal_code(self):
+        self.assertEqual(TB4_DEFINITION.name, "多周期趋势")
+        self.assertNotIn("TB4", TB4_DEFINITION.name)
 
 
 if __name__ == "__main__":

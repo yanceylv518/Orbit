@@ -100,9 +100,29 @@ def test_snapshot_projects_rolling_counts_and_recent_real_sample(tmp_path):
     ]
     result = _service(tmp_path, signals).snapshot(day="2026-08-14")
     assert result["rolling_30d_by_family"]["BREAKOUT_MOMENTUM"] == 2
-    assert result["recent_samples_by_family"]["BREAKOUT_MOMENTUM"]["signal_id"] == "recent"
-    assert result["recent_samples_by_family"]["BREAKOUT_MOMENTUM"]["chart_before"]
+    assert result["recent_samples_by_family"]["BREAKOUT_MOMENTUM"][0]["signal_id"] == "recent"
+    assert result["recent_samples_by_family"]["BREAKOUT_MOMENTUM"][0]["chart_before"]
+    performance = result["rolling_30d_performance_by_family"]["BREAKOUT_MOMENTUM"]
+    assert performance == {"signal_count": 2, "closed_count": 0, "open_count": 2, "realized_r_total": 0.0, "wins": 0, "losses": 0, "curve": []}
     assert result["rolling_30d_daily_average_by_family"]["BREAKOUT_MOMENTUM"] == 0.07
+
+
+def test_family_read_model_keeps_six_samples_and_real_closed_results(tmp_path):
+    signals = [_signal(f"sig-{index}", signal_time_ms=1786665600000 + index * 1000) for index in range(7)]
+    service = _service(tmp_path, signals)
+    ledger = AppendOnlySignalLedger(tmp_path / "sig1")
+    ledger.append({"event_type": "SIM_TRADE_CLOSED", "recorded_at_ms": 1786665700000, "signal_id": "sig-0", "exited_at_ms": 1786665700000, "realized_r": 1.25, "chart_after": []})
+    result = service.snapshot(day="2026-08-14")
+    assert len(result["recent_samples_by_family"]["BREAKOUT_MOMENTUM"]) == 6
+    performance = result["rolling_30d_performance_by_family"]["BREAKOUT_MOMENTUM"]
+    assert performance["closed_count"] == 1
+    assert performance["open_count"] == 6
+    assert performance["realized_r_total"] == 1.25
+    assert performance["wins"] == 1
+    assert performance["curve"] == [{"recorded_at_ms": 1786665700000, "cumulative_r": 1.25}]
+    presentation = result["operations"]["strategy_families"]["BREAKOUT_MOMENTUM"]
+    assert presentation["name"] == "放量突破"
+    assert any("入账" in row and "不推送" in row for row in presentation["exclusions"])
 
 
 def test_family_disable_requires_reason_and_reason_is_audited_and_visible(tmp_path):
@@ -168,6 +188,22 @@ def test_replay_page_has_fixed_discipline_and_no_parameter_profit_ranking():
     assert "历史回放不预测未来。规则变更的真实效果，由信号模拟账在未来数据上裁决。" in template
     for forbidden in ("最优参数", "参数收益排行榜", "按历史收益排序"):
         assert forbidden not in template
+
+
+def test_sig5_moves_parameters_to_strategy_detail_and_uses_honest_states():
+    root = Path(__file__).parents[2] / "frontend/src/pages"
+    signal_page = (root / "SignalPage.vue").read_text(encoding="utf-8")
+    detail_page = (root / "StrategyCenterPage.vue").read_text(encoding="utf-8")
+    strategy_page = (root / "StrategyPage.vue").read_text(encoding="utf-8")
+    assert "信号参数配置" not in signal_page
+    assert "configuration-panel" not in signal_page
+    assert "familyFields" in detail_page
+    assert "共用" in detail_page
+    assert "const definitions" not in detail_page
+    assert "未部署 / 状态未知" in detail_page
+    assert "已启用但扫描超时" in strategy_page
+    for page in (signal_page, detail_page, strategy_page):
+        assert "TB4" not in page
 
 
 def test_taken_decision_requires_valid_stop_and_is_append_only(tmp_path):

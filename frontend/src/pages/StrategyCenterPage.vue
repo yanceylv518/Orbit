@@ -3,14 +3,27 @@
     <div class="page-toolbar quant-toolbar">
       <div>
         <button class="text-link back-link" @click="setActivePage('strategy')">← 返回全部策略</button>
-        <span class="eyebrow">{{ definition.kind }}</span>
-        <h2>{{ definition.name }}</h2>
-        <p>{{ definition.summary }}</p>
+        <span class="eyebrow">{{ isTrend ? '自动策略' : '信号策略 · 推给你决定' }}</span>
+        <h2>{{ detail.name }}</h2>
+        <p>{{ detail.summary }}</p>
       </div>
       <StatusBadge :text="runtimeStatus" :color="runtimeColor" />
     </div>
 
-    <div class="strategy-visual-grid">
+    <article v-if="!isTrend" class="panel strategy-section">
+      <div class="panel-head"><div><span class="section-number">01</span><h3>它替我干了什么</h3><p class="muted">只统计近 30 天真实模拟账，没有了结样本时不估算成绩。</p></div></div>
+      <div class="strategy-score-grid"><div><span>信号</span><b>{{ familyPerformance.signal_count || 0 }}</b></div><div><span>已了结 / 进行中</span><b>{{ familyPerformance.closed_count || 0 }} / {{ familyPerformance.open_count || 0 }}</b></div><div><span>累计结果</span><b>{{ r(familyPerformance.realized_r_total) }}</b></div><div><span>赚 / 亏</span><b>{{ familyPerformance.wins || 0 }} / {{ familyPerformance.losses || 0 }}</b></div></div>
+      <MultiLineChart v-if="familyCurve.length" :data="familyCurve" :keys="['result']" :colors="['#4aa3ff']" :width="720" :height="180" />
+      <div v-else class="strategy-chart-empty"><span>还没有可画的已了结样本</span><small>信号完成机械退出后，累计 R 曲线会出现在这里。</small></div>
+    </article>
+
+    <article v-if="!isTrend" class="panel strategy-section">
+      <div class="panel-head"><div><span class="section-number">02</span><h3>最近它挑出的样子</h3></div></div>
+      <div v-if="familySamples.length" class="strategy-sample-grid"><div v-for="sample in familySamples" :key="sample.signal_id" class="strategy-sample"><SignalCandleChart :symbol="sample.symbol" :before="sample.chart_before || []" :after="sample.simulation?.chart_after || []" :entry="Number(sample.simulation?.entry_price || sample.reference_entry_price)" :stop="Number(sample.simulation?.stop_price || sample.suggested_stop_price)" /><b>{{ sample.symbol }} · {{ simulationResult(sample) }}</b></div></div>
+      <div v-else class="strategy-chart-empty"><span>还没有真实样本</span><small>不会用演示数据填充这里。</small></div>
+    </article>
+
+    <div v-if="isTrend" class="strategy-visual-grid">
       <article class="panel strategy-chart-panel">
         <div class="panel-head"><div><span class="eyebrow">运行结果</span><h3>权益曲线</h3><p class="muted">只画账本已经记录的观测；没有记录时不补造走势。</p></div></div>
         <div v-if="equityPoints.length" class="strategy-equity-chart"><MultiLineChart :data="equityPoints" :keys="['strategy','actual']" :colors="['#4aa3ff','#64d3aa']" :width="720" :height="230" /></div>
@@ -36,28 +49,25 @@
       <p v-else class="muted">只有管理员可以启用或停用策略。</p>
     </article>
 
-    <article class="panel strategy-section">
-      <div class="panel-head"><div><span class="section-number">01</span><h3>这个策略在找什么</h3></div><button class="button ghost small" @click="setActivePage(detailReplayRoute)">查看回放</button></div>
-      <p class="strategy-lead">{{ definition.finds }}</p>
-      <div class="sample-pair"><div class="sample-card success"><b>符合</b><span>{{ definition.success }}</span></div><div class="sample-card failure"><b>不符合</b><span>{{ definition.failure }}</span></div></div>
-    </article>
-
     <div class="strategy-rules-grid">
-      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">02</span><h3>用到哪些指标</h3></div></div><dl class="plain-rule-list"><template v-for="row in definition.indicators" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl></article>
-      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">03</span><h3>参数取什么值</h3></div></div><dl class="plain-rule-list"><template v-for="row in definition.parameters" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl><div class="param-action"><button v-if="!isTrend" class="button ghost small" @click="setActivePage('signals')">去配置面板调整</button><p v-else class="muted">这些值与正在运行的自动交易绑定，页面上只读；调整需重新授权运行。</p></div></article>
-      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">04</span><h3>找信号之前排除什么</h3></div></div><ul class="human-rule-list"><li v-for="row in definition.before" :key="row">{{ row }}</li></ul></article>
-      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">05</span><h3>找到信号之后筛掉什么</h3></div></div><ul class="human-rule-list"><li v-for="row in definition.after" :key="row">{{ row }}</li></ul></article>
-      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">06</span><h3>怎样进场与出场</h3></div></div><ol class="entry-exit-list"><li v-for="row in definition.trading" :key="row">{{ row }}</li></ol></article>
+      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">03</span><h3>它按什么规则做</h3></div></div><template v-if="isTrend"><dl class="plain-rule-list"><template v-for="row in trendParameters" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl><p class="muted">冻结参数只读，来自后端正在运行的策略定义。</p></template><form v-else class="strategy-param-form" @submit.prevent="saveParameters"><label v-for="field in familyFields" :key="field.key"><span>{{ field.label }} <em v-if="field.group === '通用'">共用</em></span><small>{{ field.help }}<template v-if="field.group === '通用'">；保存后同步影响三个信号策略。</template></small><select v-if="field.kind === 'choice'" v-model="parameterDraft[field.key]"><option v-for="choice in field.choices" :key="choice" :value="choice">{{ choice }}</option></select><input v-else v-model="parameterDraft[field.key]" type="number" :min="field.minimum" :max="field.maximum" :step="field.kind === 'int' ? 1 : 'any'"></label><label><span>变更备注</span><input v-model="parameterNote" maxlength="200"></label><div class="action-row"><button type="button" class="button ghost" @click="previewParameters">改完先回放看差异</button><button class="button" :disabled="savingParameters">保存参数</button></div><div v-if="familyPreview" class="strategy-preview"><b>当前 {{ familyPreview.before }} 条 → 改后 {{ familyPreview.after }} 条</b><span>新增 {{ familyPreview.added }} · 消失 {{ familyPreview.removed }}</span><small>这里只统计当前策略；历史回放不预测未来，真实效果由未来模拟账裁决。</small></div></form></article>
+      <article class="panel strategy-section"><div class="panel-head"><div><h3>这些指标怎么理解</h3></div></div><dl class="plain-rule-list"><template v-for="row in detail.indicators" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl></article>
+      <article class="panel strategy-section"><div class="panel-head"><div><span class="section-number">04</span><h3>什么时候它不动作</h3></div></div><ul class="human-rule-list"><li v-for="row in detail.exclusions" :key="row">{{ row }}</li></ul></article>
     </div>
+
+    <article v-if="!isTrend" class="panel strategy-section">
+      <div class="panel-head"><div><span class="section-number">05</span><h3>刚才那一轮做了什么</h3><p class="muted">只显示最近一次成功扫描留下的真实数字。</p></div></div>
+      <ol class="strategy-five-answers"><li><span>1</span><div><h4>可用市场</h4><p>通过数据与交易性准入</p></div><b>{{ latestRound.market_count || 0 }}</b></li><li><span>2</span><div><h4>初步命中</h4><p>当轮规则识别的全部信号</p></div><b>{{ latestRound.detected_count || 0 }}</b></li><li><span>3</span><div><h4>新增入账</h4><p>去重后写入模拟账</p></div><b>{{ latestRound.new_signal_count || 0 }}</b></li></ol>
+    </article>
 
     <article class="panel strategy-process-panel">
       <div class="panel-head"><div><h3>它是怎样运转的？</h3><p class="muted">从收盘到风控停止，一个周期只做这五件事。</p></div></div>
-      <ol class="strategy-five-answers"><li v-for="(step,index) in definition.steps" :key="step[0]"><span>第 {{ index + 1 }} 步</span><div><h4>{{ step[0] }}</h4><p>{{ step[1] }}</p></div></li></ol>
+      <ol class="strategy-five-answers"><li v-for="(step,index) in detail.steps" :key="step[0]"><span>第 {{ index + 1 }} 步</span><div><h4>{{ step[0] }}</h4><p>{{ step[1] }}</p></div></li></ol>
     </article>
 
     <details class="panel strategy-tech-details">
       <summary><span><b>技术详情</b><small>供排查问题使用，日常无需关注。</small></span><span>展开</span></summary>
-      <div class="tech-detail-body"><dl class="plain-rule-list"><dt>策略名称</dt><dd>{{ definition.name }}</dd><dt>运行方式</dt><dd>{{ isTrend ? "自动执行" : "发出提醒，由你决定是否交易" }}</dd><dt>数据来源</dt><dd>Binance USDT 永续合约，仅使用已收盘 K 线</dd></dl></div>
+      <div class="tech-detail-body"><dl class="plain-rule-list"><dt>策略名称</dt><dd>{{ detail.name }}</dd><dt>运行方式</dt><dd>{{ isTrend ? "自动执行" : "发出提醒，由你决定是否交易" }}</dd><dt>最近扫描</dt><dd>{{ runtimeStatus }}</dd><dt>规则指纹</dt><dd>{{ isTrend ? strategyDefinition.spec_sha256 : store.signalDesk?.operations?.scope_version || '—' }}</dd><dt>配置修订号</dt><dd>{{ store.signalDesk?.operations?.configuration?.revision ?? '—' }}</dd></dl></div>
     </details>
   </section>
 </template>
@@ -67,22 +77,28 @@ import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import MultiLineChart from "../components/MultiLineChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import StrategyPositionChart from "../components/StrategyPositionChart.vue";
-import { controlSignalFamily, isAdmin, isAuthenticated, loadSignalDesk, loadStrategyCatalog, post, setActivePage, store } from "../stores/appStore.js";
+import SignalCandleChart from "../components/SignalCandleChart.vue";
+import { controlSignalFamily, isAdmin, isAuthenticated, loadSignalDesk, loadStrategyCatalog, post, replaySignals, setActivePage, store, updateSignalConfiguration } from "../stores/appStore.js";
 
 const slug = computed(() => store.activeRoute.split('/')[1] || 'trend');
 const isTrend = computed(() => slug.value === 'trend' || slug.value === 'tb4');
 const familyId = computed(() => ({ breakout:'BREAKOUT_MOMENTUM', oversold:'OVERSOLD_REBOUND', strength:'SUSTAINED_STRENGTH' })[slug.value]);
-const familyControl = computed(() => store.signalDesk?.operations?.family_controls?.[familyId.value] || { enabled:true });
+const familyControl = computed(() => store.signalDesk?.operations?.family_controls?.[familyId.value] || {});
 const signalEnabled = computed(() => Boolean(familyControl.value.enabled));
 const trendLiveEnabled = computed(() => Boolean(store.state?.live_execution?.enabled));
 const controlBusy = ref(false);
-const definitions = {
-  trend: { name:'多周期趋势', kind:'自动策略', summary:'跟随多个市场的中长期方向，并按风险分配仓位。', finds:'寻找多个时间尺度方向一致、且风险可以被组合承受的上涨或下跌趋势。', success:'不同时间尺度多数同向，波动可控，组合中没有单一市场过重。', failure:'方向来回反转、多个时间尺度互相冲突，或组合风险已经过高。', indicators:[['趋势投票','分别观察五段历史的涨跌，多数意见决定方向。'],['近期波动','价格跳动越大，分到的仓位越小。'],['组合风险','把所有持仓放在一起检查，避免总体波动失控。']], before:['只使用已经收盘的 4 小时价格。','只看目录内可交易的永续合约。','数据未对齐或缺失时不产生新仓位。'], after:['总仓位价值不能超过账户资金。','单个市场按波动缩小权重。','账户回撤触及 30% 停止线时停止新增风险。'], trading:['每 7 天计算一次新的目标仓位。','下一根完整 4 小时周期按目标差额调整。','趋势转向时反向；没有方向时降为零仓位。','触及账户停止线时停止执行。'], parameters:[['观察周期','14 / 28 / 56 / 84 / 168 天'],['波动观察','28 天'],['调仓间隔','7 天'],['目标组合波动','年化 10%'],['总仓位上限','资金的 100%']], steps:[['收完一根 K 线','每 4 小时只读取已经结束的行情。'],['逐个判断方向','对每个市场分别询问五个时间尺度最近在涨还是在跌。'],['计算下周仓位','按投票方向和各市场波动大小分配权重。'],['统一调仓','每 7 天按新目标自动调整一次。'],['守住停止线','实盘按 3 倍风险投影运行，亏损触及 30% 时自动停止。']] },
-  breakout: { name:'放量突破', kind:'信号策略', summary:'价格冲出近期区间且成交明显活跃时发出提醒。', finds:'寻找价格带着明显成交量突破近期高点的时刻。', success:'突破后价格站稳区间外，成交量同时放大。', failure:'只有瞬间刺穿、收盘回到区间内，或成交没有配合。', indicators:[['通道高点','近期价格曾到达的最高位置。'],['成交量比','当前成交量相对平时放大了多少。'],['趋势强度','判断突破是不是顺着更大的方向。'],['真实波幅','用近期日常波动决定止损距离。']], before:['市场仍可正常交易且数据连续。','大方向不能明显向下。','黑名单中的市场不参与。'], after:['同一天提醒达到上限后不再推送。','同一市场冷却期内不重复提醒。','多个机会同时出现时，优先保留更强的。'], trading:['信号后的下一根 K 线开盘作为计划进场。','止损放在按真实波幅计算的保护位置。','先触及止损则退出，否则到最长持有时间退出。'], parameters:[['回放与筛选值','由用户在信号配置面板设置'],['每日提醒上限','以当前配置为准'],['不可修改项','成交顺序与账本规则用于保证回放一致']], steps:[['等待收盘','只在一根完整 K 线结束后判断。'],['检查突破','确认价格是否真正离开近期区间。'],['检查成交','确认市场参与度同步放大。'],['排序提醒','通过过滤后按强弱保留机会。'],['跟踪结果','记录进场、止损与退出，供以后回放。']] },
-  oversold: { name:'高位回调', kind:'信号策略', summary:'上涨途中的一次急跌企稳，避开已经转跌的市场。', finds:'寻找仍在上升趋势、从高位急跌后开始企稳的市场。', success:'急跌后不再创新低，成交恢复，价格出现修复。', failure:'跌势仍在加速，市场连续破位，没有止跌证据。', indicators:[['短期跌幅','衡量价格在短时间内下跌了多少。'],['真实波幅','区分正常波动与异常急跌。'],['成交量比','观察恐慌成交是否集中出现。'],['长周期方向','避免在大级别崩塌中贸然接刀。']], before:['市场可交易且 K 线完整。','排除流动性不足与黑名单市场。','长期状态过弱时不找反弹。'], after:['崩塌保护触发时全部丢弃。','同一市场冷却期内不重复提醒。','达到每日提醒上限后只入账、不推送。'], trading:['下一根 K 线开盘作为计划进场。','止损优先，避免反弹判断失败后扩大亏损。','在规定持有时间内未修复则退出。'], parameters:[['回放与筛选值','由用户在信号配置面板设置'],['提醒与冷却','以当前配置为准'],['不可修改项','止损优先与最晚退出顺序保持固定']], steps:[['观察急跌','比较短期跌幅与平时波动。'],['排除崩塌','确认更大方向和市场状态允许观察反弹。'],['等待确认','只保留跌速缓和且成交有响应的样本。'],['发出提醒','按强弱排序后推送有限数量。'],['记录结果','跟踪止损或时间退出，供回放判断。']] },
-  strength: { name:'持续强势', kind:'信号策略', summary:'寻找价格和成交持续配合、方向没有转弱的市场。', finds:'寻找不是一根 K 线冲高，而是连续保持强势的市场。', success:'价格沿趋势推进，回撤有限，成交没有突然枯竭。', failure:'冲高后立即回落，或相对大盘的优势快速消失。', indicators:[['趋势强度','衡量上涨是否连续而非偶然。'],['长周期均线','检查大方向有没有转弱。'],['成交量比','确认上涨时有人持续参与。'],['相对强弱','比较该市场与同期大盘表现。']], before:['市场与数据必须可用。','长周期价格保持在健康区域。','黑名单市场不参与。'], after:['重复机会处于冷却期时筛掉。','市场整体快速下跌时暂停提醒。','超过每日上限的机会只保存记录。'], trading:['下一根 K 线开盘作为计划进场。','保护位随日常波动设置。','趋势破坏、触及止损或到期时退出。'], parameters:[['回放与筛选值','由用户在信号配置面板设置'],['提醒数量','以当前配置为准'],['不可修改项','入账与回放的成交先后规则']], steps:[['确认大方向','先检查长周期状态。'],['寻找持续性','判断强势是否延续而非瞬间冲高。'],['检查成交','成交活跃度必须与价格配合。'],['过滤与提醒','按强弱排序并控制重复提醒。'],['跟踪退出','记录趋势破坏、止损或到期结果。']] }
-};
-const definition = computed(() => definitions[isTrend.value ? 'trend' : slug.value] || definitions.breakout);
+const savingParameters=ref(false);const parameterNote=ref("");const parameterDraft=ref({});
+const groupName=computed(()=>({BREAKOUT_MOMENTUM:"放量突破",OVERSOLD_REBOUND:"高位回调",SUSTAINED_STRENGTH:"持续强势"})[familyId.value]);
+const familyFields=computed(()=>(store.signalDesk?.operations?.configuration?.fields||[]).filter(field=>field.key!=="daily_push_limit"&&(field.group==="通用"||field.group===groupName.value)));
+watch(familyFields,fields=>{parameterDraft.value=Object.fromEntries(fields.map(field=>[field.key,field.value]))},{immediate:true});
+const familyPerformance=computed(()=>store.signalDesk?.rolling_30d_performance_by_family?.[familyId.value]||{});
+const familyCurve=computed(()=>(familyPerformance.value.curve||[]).map(row=>({result:Number(row.cumulative_r)})));
+const familySamples=computed(()=>store.signalDesk?.recent_samples_by_family?.[familyId.value]||[]);
+const familyPreview=computed(()=>{const comparison=store.signalReplay?.comparison;if(!comparison||!familyId.value)return null;return{before:Number(comparison.before?.by_family?.[familyId.value]||0),after:Number(comparison.after?.by_family?.[familyId.value]||0),added:(comparison.added||[]).filter(row=>row.family===familyId.value||row.family_id===familyId.value).length,removed:(comparison.removed||[]).filter(row=>row.family===familyId.value||row.family_id===familyId.value).length}});
+const latestRound=computed(()=>store.signalDesk?.operations?.latest_round||{});
+const strategyDefinition=computed(()=>store.selectedStrategy||{});
+const trendParameters=computed(()=>{const display=strategyDefinition.value.display||{};return [["观察周期",(display.momentum_lookback_days||[]).join(" / ")+"天"],["波动观察",`${display.volatility_lookback_days??"—"}天`],["调仓间隔",`${display.rebalance_days??"—"}天`],["目标组合波动",`${display.target_portfolio_vol_pct??"—"}%`],["总仓位上限",`${display.gross_cap_pct??"—"}%`]]});
+const detail=computed(()=>{if(!isTrend.value)return store.signalDesk?.operations?.strategy_families?.[familyId.value]||{name:"信号策略",summary:"服务未部署，暂时无法读取规则。",indicators:[],exclusions:[],steps:[]};const mechanics=strategyDefinition.value.mechanics||[];return{name:/T[B]4/i.test(strategyDefinition.value.name||"")?"多周期趋势":strategyDefinition.value.name||"多周期趋势",summary:strategyDefinition.value.summary||"策略定义暂时不可用。",indicators:mechanics.map(row=>[row.title,row.body]),exclusions:strategyDefinition.value.known_risks||[],steps:mechanics.map(row=>[row.title,row.body])}});
 const trend = computed(() => store.state?.trend_forward || {});
 const equity = computed(() => store.state?.live_reconciliation?.equity || {});
 const equityPoints = computed(() => (equity.value.points || []).map(row => ({ strategy:Number(row.paper_normalized), actual:Number(row.live_normalized) })).filter(row => Number.isFinite(row.strategy) && Number.isFinite(row.actual)));
@@ -91,10 +107,15 @@ const chartSymbol = ref('');
 watchEffect(() => { if (!holdingRows.value.some(row => row.symbol === chartSymbol.value)) chartSymbol.value = holdingRows.value[0]?.symbol || ''; });
 const selectedHolding = computed(() => holdingRows.value.find(row => row.symbol === chartSymbol.value));
 const pricePoints = computed(() => (store.state?.price_history?.[chartSymbol.value] || []).map(row => ({ time:row.timestamp || row.tick, price:Number(row.price) })).filter(row => Number.isFinite(row.price)));
-const runtimeStatus = computed(() => isTrend.value ? (trend.value.status === 'NOT_STARTED' ? '尚未启动' : '运行中') : (signalEnabled.value ? '提醒已启用' : `提醒未启用${familyControl.value.disabled_reason ? `：${familyControl.value.disabled_reason}` : ''}`));
-const runtimeColor = computed(() => /运行中|已启用/.test(runtimeStatus.value) ? 'green' : 'orange');
+const runtimeStatus = computed(() => {if(isTrend.value)return !store.state?.trend_forward?'状态未知':trend.value.status==='NOT_STARTED'?'尚未启动':trend.value.data_fresh===false?'已启动但数据超时':'运行中';const service=store.signalDesk?.operations?.service;if(!service)return'未部署 / 状态未知';if(!signalEnabled.value||!service.enabled)return`已停用${familyControl.value.disabled_reason?`：${familyControl.value.disabled_reason}`:''}`;return service.running&&service.market_data_fresh?'扫描正常运行':'已启用但超过 30 分钟没有成功扫描'});
+const runtimeColor = computed(() => /正常运行|运行中/.test(runtimeStatus.value) ? 'green' : /30 分钟|超时/.test(runtimeStatus.value)?'red':'orange');
 const detailReplayRoute = computed(() => isTrend.value ? 'review' : 'signals');
 const pct = value => `${(Number(value || 0) * 100).toFixed(1)}%`;
+const r=value=>value===null||value===undefined?"—":`${Number(value)>=0?"+":""}${Number(value).toFixed(2)}R`;
+const simulationResult=sample=>sample.simulation?.status==="CLOSED"?r(sample.simulation.realized_r):sample.simulation?.status==="OPEN"?"进行中":"等待进场";
+function changedValues(){return Object.fromEntries(familyFields.value.map(field=>[field.key,field.kind==="choice"?parameterDraft.value[field.key]:Number(parameterDraft.value[field.key])]).filter(([key,value])=>value!==familyFields.value.find(field=>field.key===key)?.value))}
+async function saveParameters(){const values=changedValues();if(!Object.keys(values).length)return;savingParameters.value=true;try{await updateSignalConfiguration(values,parameterNote.value);parameterNote.value="";await loadSignalDesk()}finally{savingParameters.value=false}}
+async function previewParameters(){const values=changedValues();await replaySignals(7,Object.keys(values).length?values:null)}
 function refresh(){ loadStrategyCatalog(); loadSignalDesk(); }
 async function toggleSignal(){
   const enabled=!signalEnabled.value;
@@ -112,3 +133,6 @@ async function stopTrend(){
 onMounted(() => { if(isAuthenticated.value) refresh(); });
 watch(isAuthenticated, value => { if(value) refresh(); });
 </script>
+<style scoped>
+.strategy-score-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.strategy-score-grid>div{display:grid;gap:5px;padding:14px;background:#0b1525;border:1px solid #1b2d49;border-radius:9px}.strategy-score-grid span,.strategy-param-form small{color:#8293aa}.strategy-score-grid b{font-size:22px}.strategy-sample-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.strategy-sample{background:#0b1525;border:1px solid #1b2d49;border-radius:9px;padding:10px}.strategy-param-form{display:grid;gap:10px}.strategy-param-form label{display:grid;grid-template-columns:minmax(150px,1fr) minmax(220px,2fr) minmax(110px,1fr);gap:10px;align-items:center;border-top:1px solid #1b2d49;padding-top:10px}.strategy-param-form em{font-style:normal;color:#e2ad59;border:1px solid #765724;border-radius:5px;padding:2px 5px;font-size:11px}.strategy-param-form input,.strategy-param-form select{background:#081321;border:1px solid #29405f;color:#e9f0fa;border-radius:6px;padding:8px}@media(max-width:700px){.strategy-score-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.strategy-sample-grid{grid-template-columns:1fr}.strategy-param-form label{grid-template-columns:1fr;gap:5px}}
+</style>

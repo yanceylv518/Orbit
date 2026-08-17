@@ -82,7 +82,7 @@ class StrategyDefinition:
 
 TB4_DEFINITION = StrategyDefinition(
     id=TB4_STRATEGY_ID,
-    name="TB4 多周期趋势篮子",
+    name="多周期趋势",
     version="1",
     definition_hash=_definition_hash(),
     spec_sha256=tb4_spec_fingerprint(),

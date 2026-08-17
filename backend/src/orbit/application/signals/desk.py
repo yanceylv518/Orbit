@@ -27,6 +27,27 @@ INTERACTION_MANIFEST = {
     "constraints": ["STOP_REQUIRED", "NO_AVERAGING_DOWN", "COOLDOWN_AFTER_STOP", "SIGNAL_REQUIRED"],
 }
 
+SIGNAL_FAMILY_PRESENTATION = {
+    "BREAKOUT_MOMENTUM": {
+        "name": "放量突破", "summary": "价格冲出近期区间且成交明显活跃时发出提醒。",
+        "indicators": [["通道高点", "近期已收盘价格的最高位置。"], ["成交量比", "当前成交额相对历史窗口的放大倍数。"], ["趋势强度", "用方向对齐的价格变化排序机会。"]],
+        "exclusions": ["交易性未达门槛或 K 线不完整时不动作。", "收盘未突破通道高点或放量不足时不动作。", "超过每日处理上限的信号仍入账和模拟，不推送。"],
+        "steps": [["收盘", "只读取完整 15 分钟 K 线。"], ["准入", "按 30 日成交性选出可处理市场。"], ["命中", "检查通道突破与成交量。"], ["入账", "全部信号进入模拟账。"], ["推送", "仅对限额内机会发送提醒。"]],
+    },
+    "OVERSOLD_REBOUND": {
+        "name": "高位回调", "summary": "寻找仍在上升趋势、从高位急跌后开始企稳的市场。",
+        "indicators": [["短期跌幅", "衡量观察窗口内的急跌。"], ["长周期方向", "只在允许的大级别状态中观察回调。"], ["双重高点", "同时检查中期崩塌和急跌起点。"]],
+        "exclusions": ["长周期不是允许状态时不动作。", "距中期高点回撤达崩塌上限时不动作。", "急跌起点本就远离近期高点时不动作。", "超过每日处理上限的信号仍入账和模拟，不推送。"],
+        "steps": [["收盘", "只读取完整 15 分钟 K 线。"], ["准入", "检查交易性与长周期方向。"], ["防崩塌", "先检查中期和起点高位保护。"], ["企稳", "急跌后收盘不再走弱才命中。"], ["入账与推送", "全量记录，限额内推送。"]],
+    },
+    "SUSTAINED_STRENGTH": {
+        "name": "持续强势", "summary": "寻找价格与成交持续配合、方向没有转弱的市场。",
+        "indicators": [["趋势强度", "要求方向对齐强度达到设定分位。"], ["持续量比", "近期均量相对基准均量不能转弱。"], ["距高点比例", "价格必须仍在高位区域。"]],
+        "exclusions": ["长周期不向上时不动作。", "趋势强度、持续量比或高位距离任一不达标时不动作。", "同币种冷却期内不重复提醒。", "超过每日处理上限的信号仍入账和模拟，不推送。"],
+        "steps": [["收盘", "只读取完整 15 分钟 K 线。"], ["方向", "先检查长周期是否向上。"], ["持续性", "检查强度、量能和高位距离。"], ["冷却", "已提醒币种在冷却期内不重复。"], ["入账与推送", "全量记录，限额内推送。"]],
+    },
+}
+
 
 class SignalDeskService:
     """SIG-2 command/read model over immutable SIG-1 and interaction ledgers."""
@@ -420,15 +441,40 @@ class SignalDeskService:
         selected_date = datetime.strptime(selected_day, "%Y-%m-%d").date()
         rolling_cutoff = selected_date - timedelta(days=29)
         rolling_30d_by_family: dict[str, int] = {}
-        recent_samples_by_family: dict[str, dict[str, Any]] = {}
+        recent_samples_by_family: dict[str, list[dict[str, Any]]] = {}
+        rolling_signals_by_family: dict[str, list[dict[str, Any]]] = {}
         for signal in sorted(signals.values(), key=lambda item: -int(item.get("signal_time_ms", 0))):
             family = str(signal.get("family_id") or signal.get("family") or signal.get("type") or "")
             signal_day = datetime.strptime(str(signal.get("signal_day_utc")), "%Y-%m-%d").date()
             if rolling_cutoff <= signal_day <= selected_date:
                 rolling_30d_by_family[family] = rolling_30d_by_family.get(family, 0) + 1
-            if family and family not in recent_samples_by_family and signal.get("chart_before"):
-                recent_samples_by_family[family] = self._public_event(signal)
-        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "error_type": None}, "rolling_30d_by_family": rolling_30d_by_family, "rolling_30d_daily_average_by_family": {family: round(count / 30, 2) for family, count in rolling_30d_by_family.items()}, "recent_samples_by_family": recent_samples_by_family, "_all_signals": rows, "_source_alerts": source_alerts}
+                rolling_signals_by_family.setdefault(family, []).append(signal)
+            samples = recent_samples_by_family.setdefault(family, [])
+            if family and len(samples) < 6 and signal.get("chart_before"):
+                trade = self._public_event(trades.get(signal["signal_id"], {"status": "WAITING_ENTRY"}))
+                samples.append({**self._public_event(signal), "simulation": trade})
+        performance = {}
+        for family, family_signals in rolling_signals_by_family.items():
+            closed = []
+            for signal in family_signals:
+                trade = trades.get(signal["signal_id"], {})
+                if trade.get("status") == "CLOSED" and trade.get("realized_r") is not None:
+                    closed.append((int(trade.get("exited_at_ms") or signal.get("signal_time_ms") or 0), float(trade["realized_r"])))
+            running_total = 0.0
+            curve = []
+            for recorded_at_ms, realized_r in sorted(closed):
+                running_total += realized_r
+                curve.append({"recorded_at_ms": recorded_at_ms, "cumulative_r": round(running_total, 8)})
+            performance[family] = {
+                "signal_count": len(family_signals),
+                "closed_count": len(closed),
+                "open_count": len(family_signals) - len(closed),
+                "realized_r_total": round(running_total, 8),
+                "wins": sum(realized_r > 0 for _, realized_r in closed),
+                "losses": sum(realized_r <= 0 for _, realized_r in closed),
+                "curve": curve,
+            }
+        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "error_type": None}, "rolling_30d_by_family": rolling_30d_by_family, "rolling_30d_daily_average_by_family": {family: round(count / 30, 2) for family, count in rolling_30d_by_family.items()}, "rolling_30d_performance_by_family": performance, "recent_samples_by_family": recent_samples_by_family, "_all_signals": rows, "_source_alerts": source_alerts}
 
     def _summary(self, rows):
         closed = [row for row in rows if row["simulation"].get("status") == "CLOSED"]
@@ -503,6 +549,12 @@ class SignalDeskService:
             "binding": {"account_id": bound_account_id, "optional": True, "conflict": binding_conflict, "purpose": "只用于真实成交自动配对，不参与信号扫描或模拟"},
             "parameters": {"liquidity_threshold_usdt": (market.get("liquidity") or {}).get("minimum_median_daily_quote_volume_usdt", 2000000), "liquidity_lookback_complete_utc_days": (market.get("liquidity") or {}).get("lookback_complete_utc_days", 30), "candidate_limit": (active_spec.get("workload") or {}).get("daily_candidate_limit", 30), "push_thresholds": notifications.get("trend_strength_minimum_by_family", {}), "signal_interval": market.get("signal_interval", "15m")},
             "family_controls": family_controls,
+            "strategy_families": deepcopy(SIGNAL_FAMILY_PRESENTATION),
+            "latest_round": {
+                "market_count": int((health.get("latest_scan") or {}).get("market_window_count") or 0),
+                "detected_count": int((health.get("latest_scan") or {}).get("detected_signal_count") or 0),
+                "new_signal_count": int((health.get("latest_scan") or {}).get("new_signal_count") or 0),
+            },
             "configuration": public_configuration(active_spec, revision),
             "scope_version": active_spec["scope_version"],
             "pending_discipline_changes": pending,
