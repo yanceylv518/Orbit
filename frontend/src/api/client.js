@@ -124,6 +124,7 @@ export function testSignalPushoverRequest() { return postJson("/api/signals/push
 export function controlSignalServiceRequest(enabled) { return postJson("/api/signals/service", { enabled }); }
 export function controlSignalFamilyRequest(familyId, enabled, reason) { return postJson("/api/signals/families/control", { family_id: familyId, enabled, reason }); }
 export function updateSignalConfigurationRequest(values, note) { return postJson("/api/signals/configuration", { values, note: note || null }); }
+export function replaySignalsRequest(days, previewValues = null) { return postJson("/api/signals/replay", { days, preview_values: previewValues }); }
 export function bindSignalAccountRequest(accountId) { return postJson("/api/signals/binding", { account_id: accountId || null }); }
 
 export async function postJson(path, payload = {}) {

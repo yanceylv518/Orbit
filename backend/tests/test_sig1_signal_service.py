@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from orbit.application.sig1_signal_service import Sig1SignalService
+from orbit.application.signals.replay import SignalReplayService
 from orbit.domain.calibration.r0_shortline import ShortlineCandle
 from orbit.domain.signals.sig1 import detect_sig1_signals
 from orbit.infrastructure.persistence.signal_ledger import AppendOnlySignalLedger
@@ -145,6 +146,34 @@ class FakeScanService:
 
 
 class Sig1SignalServiceTests(unittest.TestCase):
+    def test_replay_uses_live_detector_and_reports_same_signals(self):
+        contract = spec()
+        target = 101 * MS - 1
+        windows = {"BREAKUSDT": breakout_window("BREAKUSDT"), "N1USDT": neutral_window(), "N2USDT": neutral_window()}
+        direct = detect_sig1_signals(windows, target, contract)
+        histories = {}
+        for symbol, window in windows.items():
+            cycle = [ShortlineCandle((index - 361) * 14_400_000, (index - 360) * 14_400_000 - 1, row["close"], row["close"], row["close"], row["close"], 1_000) for index, row in enumerate(window["long_cycle_candles"])]
+            histories[symbol] = {"candles": window["candles"], "long_cycle": cycle, "daily": [(-index * 86_400_000 - 1, 3_000_000) for index in range(1, 31)]}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.json").write_text(json.dumps({"dataset_cutoff_ms": target}), encoding="utf-8")
+            replay = SignalReplayService(root)
+            replay._load_histories = lambda *_args: histories
+            result = replay.replay(contract, days=7, end_time_ms=target)
+        replayed = {(row["symbol"], row["family_id"], row["signal_time_ms"]) for row in result["signals"]}
+        expected = {(row["symbol"], row["family_id"], row["signal_time_ms"]) for row in direct}
+        self.assertEqual(replayed, expected)
+
+    def test_replay_reports_dataset_gap_without_silent_truncation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.json").write_text(json.dumps({"dataset_cutoff_ms": 100}), encoding="utf-8")
+            result = SignalReplayService(root).replay(spec(), days=7, end_time_ms=200)
+        self.assertEqual(result["status"], "DATA_GAP")
+        self.assertIn("只到", result["data_gap"])
+        self.assertEqual(result["signals"], [])
+
     def test_scan_once_counts_tracked_symbols_without_list_set_type_error(self):
         source = BinanceSig1Source(FakeScanFeed(), spec(), FakeScanService(), clock=lambda: 1_000)
         source._universe_day = "1970-01-01"

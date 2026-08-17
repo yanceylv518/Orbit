@@ -47,6 +47,11 @@ class SignalConfigurationRequest(BaseModel):
     note: str | None = Field(default=None, max_length=200)
 
 
+class SignalReplayRequest(BaseModel):
+    days: Literal[7, 30] = 7
+    preview_values: dict[str, Any] | None = None
+
+
 class SignalAccountBindingRequest(BaseModel):
     account_id: str | None = Field(default=None, max_length=64)
 
@@ -123,6 +128,14 @@ def control_signal_family(request: Request, payload: SignalFamilyControlRequest,
 def update_signal_configuration(request: Request, payload: SignalConfigurationRequest, user: dict = Depends(require_admin)) -> dict:
     try:
         return app_state(request).signal_desk.update_configuration(**payload.model_dump(), actor=str(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/replay")
+def replay_signals(request: Request, payload: SignalReplayRequest, _user: dict = Depends(require_admin)) -> dict:
+    try:
+        return app_state(request).signal_desk.replay(**payload.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

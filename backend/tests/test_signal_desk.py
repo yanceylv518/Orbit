@@ -30,6 +30,15 @@ class FakeGateway:
         ]
 
 
+class FakeReplay:
+    def replay(self, contract, *, days, end_time_ms):
+        volume = float(contract["signals"]["BREAKOUT_MOMENTUM"]["minimum_relative_quote_volume"])
+        rows = [_signal("same")]
+        if volume < 2:
+            rows.append(_signal("added", signal_time_ms=1786665601000))
+        return {"status": "READY", "signals": rows, "summary": {"total": len(rows), "truncated": 0, "by_family": {"BREAKOUT_MOMENTUM": len(rows)}, "by_symbol": {"SOLUSDT": len(rows)}}}
+
+
 def _signal(signal_id="sig-1", *, day="2026-08-14", direction="LONG", signal_time_ms=1786665600000):
     chart = [
         {
@@ -140,6 +149,25 @@ def test_configuration_change_is_validated_audited_and_immediately_visible(tmp_p
 def test_configuration_rejects_invalid_human_inputs(tmp_path, values, message):
     with pytest.raises(ValueError, match=message):
         _service(tmp_path).update_configuration(values=values, note=None, actor="admin")
+
+
+def test_unsaved_replay_preview_returns_diff_without_writing_configuration(tmp_path):
+    service = _service(tmp_path)
+    service.replay_service = FakeReplay()
+    before_events = service._read_interactions()
+    result = service.replay(days=7, preview_values={"breakout_volume": 1.5})
+    assert result["saved"] is False
+    assert result["comparison"]["before"]["total"] == 1
+    assert result["comparison"]["after"]["total"] == 2
+    assert [row["signal_id"] for row in result["comparison"]["added"]] == ["added"]
+    assert service._read_interactions() == before_events
+
+
+def test_replay_page_has_fixed_discipline_and_no_parameter_profit_ranking():
+    template = (Path(__file__).parents[2] / "frontend/src/pages/SignalPage.vue").read_text(encoding="utf-8")
+    assert "历史回放不预测未来。规则变更的真实效果，由信号模拟账在未来数据上裁决。" in template
+    for forbidden in ("最优参数", "参数收益排行榜", "按历史收益排序"):
+        assert forbidden not in template
 
 
 def test_taken_decision_requires_valid_stop_and_is_append_only(tmp_path):

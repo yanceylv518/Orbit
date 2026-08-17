@@ -334,6 +334,7 @@ def build_application_container(
         signal_interaction_directory = root / signal_interaction_directory
     signal_spec_path = root / "config" / "signals" / "sig1.v1.json"
     signal_spec = json.loads(signal_spec_path.read_text(encoding="utf-8")) if signal_spec_path.exists() else {}
+    from orbit.application.signals.replay import SignalReplayService
     signal_desk = SignalDeskService(
         signal_ledger_directory,
         signal_interaction_directory,
@@ -342,6 +343,7 @@ def build_application_container(
         account_repository=account_repository,
         binding_reader=lambda: strategy_control_plane_service.bindings(),
         gateway_factory=lambda account: BinanceFuturesClient.from_account(account, credential_vault),
+        replay_service=SignalReplayService(calibration_dir / "shortline-data-v1"),
         spec=signal_spec,
     )
     message_directory = root / str(plan_runtime.get("messages", {}).get("directory", "var/messages"))

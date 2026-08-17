@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -9,6 +10,7 @@ from typing import Any, Callable
 
 from orbit.infrastructure.persistence.signal_ledger import AppendOnlySignalLedger, canonical_json
 from orbit.application.signals.configuration import (
+    apply_values,
     configuration_values,
     effective_spec,
     public_configuration,
@@ -39,6 +41,7 @@ class SignalDeskService:
         account_repository: Any | None = None,
         binding_reader: Callable[[], list[dict[str, Any]]] | None = None,
         gateway_factory: Callable[[dict[str, Any]], Any] | None = None,
+        replay_service: Any | None = None,
         spec: dict[str, Any] | None = None,
         clock_ms: Callable[[], int] | None = None,
     ):
@@ -49,6 +52,7 @@ class SignalDeskService:
         self.account_repository = account_repository
         self.binding_reader = binding_reader or (lambda: [])
         self.gateway_factory = gateway_factory
+        self.replay_service = replay_service
         self.spec = spec or {}
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
@@ -194,6 +198,38 @@ class SignalDeskService:
             "actor": actor,
         })
         return self.snapshot()
+
+    def replay(self, *, days: int, preview_values: dict[str, Any] | None = None) -> dict[str, Any]:
+        if days not in {7, 30}:
+            raise ValueError("回放时间只能选择过去 7 天或 30 天")
+        if self.replay_service is None:
+            raise ValueError("服务器历史回放服务尚未配置")
+        interactions = self._read_interactions()
+        active = effective_spec(self.spec, interactions)
+        revision = sum(event.get("event_type") in {"SIGNAL_CONFIGURATION_CHANGED", "SIGNAL_FAMILY_CONTROL_CHANGED"} for event in interactions)
+        active["scope_version"] = scope_version(revision)
+        end_ms = self.clock_ms() // 900_000 * 900_000 - 1
+        baseline = self.replay_service.replay(active, days=days, end_time_ms=end_ms)
+        preview = None
+        comparison = None
+        if preview_values:
+            clean = validate_values(preview_values, active)
+            candidate = deepcopy(active)
+            apply_values(candidate, clean)
+            preview = self.replay_service.replay(candidate, days=days, end_time_ms=end_ms)
+            comparison = self._replay_comparison(baseline, preview)
+        return {"protocol": "ORBIT_SIGNAL_REPLAY_V1", "days": days, "baseline": baseline, "preview": preview, "comparison": comparison, "saved": False, "discipline_notice": "历史回放不预测未来。规则变更的真实效果，由信号模拟账在未来数据上裁决。"}
+
+    @staticmethod
+    def _replay_comparison(before, after):
+        identity = lambda row: (row.get("symbol"), row.get("family_id"), row.get("signal_time_ms"), row.get("direction"))
+        before_rows = {identity(row): row for row in before.get("signals", [])}
+        after_rows = {identity(row): row for row in after.get("signals", [])}
+        return {
+            "before": before.get("summary", {}), "after": after.get("summary", {}),
+            "added": [after_rows[key] for key in sorted(after_rows.keys() - before_rows.keys())],
+            "removed": [before_rows[key] for key in sorted(before_rows.keys() - after_rows.keys())],
+        }
 
     def bind_account(self, *, account_id: str | None, actor: str) -> dict[str, Any]:
         value = str(account_id or "").strip()

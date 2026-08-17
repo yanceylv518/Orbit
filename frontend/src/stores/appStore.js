@@ -38,6 +38,7 @@ import {
   controlSignalServiceRequest,
   controlSignalFamilyRequest,
   updateSignalConfigurationRequest,
+  replaySignalsRequest,
   bindSignalAccountRequest,
   resumeStoppedSymbolRequest,
 } from "../api/client.js";
@@ -93,6 +94,9 @@ export const store = reactive({
   signalDesk: null,
   signalDeskBusy: false,
   signalDeskError: "",
+  signalReplay: null,
+  signalReplayBusy: false,
+  signalReplayError: "",
   messages: [],
   messagesUnread: 0,
 });
@@ -156,6 +160,7 @@ export function testSignalPushover() { return applySignalCommand(testSignalPusho
 export function controlSignalService(enabled) { return applySignalCommand(controlSignalServiceRequest(enabled)); }
 export function controlSignalFamily(familyId, enabled, reason = null) { return applySignalCommand(controlSignalFamilyRequest(familyId, enabled, reason)); }
 export function updateSignalConfiguration(values, note = null) { return applySignalCommand(updateSignalConfigurationRequest(values, note)); }
+export async function replaySignals(days, previewValues = null) { store.signalReplayBusy=true;store.signalReplayError="";try{const{response,data}=await replaySignalsRequest(days,previewValues);if(!response.ok||data.error||data.detail)throw new Error(data.error||data.detail||`回放失败（HTTP ${response.status}）。`);store.signalReplay=data;return data}catch(error){store.signalReplayError=error instanceof Error?error.message:"回放失败。";return null}finally{store.signalReplayBusy=false} }
 export function bindSignalAccount(accountId) { return applySignalCommand(bindSignalAccountRequest(accountId)); }
 
 export const isAuthenticated = computed(() => Boolean(store.state?.auth?.authenticated));
