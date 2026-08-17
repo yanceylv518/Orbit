@@ -109,6 +109,39 @@ def test_family_disable_requires_reason_and_reason_is_audited_and_visible(tmp_pa
     assert events[-1]["actor"] == "admin"
 
 
+def test_configuration_change_is_validated_audited_and_immediately_visible(tmp_path):
+    service = _service(tmp_path)
+    result = service.update_configuration(
+        values={"pullback_start_days": 5, "breakout_volume": 2.5},
+        note="扩大急跌起点观察窗口",
+        actor="admin",
+    )
+    configuration = result["operations"]["configuration"]
+    values = {row["key"]: row["value"] for row in configuration["fields"]}
+    assert values["pullback_start_days"] == 5
+    assert values["collapse_days"] == 14
+    assert values["strength_high_days"] == 14
+    assert configuration["revision"] == 1
+    assert configuration["scope_version"] == "SIG3B_SCOPE_V1"
+    event = service._read_interactions()[-1]
+    assert event["changes"]["pullback_start_days"] == {"old": 3, "new": 5}
+    assert event["note"] == "扩大急跌起点观察窗口"
+    assert event["actor"] == "admin"
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"pullback_start_days": 0}, "允许范围"),
+        ({"collapse_days": "不是数字"}, "必须填写数字"),
+        ({"strength_short_volume_days": 10, "strength_long_volume_days": 3}, "必须小于"),
+    ],
+)
+def test_configuration_rejects_invalid_human_inputs(tmp_path, values, message):
+    with pytest.raises(ValueError, match=message):
+        _service(tmp_path).update_configuration(values=values, note=None, actor="admin")
+
+
 def test_taken_decision_requires_valid_stop_and_is_append_only(tmp_path):
     service = _service(tmp_path)
     with pytest.raises(ValueError, match="止损"):

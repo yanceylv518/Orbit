@@ -37,11 +37,13 @@
       "required_long_cycle_state": "UP",
       "collapse_lookback_days": 14,
       "maximum_drawdown_from_high": "0.30",
+      "pullback_start_high_lookback_days": 3,
       "maximum_start_drawdown_from_high": "0.15"
     },
     "SUSTAINED_STRENGTH": {
       "enabled": true,
       "required_long_cycle_state": "UP",
+      "trend_strength_quantile": "0.90",
       "trend_strength_minimum": "9.94136807817591",
       "short_volume_days": 3,
       "long_volume_days": 10,

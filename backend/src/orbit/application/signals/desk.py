@@ -8,6 +8,13 @@ import time
 from typing import Any, Callable
 
 from orbit.infrastructure.persistence.signal_ledger import AppendOnlySignalLedger, canonical_json
+from orbit.application.signals.configuration import (
+    configuration_values,
+    effective_spec,
+    public_configuration,
+    scope_version,
+    validate_values,
+)
 
 
 INTERACTION_MANIFEST = {
@@ -48,7 +55,14 @@ class SignalDeskService:
     def snapshot(self, *, day: str | None = None, limit: int = 200) -> dict[str, Any]:
         selected_day = day or self._clock_day()
         source = self._read_source(selected_day)
-        if source["health"]["status"] in {"NOT_DEPLOYED", "LEDGER_ERROR"}:
+        if source["health"]["status"] == "NOT_DEPLOYED":
+            try:
+                interactions = self._read_interactions()
+            except Exception:
+                interactions = []
+            source["operations"] = self._operations(interactions, source["health"], [])
+            return source
+        if source["health"]["status"] == "LEDGER_ERROR":
             return source
         try:
             interactions = self._read_interactions()
@@ -153,6 +167,31 @@ class SignalDeskService:
             "event_type": "SIGNAL_FAMILY_CONTROL_CHANGED",
             "recorded_at_ms": self.clock_ms(), "family_id": family_id,
             "enabled": bool(enabled), "reason": explanation or None, "actor": actor,
+        })
+        return self.snapshot()
+
+    def update_configuration(self, *, values: dict[str, Any], note: str | None, actor: str) -> dict[str, Any]:
+        interactions = self._read_interactions()
+        current = effective_spec(self.spec, interactions)
+        clean = validate_values(values, current)
+        old_values = configuration_values(current)
+        changed = {
+            key: {"old": old_values.get(key), "new": value}
+            for key, value in clean.items()
+            if old_values.get(key) != value
+        }
+        if not changed:
+            raise ValueError("这些参数与当前生效值相同，无需保存")
+        revision = sum(event.get("event_type") in {"SIGNAL_CONFIGURATION_CHANGED", "SIGNAL_FAMILY_CONTROL_CHANGED"} for event in interactions) + 1
+        self._interaction_ledger().append({
+            "event_type": "SIGNAL_CONFIGURATION_CHANGED",
+            "recorded_at_ms": self.clock_ms(),
+            "revision": revision,
+            "scope_version": scope_version(revision),
+            "values": {key: row["new"] for key, row in changed.items()},
+            "changes": changed,
+            "note": str(note or "").strip() or None,
+            "actor": actor,
         })
         return self.snapshot()
 
@@ -402,12 +441,15 @@ class SignalDeskService:
         for event in interactions:
             if event.get("event_type") == "SIGNAL_FAMILY_CONTROL_CHANGED":
                 latest_family[str(event.get("family_id"))] = event
+        revision = sum(event.get("event_type") in {"SIGNAL_CONFIGURATION_CHANGED", "SIGNAL_FAMILY_CONTROL_CHANGED"} for event in interactions)
+        active_spec = effective_spec(self.spec, interactions)
+        active_spec["scope_version"] = scope_version(revision)
         family_controls = {}
         definitions = {
             family_id: {"enabled": True}
             for family_id in ("BREAKOUT_MOMENTUM", "OVERSOLD_REBOUND", "SUSTAINED_STRENGTH")
         }
-        definitions.update(self.spec.get("signals") or {})
+        definitions.update(active_spec.get("signals") or {})
         for family_id, definition in definitions.items():
             event = latest_family.get(family_id) or {}
             family_controls[family_id] = {
@@ -415,17 +457,18 @@ class SignalDeskService:
                 "disabled_reason": event.get("reason") if event and not event.get("enabled") else None,
                 "changed_at_ms": event.get("recorded_at_ms"),
             }
-        notifications = self.spec.get("notifications", {})
-        market = self.spec.get("market", {})
+        notifications = active_spec.get("notifications", {})
+        market = active_spec.get("market", {})
         bound_account_id = binding.get("account_id")
         binding_conflict = bool(bound_account_id and any(row.get("exchange_account_id") == bound_account_id and row.get("status") in {"ACTIVE", "STOPPING"} for row in self.binding_reader()))
         return {
             "service": {"enabled": bool(control.get("enabled", False)), "running": bool(control.get("enabled", False)) and not stale, "last_scan_at_ms": latest_scan_ms, "market_data_fresh": not stale, "error_count": push_failures + int(health.get("status") == "LEDGER_ERROR")},
             "pushover": {"configured": bool(push.get("api_token_reference") and push.get("user_key_reference")), "enabled": bool(push.get("enabled", False)), "api_token_fingerprint": push.get("api_token_fingerprint"), "user_key_fingerprint": push.get("user_key_fingerprint"), "today_sent": sum((row.get("push") or {}).get("event_type") == "PUSH_SUCCEEDED" for row in rows), "daily_limit": notifications.get("daily_success_limit", 3)},
             "binding": {"account_id": bound_account_id, "optional": True, "conflict": binding_conflict, "purpose": "只用于真实成交自动配对，不参与信号扫描或模拟"},
-            "parameters": {"liquidity_threshold_usdt": (market.get("liquidity") or {}).get("minimum_median_daily_quote_volume_usdt", 2000000), "liquidity_lookback_complete_utc_days": (market.get("liquidity") or {}).get("lookback_complete_utc_days", 30), "candidate_limit": (self.spec.get("workload") or {}).get("daily_candidate_limit", 30), "push_thresholds": notifications.get("trend_strength_minimum_by_family", {}), "signal_interval": market.get("signal_interval", "15m")},
+            "parameters": {"liquidity_threshold_usdt": (market.get("liquidity") or {}).get("minimum_median_daily_quote_volume_usdt", 2000000), "liquidity_lookback_complete_utc_days": (market.get("liquidity") or {}).get("lookback_complete_utc_days", 30), "candidate_limit": (active_spec.get("workload") or {}).get("daily_candidate_limit", 30), "push_thresholds": notifications.get("trend_strength_minimum_by_family", {}), "signal_interval": market.get("signal_interval", "15m")},
             "family_controls": family_controls,
-            "scope_version": self.spec.get("scope_version", "SIG3_SCOPE_V1"),
+            "configuration": public_configuration(active_spec, revision),
+            "scope_version": active_spec["scope_version"],
             "pending_discipline_changes": pending,
             "backup": {"required_paths": [str(self.ledger_directory), str(self.interaction_directory)]},
         }

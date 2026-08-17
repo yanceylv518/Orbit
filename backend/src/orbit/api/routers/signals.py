@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Any, Literal
 
 from orbit.api.dependencies import app_state, require_admin
 
@@ -40,6 +40,11 @@ class SignalFamilyControlRequest(BaseModel):
     family_id: Literal["BREAKOUT_MOMENTUM", "OVERSOLD_REBOUND", "SUSTAINED_STRENGTH"]
     enabled: bool
     reason: str | None = Field(default=None, max_length=200)
+
+
+class SignalConfigurationRequest(BaseModel):
+    values: dict[str, Any]
+    note: str | None = Field(default=None, max_length=200)
 
 
 class SignalAccountBindingRequest(BaseModel):
@@ -110,6 +115,14 @@ def control_signal_service(request: Request, payload: SignalServiceControlReques
 def control_signal_family(request: Request, payload: SignalFamilyControlRequest, user: dict = Depends(require_admin)) -> dict:
     try:
         return app_state(request).signal_desk.set_family_enabled(**payload.model_dump(), actor=str(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/configuration")
+def update_signal_configuration(request: Request, payload: SignalConfigurationRequest, user: dict = Depends(require_admin)) -> dict:
+    try:
+        return app_state(request).signal_desk.update_configuration(**payload.model_dump(), actor=str(user["id"]))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

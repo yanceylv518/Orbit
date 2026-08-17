@@ -19,6 +19,7 @@ sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
 from orbit.application.sig1_signal_service import Sig1SignalService  # noqa: E402
 from orbit.application.signals.desk import INTERACTION_MANIFEST  # noqa: E402
+from orbit.application.signals.configuration import apply_values, scope_version  # noqa: E402
 from orbit.domain.calibration.r0_shortline import ShortlineCandle  # noqa: E402
 from orbit.infrastructure.credentials.factory import create_credential_vault  # noqa: E402
 from orbit.infrastructure.exchange.kline_feed import BinanceKlineFeed  # noqa: E402
@@ -79,12 +80,18 @@ def main() -> None:
     )
     service = Sig1SignalService(spec, ledger, notifier)
     source = BinanceSig1Source(BinanceKlineFeed(), spec, service)
+    active_configuration_revision = -1
     while True:
         controls = _runtime_controls(control_ledger)
         service.spec["notifications"]["enabled"] = bool(controls.get("pushover_enabled", False))
         for family, enabled in (controls.get("family_enabled") or {}).items():
             if family in service.spec.get("signals", {}):
                 service.spec["signals"][family]["enabled"] = bool(enabled)
+        apply_values(service.spec, controls.get("configuration_values") or {})
+        service.spec["scope_version"] = scope_version(int(controls.get("configuration_revision", 0)))
+        if int(controls.get("configuration_revision", 0)) != active_configuration_revision:
+            source._universe_day = None
+            active_configuration_revision = int(controls.get("configuration_revision", 0))
         if controls.get("api_token_reference") and controls.get("user_key_reference"):
             service.notifier = PushoverNotifier(vault, api_token_reference=controls["api_token_reference"], user_key_reference=controls["user_key_reference"])
         if not controls.get("service_enabled", False):
@@ -113,7 +120,7 @@ def main() -> None:
 
 
 def _runtime_controls(ledger: AppendOnlySignalLedger) -> dict[str, Any]:
-    result = {"service_enabled": False, "pushover_enabled": False, "family_enabled": {}}
+    result = {"service_enabled": False, "pushover_enabled": False, "family_enabled": {}, "configuration_values": {}, "configuration_revision": 0}
     for record in ledger.read_all():
         event = record["payload"]
         if event.get("event_type") == "SIGNAL_SERVICE_CONTROL_CHANGED":
@@ -122,6 +129,10 @@ def _runtime_controls(ledger: AppendOnlySignalLedger) -> dict[str, Any]:
             result.update({"pushover_enabled": bool(event.get("enabled")), "api_token_reference": event.get("api_token_reference"), "user_key_reference": event.get("user_key_reference")})
         elif event.get("event_type") == "SIGNAL_FAMILY_CONTROL_CHANGED":
             result["family_enabled"][str(event.get("family_id"))] = bool(event.get("enabled"))
+            result["configuration_revision"] += 1
+        elif event.get("event_type") == "SIGNAL_CONFIGURATION_CHANGED":
+            result["configuration_values"].update(event.get("values") or {})
+            result["configuration_revision"] += 1
     return result
 
 

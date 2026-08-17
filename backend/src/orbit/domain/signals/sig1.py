@@ -55,6 +55,7 @@ def detect_sig1_signals(
         required_history = max(
             288,
             int((spec["signals"].get("OVERSOLD_REBOUND") or {}).get("collapse_lookback_days", 14)) * 96,
+            int((spec["signals"].get("OVERSOLD_REBOUND") or {}).get("pullback_start_high_lookback_days", 3)) * 96,
             int((spec["signals"].get("SUSTAINED_STRENGTH") or {}).get("long_volume_days", 10)) * 96,
         )
         if not _contiguous(candles[max(0, signal_index - required_history + 1) : signal_index + 1]):
@@ -104,7 +105,7 @@ def detect_sig1_signals(
             candles, signal_index, int(oversold.get("collapse_lookback_days", 14)) * 96
         )
         lookback = int(oversold["return_lookback_candles"])
-        high_start = max(0, signal_index - int(oversold.get("collapse_lookback_days", 14)) * 96 + 1)
+        high_start = max(0, signal_index - int(oversold.get("pullback_start_high_lookback_days", 3)) * 96 + 1)
         recent_high = max(float(row.high) for row in candles[high_start : signal_index + 1])
         drop_start_close = float(candles[signal_index - lookback].close)
         start_drawdown = 1.0 - drop_start_close / recent_high if recent_high > 0 else 1.0
@@ -149,9 +150,14 @@ def detect_sig1_signals(
             )
             features = signal_features(candles, signal_index, "LONG", atr14, 96)
             strength = float((features or {}).get("trend_strength", float("-inf")))
+            strength_threshold = _trend_strength_threshold(
+                candles,
+                signal_index,
+                float(strong.get("trend_strength_quantile", 0.90)),
+            ) if "trend_strength_quantile" in strong else float(strong.get("trend_strength_minimum", 0))
             if (
                 long_cycle == str(strong.get("required_long_cycle_state", "UP"))
-                and strength >= float(strong.get("trend_strength_minimum", 0))
+                and strength + 1e-9 >= strength_threshold
                 and volume_ratio >= float(strong.get("minimum_volume_ratio", 1.3))
                 and distance <= float(strong.get("maximum_distance_from_high", 0.03))
             ):
@@ -159,7 +165,7 @@ def detect_sig1_signals(
                     symbol, candles, signal_index, atr14, liquidity,
                     family_id="SUSTAINED_STRENGTH", direction="LONG",
                     reason={"long_cycle_state": long_cycle, "volume_ratio_3d_10d": volume_ratio,
-                            "distance_from_14d_high": distance},
+                            "distance_from_high": distance, "trend_strength_quantile": float(strong.get("trend_strength_quantile", 0.90))},
                     scope_version=str(spec.get("scope_version", "SIG3_SCOPE_V1")),
                 ))
     btc_rows = list((market_windows.get("BTCUSDT") or {}).get("candles", []))
@@ -208,11 +214,12 @@ def notification_message(signal: Mapping[str, Any]) -> dict[str, str]:
     else:
         family_name = "持续强势"
         trigger = f"持续强势 / 量能比{float(reason['volume_ratio_3d_10d']):.2f}"
+    quantile = float(reason.get("trend_strength_quantile", 0.90))
     body = "\n".join(
         [
             f"{signal['symbol']} {direction}",
             trigger,
-            f"趋势强度 {float(signal['trend_strength_96']):.2f}（历史同族前10%门槛）",
+            f"趋势强度 {float(signal['trend_strength_96']):.2f}（历史前{(1 - quantile) * 100:.0f}%门槛）",
             f"参考进场 {entry:.8g}  止损 {float(signal['suggested_stop_price']):.8g}",
             f"1R {entry + sign * risk:.8g} / 2R {entry + sign * 2 * risk:.8g} / 3R {entry + sign * 3 * risk:.8g}",
             f"信号时间 {iso_utc(int(signal['signal_time_ms']))}",
@@ -322,3 +329,26 @@ def _sustained_volume_ratio(candles, signal_index, short_lookback, long_lookback
     long = [float(row.quote_volume) for row in candles[signal_index - long_lookback + 1 : signal_index + 1]]
     long_mean = sum(long) / len(long) if long else 0.0
     return (sum(short) / len(short)) / long_mean if long_mean > 0 else 0.0
+
+
+def _trend_strength_threshold(candles, signal_index, quantile, window=96, history=960):
+    start = max(window, signal_index - history)
+    if signal_index - start < 20:
+        return float("inf")
+    true_ranges = []
+    for index, row in enumerate(candles[: signal_index + 1]):
+        previous = float(candles[index - 1].close) if index else float(row.open)
+        true_ranges.append(max(float(row.high) - float(row.low), abs(float(row.high) - previous), abs(float(row.low) - previous)))
+    strengths = []
+    for index in range(start, signal_index):
+        atr = sum(true_ranges[index - 13 : index + 1]) / 14
+        if atr > 0:
+            strengths.append((float(candles[index].close) - float(candles[index - window].close)) / atr)
+    if not strengths:
+        return float("inf")
+    ordered = sorted(strengths)
+    position = (len(ordered) - 1) * min(1.0, max(0.0, quantile))
+    lower = int(position)
+    upper = min(len(ordered) - 1, lower + 1)
+    fraction = position - lower
+    return ordered[lower] * (1 - fraction) + ordered[upper] * fraction
