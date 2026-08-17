@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orbit 策略详情页样稿</title>
+<style>
+  :root{
+    --bg:#0B1220; --panel:#111B2E; --panel2:#0E1728; --edge:#1B2A44; --edge-soft:#16233A;
+    --text:#E6EDF7; --muted:#8FA1BC; --faint:#5E7191;
+    --blue:#3987E5; --up:#19A862; --down:#AD3B48; --warn:#C9862B;
+    --chip:#12203A;
+    font-size:16px;
+  }
+  *{box-sizing:border-box}
+  html,body{background:var(--bg);color:var(--text);margin:0;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+    line-height:1.55;}
+  .num{font-variant-numeric:tabular-nums;font-family:ui-monospace,"SF Mono",Consolas,Menlo,monospace}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 20px 80px}
+  header.top{position:sticky;top:0;z-index:9;background:linear-gradient(180deg,rgba(11,18,32,.97),rgba(11,18,32,.88));
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--edge);margin-bottom:24px}
+  .top-inner{max-width:1120px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.08em}
+  .brand .ring{width:18px;height:18px;border:2.5px solid var(--blue);border-radius:50%;position:relative}
+  .brand .ring::after{content:"";position:absolute;width:5px;height:5px;background:var(--up);border-radius:50%;top:-3px;left:9px}
+  .brand small{color:var(--faint);font-weight:400;letter-spacing:0}
+  nav.views{display:flex;gap:6px;flex-wrap:wrap}
+  nav.views button{background:transparent;border:1px solid var(--edge);color:var(--muted);
+    padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.88rem;font-family:inherit}
+  nav.views button:hover{color:var(--text);border-color:var(--blue)}
+  nav.views button.active{background:var(--chip);color:var(--text);border-color:var(--blue)}
+  button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+  .view{display:none}
+  .view.active{display:block}
+
+  .notice{border:1px solid var(--edge);border-left:3px solid var(--warn);background:var(--panel2);
+    border-radius:10px;padding:12px 16px;margin-bottom:22px;color:var(--muted);font-size:.86rem}
+  .notice b{color:var(--text)}
+
+  .backlink{background:none;border:none;color:var(--blue);cursor:pointer;font-family:inherit;font-size:.86rem;padding:0;margin-bottom:10px}
+  .eyebrow{font-size:.72rem;letter-spacing:.18em;color:var(--faint);text-transform:uppercase}
+  h1{font-size:1.55rem;margin:.25rem 0 .2rem;text-wrap:balance}
+  .lede{color:var(--muted);margin:0;max-width:62ch}
+  .pagehead{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap;margin-bottom:22px}
+
+  .live{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:210px}
+  .badge{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:6px 14px;font-size:.84rem;font-weight:600;border:1px solid}
+  .badge .dot{width:8px;height:8px;border-radius:50%}
+  .badge.ok{background:rgba(25,168,98,.12);border-color:rgba(25,168,98,.45);color:#7FE0B0}
+  .badge.ok .dot{background:var(--up);box-shadow:0 0 0 3px rgba(25,168,98,.18)}
+  .badge.bad{background:rgba(173,59,72,.12);border-color:rgba(173,59,72,.5);color:#F0A0A9}
+  .badge.bad .dot{background:var(--down)}
+  .badge.off{background:var(--chip);border-color:var(--edge);color:var(--muted)}
+  .badge.off .dot{background:var(--faint)}
+  .live small{color:var(--faint);font-size:.76rem}
+
+  section.block{border:1px solid var(--edge);background:var(--panel);border-radius:14px;padding:20px 22px;margin-bottom:18px}
+  .block-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+  .block-head h2{font-size:1.05rem;margin:0}
+  .block-head p{margin:4px 0 0;color:var(--muted);font-size:.84rem;max-width:64ch}
+  .ghost{background:transparent;border:1px solid var(--edge);color:var(--muted);border-radius:8px;
+    padding:6px 12px;font-size:.8rem;cursor:pointer;font-family:inherit;white-space:nowrap}
+  .ghost:hover{color:var(--text);border-color:var(--blue)}
+
+  .scoreboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:18px}
+  .score{background:var(--panel2);border:1px solid var(--edge-soft);border-radius:10px;padding:14px 16px}
+  .score span{display:block;color:var(--faint);font-size:.76rem;margin-bottom:6px}
+  .score b{font-size:1.5rem;font-weight:700;display:block}
+  .score small{color:var(--muted);font-size:.75rem}
+  .pos{color:#5FD79E} .neg{color:#F0808C}
+
+  .chartbox{background:var(--panel2);border:1px solid var(--edge-soft);border-radius:10px;padding:14px}
+  .chartbox svg{display:block;width:100%;height:auto}
+  .caveat{margin:12px 0 0;font-size:.8rem;color:var(--faint);border-top:1px dashed var(--edge);padding-top:10px}
+
+  .samples{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+  .sample{background:var(--panel2);border:1px solid var(--edge-soft);border-radius:10px;padding:12px;cursor:pointer}
+  .sample:hover{border-color:var(--blue)}
+  .sample svg{display:block;width:100%;height:auto;margin-bottom:10px}
+  .sample-meta{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .sample-meta b{font-size:.9rem}
+  .sample-meta small{color:var(--faint);font-size:.74rem}
+  .result{font-size:.86rem;font-weight:700}
+  .running{color:var(--warn)}
+
+  .params{display:grid;gap:18px}
+  .paramgroup h3{font-size:.8rem;letter-spacing:.14em;color:var(--faint);text-transform:uppercase;margin:0 0 10px;font-weight:600}
+  .paramrow{display:grid;grid-template-columns:minmax(160px,1.1fr) minmax(90px,auto) minmax(200px,2fr);gap:14px;
+    align-items:baseline;padding:10px 0;border-top:1px solid var(--edge-soft)}
+  .paramrow:first-of-type{border-top:none}
+  .paramrow dt{font-weight:600;font-size:.92rem}
+  .paramrow .val{font-size:1.05rem;font-weight:700;color:#9FC6F5}
+  .paramrow .why{color:var(--muted);font-size:.83rem;margin:0}
+  .paramrow .why em{color:var(--faint);font-style:normal;display:block;font-size:.76rem;margin-top:2px}
+  .frozen{color:var(--faint);font-size:.8rem;background:var(--chip);border:1px solid var(--edge);
+    border-radius:6px;padding:2px 8px;display:inline-block}
+
+  .skiplist{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  .skiplist li{background:var(--panel2);border:1px solid var(--edge-soft);border-left:3px solid var(--down);
+    border-radius:8px;padding:11px 14px}
+  .skiplist li.keep{border-left-color:var(--warn)}
+  .skiplist b{display:block;font-size:.92rem;margin-bottom:2px}
+  .skiplist span{color:var(--muted);font-size:.83rem}
+
+  .flow{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+  .flow li{display:grid;grid-template-columns:34px 1fr auto;gap:14px;align-items:center;
+    padding:13px 0;border-bottom:1px solid var(--edge-soft)}
+  .flow li:last-child{border-bottom:none}
+  .flow .step{width:28px;height:28px;border-radius:50%;background:var(--chip);border:1px solid var(--edge);
+    display:grid;place-items:center;font-size:.8rem;color:var(--muted);font-weight:700}
+  .flow h4{margin:0;font-size:.94rem}
+  .flow p{margin:2px 0 0;color:var(--muted);font-size:.82rem}
+  .flow .count{font-size:1.15rem;font-weight:700;color:#9FC6F5;white-space:nowrap}
+  .flow .count small{display:block;color:var(--faint);font-size:.72rem;font-weight:400;text-align:right}
+
+  table.holdings{width:100%;border-collapse:collapse;font-size:.9rem}
+  table.holdings th{text-align:left;color:var(--faint);font-weight:600;font-size:.76rem;
+    letter-spacing:.1em;text-transform:uppercase;padding:0 10px 10px 0;border-bottom:1px solid var(--edge)}
+  table.holdings td{padding:10px 10px 10px 0;border-bottom:1px solid var(--edge-soft)}
+  table.holdings tr:last-child td{border-bottom:none}
+  .bar{height:6px;border-radius:3px;background:var(--edge);position:relative;min-width:70px}
+  .bar i{position:absolute;top:0;bottom:0;border-radius:3px}
+  .bar i.long{background:var(--up);left:50%} .bar i.short{background:var(--down);right:50%}
+  .midline{position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--faint)}
+
+  details.tech{border:1px solid var(--edge);background:var(--panel2);border-radius:12px;padding:0;margin-bottom:18px}
+  details.tech summary{cursor:pointer;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;
+    font-size:.9rem;list-style:none}
+  details.tech summary::-webkit-details-marker{display:none}
+  details.tech summary small{color:var(--faint);margin-left:10px;font-weight:400}
+  details.tech .body{padding:0 20px 18px}
+  .kv{display:grid;grid-template-columns:minmax(140px,auto) 1fr;gap:8px 18px;font-size:.85rem}
+  .kv dt{color:var(--faint)}
+  .kv dd{margin:0;word-break:break-all}
+
+  .empty{background:var(--panel2);border:1px dashed var(--edge);border-radius:10px;padding:26px;text-align:center}
+  .empty b{display:block;margin-bottom:5px}
+  .empty span{color:var(--muted);font-size:.85rem}
+
+  @media (max-width:720px){
+    .paramrow{grid-template-columns:1fr;gap:4px}
+    .flow li{grid-template-columns:28px 1fr;grid-template-rows:auto auto}
+    .flow .count{grid-column:2;text-align:left}
+    .flow .count small{text-align:left}
+    .pagehead{flex-direction:column}
+    .live{align-items:flex-start}
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand"><span class="ring"></span>ORBIT <small>策略详情页样稿</small></div>
+    <nav class="views">
+      <button class="active" data-view="signal">信号策略 · 高位回调</button>
+      <button data-view="trend">自动策略 · 多周期趋势</button>
+      <button data-view="empty">未部署时的诚实空态</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="notice">
+  <b>这是样稿，数字是示意。</b>
+  样稿只画后端已经能给出的东西，唯一需要新增读模型的是「近 30 天按信号族的模拟账成绩」（累计 R、胜负、曲线）——现有接口只有条数，没有成绩。这一条在实现前必须先补后端，否则该区块只能显示空态。
+</div>
+
+<!-- ══════════════ 信号策略 ══════════════ -->
+<div class="view active" id="signal">
+
+  <button class="backlink">← 返回全部策略</button>
+  <div class="pagehead">
+    <div>
+      <span class="eyebrow">信号策略 · 推给你决定</span>
+      <h1>高位回调</h1>
+      <p class="lede">上涨途中出现一次从高位摔下来的急跌，跌势缓和时提醒你。它只提醒，不下单。</p>
+    </div>
+    <div class="live">
+      <span class="badge ok"><span class="dot"></span>扫描正常运行</span>
+      <small>最近一次扫描 14:45:02 · 行情新鲜</small>
+      <button class="ghost">停用这类提醒</button>
+    </div>
+  </div>
+
+  <!-- 1. 成绩 -->
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>它替我干了什么</h2>
+        <p>模拟账为每一个信号自动记一笔机械交易，不管你有没有做。下面是这类信号自己的成绩，不是你账户的盈亏。</p>
+      </div>
+      <button class="ghost">看全部信号</button>
+    </div>
+
+    <div class="scoreboard">
+      <div class="score"><span>近 30 天推送</span><b class="num">37</b><small>日均 1.23 个</small></div>
+      <div class="score"><span>已了结</span><b class="num">31</b><small>另有 6 笔进行中</small></div>
+      <div class="score"><span>模拟账累计</span><b class="num pos">+8.4R</b><small>单笔风险为 1R</small></div>
+      <div class="score"><span>赚 / 亏</span><b class="num">12 / 19</b><small>胜率 38.7%</small></div>
+    </div>
+
+    <div class="chartbox">
+      <svg viewBox="0 0 720 190" role="img" aria-label="模拟账累计 R 曲线，30 天内从 0 上升到 8.4R">
+        <line x1="40" y1="150" x2="700" y2="150" stroke="#1B2A44"/>
+        <line x1="40" y1="100" x2="700" y2="100" stroke="#16233A" stroke-dasharray="3 4"/>
+        <line x1="40" y1="50" x2="700" y2="50" stroke="#16233A" stroke-dasharray="3 4"/>
+        <text x="8" y="154" fill="#5E7191" font-size="11">0R</text>
+        <text x="8" y="104" fill="#5E7191" font-size="11">+4R</text>
+        <text x="8" y="54" fill="#5E7191" font-size="11">+8R</text>
+        <polyline fill="none" stroke="#3987E5" stroke-width="2"
+          points="40,150 82,158 124,142 166,166 208,151 250,133 292,145 334,120 376,131 418,112 460,124 502,96 544,108 586,84 628,92 670,66 700,58"/>
+        <circle cx="700" cy="58" r="4" fill="#19A862"/>
+      </svg>
+      <p class="caveat">每笔按固定规则进出：信号后下一根开盘进场、2 倍真实波幅止损、最长持有 32 根 K 线。<b>被每日 30 条上限截断的信号同样入账</b>，所以这条曲线包含了你从未收到推送的那些。</p>
+    </div>
+  </section>
+
+  <!-- 2. 样子 -->
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>最近的信号长什么样</h2>
+        <p>认一个策略最快的办法是看它挑出来的图。红线是止损位，圆点是提醒时刻。</p>
+      </div>
+      <button class="ghost">全部 37 个</button>
+    </div>
+    <div class="samples">
+      <div class="sample">
+        <svg viewBox="0 0 200 78" aria-label="SOLUSDT 信号示意图">
+          <polyline fill="none" stroke="#8FA1BC" stroke-width="1.5" points="4,52 20,44 36,30 52,22 68,18 84,40 100,56 116,50 132,46 148,34 164,26 180,20 196,16"/>
+          <line x1="4" y1="66" x2="196" y2="66" stroke="#AD3B48" stroke-width="1" stroke-dasharray="4 3"/>
+          <circle cx="116" cy="50" r="4" fill="#3987E5"/>
+        </svg>
+        <div class="sample-meta"><b>SOLUSDT</b><span class="result pos num">+2.4R</span></div>
+        <div class="sample-meta"><small>08-16 04:15</small><small>已了结</small></div>
+      </div>
+      <div class="sample">
+        <svg viewBox="0 0 200 78" aria-label="LINKUSDT 信号示意图">
+          <polyline fill="none" stroke="#8FA1BC" stroke-width="1.5" points="4,48 20,40 36,34 52,24 68,20 84,30 100,52 116,58 132,62 148,64 164,66 180,68 196,70"/>
+          <line x1="4" y1="70" x2="196" y2="70" stroke="#AD3B48" stroke-width="1" stroke-dasharray="4 3"/>
+          <circle cx="116" cy="58" r="4" fill="#3987E5"/>
+        </svg>
+        <div class="sample-meta"><b>LINKUSDT</b><span class="result neg num">−1.0R</span></div>
+        <div class="sample-meta"><small>08-16 11:30</small><small>触及止损</small></div>
+      </div>
+      <div class="sample">
+        <svg viewBox="0 0 200 78" aria-label="AVAXUSDT 信号示意图">
+          <polyline fill="none" stroke="#8FA1BC" stroke-width="1.5" points="4,56 20,50 36,38 52,28 68,22 84,34 100,48 116,44 132,38 148,32 164,34 180,30 196,28"/>
+          <line x1="4" y1="62" x2="196" y2="62" stroke="#AD3B48" stroke-width="1" stroke-dasharray="4 3"/>
+          <circle cx="116" cy="44" r="4" fill="#3987E5"/>
+        </svg>
+        <div class="sample-meta"><b>AVAXUSDT</b><span class="result running num">进行中</span></div>
+        <div class="sample-meta"><small>08-17 09:45</small><small>第 12 根</small></div>
+      </div>
+      <div class="sample">
+        <svg viewBox="0 0 200 78" aria-label="DOTUSDT 信号示意图">
+          <polyline fill="none" stroke="#8FA1BC" stroke-width="1.5" points="4,44 20,38 36,26 52,20 68,24 84,42 100,58 116,54 132,50 148,44 164,40 180,44 196,46"/>
+          <line x1="4" y1="68" x2="196" y2="68" stroke="#AD3B48" stroke-width="1" stroke-dasharray="4 3"/>
+          <circle cx="116" cy="54" r="4" fill="#3987E5"/>
+        </svg>
+        <div class="sample-meta"><b>DOTUSDT</b><span class="result pos num">+1.2R</span></div>
+        <div class="sample-meta"><small>08-15 20:00</small><small>时间退出</small></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 规则 -->
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>它按什么规则找</h2>
+        <p>下面是<b>此刻真正生效</b>的值，从运行中的服务读取，不是说明文。改了立刻生效。</p>
+      </div>
+      <button class="ghost">去调整</button>
+    </div>
+
+    <div class="params">
+      <div class="paramgroup">
+        <h3>先决定看哪些币</h3>
+        <dl>
+          <div class="paramrow">
+            <dt>最低日成交额</dt><span class="val num">200 万</span>
+            <p class="why">成交太清淡的币进不来，因为下单会滑价。<em>只管能不能交易，不管值不值得看 · 可填 50 万 – 5 亿</em></p>
+          </div>
+          <div class="paramrow">
+            <dt>看多久的成交额</dt><span class="val num">30 天</span>
+            <p class="why">取这段时间的中位数，避免某一天暴量就混进来。<em>可填 3 – 90 天</em></p>
+          </div>
+        </dl>
+      </div>
+
+      <div class="paramgroup">
+        <h3>什么样的急跌才算数</h3>
+        <dl>
+          <div class="paramrow">
+            <dt>至少跌多少</dt><span class="val num">10%</span>
+            <p class="why">跌得不够深不算急跌，正常波动不必理会。<em>可填 3% – 50%</em></p>
+          </div>
+          <div class="paramrow">
+            <dt>多长时间内跌完</dt><span class="val num">4 小时</span>
+            <p class="why">慢慢阴跌不算，要的是短时间内摔下来。<em>16 根 15 分钟 K 线 · 可填 4 – 96 根</em></p>
+          </div>
+          <div class="paramrow">
+            <dt>大方向必须是</dt><span class="val">上升</span>
+            <p class="why">只在长期还在涨的币上抢回调。下跌途中抢反弹，实测四组参数全亏。<em>可选 上升 / 上升或震荡 / 不限</em></p>
+          </div>
+          <div class="paramrow">
+            <dt>跌太狠就不碰</dt><span class="val num">30%</span>
+            <p class="why">离最近高点已经跌掉这么多，说明是崩塌不是回调，一律不推。<em>看 14 天内的高点 · 可填 10% – 80%</em></p>
+          </div>
+          <div class="paramrow">
+            <dt>必须是从高位摔的</dt><span class="val num">15%</span>
+            <p class="why">这次急跌开始的地方，得离高点足够近。已经跌了很久又跌一段的，是趋势不是回调。<em>看 3 天内的高点 · 可填 5% – 50%</em></p>
+          </div>
+        </dl>
+      </div>
+
+      <div class="paramgroup">
+        <h3>推送与频率</h3>
+        <dl>
+          <div class="paramrow">
+            <dt>同一个币多久推一次</dt><span class="val num">24 小时</span>
+            <p class="why">防止同一个币反复刷屏。<em>可填 1 – 168 小时</em></p>
+          </div>
+          <div class="paramrow">
+            <dt>每天最多处理</dt><span class="val num">30 个</span>
+            <p class="why">超出的信号<b>照样记账</b>，只是不进当天的人工候选。<em>可填 5 – 200 个</em></p>
+          </div>
+        </dl>
+      </div>
+
+      <div class="paramgroup">
+        <h3>不能改的部分</h3>
+        <dl>
+          <div class="paramrow">
+            <dt>进场时刻</dt><span class="frozen">下一根开盘</span>
+            <p class="why">固定不可改，否则历史回放与实时结果无法对齐。</p>
+          </div>
+          <div class="paramrow">
+            <dt>止损距离</dt><span class="frozen">2 × 真实波幅</span>
+            <p class="why">同上。止损永远优先于时间退出。</p>
+          </div>
+        </dl>
+      </div>
+    </div>
+
+    <p class="caveat">规则版本 <b class="num">v4</b> · 最近一次修改 <b class="num">08-17 14:20</b> 由 admin · 每次修改都写入不可覆盖的记录。<b>模拟账里每条信号都带着当时的规则版本号</b>，所以改规则不会污染历史成绩。</p>
+  </section>
+
+  <!-- 4. 不推的情况 -->
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>什么情况下它不会提醒你</h2>
+        <p>看漏了什么，往往比看到了什么更重要。下面每一条都会让一个本来符合形态的机会消失。</p>
+      </div>
+    </div>
+    <ul class="skiplist">
+      <li><b>这个币不在池子里</b><span>30 天日成交额中位数不到 200 万，或者上市不满 30 天。<b>刚上市的暴涨币会因此被漏掉</b>——这是当前设计的已知代价。</span></li>
+      <li><b>已经从高点跌掉 30% 以上</b><span>判定为崩塌，不是回调。</span></li>
+      <li><b>这次急跌的起点离高点超过 15%</b><span>说明跌势早就开始了，接的是刀不是回调。</span></li>
+      <li><b>大方向不是上升</b><span>4 小时收盘价在均线下方，或 20 日、60 日涨幅有一项为负。</span></li>
+      <li><b>同一个币 24 小时内已经推过</b><span>冷却中，避免刷屏。</span></li>
+      <li class="keep"><b>当天已经处理满 30 个</b><span>这一条<b>不是丢弃</b>：信号照常入账、照常记模拟单，只是不进当天的人工候选、不推送。事后可以查它们的成绩，用来判断上限定得合不合适。</span></li>
+    </ul>
+  </section>
+
+  <!-- 5. 流程 -->
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>刚才那一轮它做了什么</h2>
+        <p>每 15 分钟一轮。下面是 14:45 那一轮的真实数字。</p>
+      </div>
+    </div>
+    <ol class="flow">
+      <li><span class="step">1</span><div><h4>等 15 分钟 K 线收盘</h4><p>只用已经结束的行情，绝不看还在跳动的价格。</p></div><span class="count num">14:45<small>本轮时刻</small></span></li>
+      <li><span class="step">2</span><div><h4>确定今天看哪些币</h4><p>按成交额门槛筛出可交易的合约。</p></div><span class="count num">218<small>个币在池</small></span></li>
+      <li><span class="step">3</span><div><h4>找出符合形态的</h4><p>短时间跌够深、且开始止跌。</p></div><span class="count num">6<small>个初步命中</small></span></li>
+      <li><span class="step">4</span><div><h4>套用排除条件</h4><p>崩塌、起点过低、大方向不对、冷却中的全部剔除。</p></div><span class="count num">1<small>个通过</small></span></li>
+      <li><span class="step">5</span><div><h4>记账并推送</h4><p>全部 6 个都记模拟单；通过筛选的这 1 个推到手机。</p></div><span class="count num">6 记 / 1 推<small>本轮</small></span></li>
+    </ol>
+  </section>
+
+  <details class="tech">
+    <summary><span><b>技术详情</b><small>出问题时看这里</small></span><span>展开</span></summary>
+    <div class="body">
+      <dl class="kv">
+        <dt>扫描进程</dt><dd>运行中，PID 24817，已连续运行 6 小时 12 分</dd>
+        <dt>最近一次扫描</dt><dd class="num">2026-08-17 14:45:02 UTC · 耗时 8.4 秒</dd>
+        <dt>最近一次失败</dt><dd>08-17 09:30 · 币池取数超时 · 已自动恢复</dd>
+        <dt>规则文件指纹</dt><dd class="num">a3f9c1d2…7b04</dd>
+        <dt>配置修订号</dt><dd class="num">4</dd>
+        <dt>账本代次</dt><dd class="num">gen2（起于 08-17 15:10）· 上一代 gen1 已归档，含 412 条记录</dd>
+        <dt>数据来源</dt><dd>Binance USDT 永续合约，仅使用已收盘 K 线</dd>
+      </dl>
+    </div>
+  </details>
+</div>
+
+<!-- ══════════════ 自动策略 ══════════════ -->
+<div class="view" id="trend">
+  <button class="backlink">← 返回全部策略</button>
+  <div class="pagehead">
+    <div>
+      <span class="eyebrow">自动策略 · 自己下单</span>
+      <h1>多周期趋势</h1>
+      <p class="lede">在 12 个主流币上，谁在涨就做多、谁在跌就做空，按波动大小分配仓位，每 7 天调一次。</p>
+    </div>
+    <div class="live">
+      <span class="badge ok"><span class="dot"></span>自动执行中</span>
+      <small>最近调仓 08-14 · 下次 08-21</small>
+      <button class="ghost">停止自动交易</button>
+    </div>
+  </div>
+
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>它替我干了什么</h2>
+        <p>两条线：策略应该做到的，和你账户实际做到的。分叉说明执行有偏差。</p>
+      </div>
+      <button class="ghost">看执行对比</button>
+    </div>
+    <div class="scoreboard">
+      <div class="score"><span>模拟账累计</span><b class="num pos">+4.2%</b><small>起于 08-01</small></div>
+      <div class="score"><span>实际账户</span><b class="num pos">+3.8%</b><small>差 0.4% 来自手续费与滑点</small></div>
+      <div class="score"><span>最大回撤</span><b class="num neg">−6.1%</b><small>停止线在 −30%</small></div>
+      <div class="score"><span>前向进度</span><b class="num">16 / 365 天</b><small>满一年才下结论</small></div>
+    </div>
+    <div class="chartbox">
+      <svg viewBox="0 0 720 190" role="img" aria-label="策略与实际账户的权益曲线">
+        <line x1="40" y1="120" x2="700" y2="120" stroke="#1B2A44"/>
+        <text x="8" y="124" fill="#5E7191" font-size="11">0%</text>
+        <polyline fill="none" stroke="#3987E5" stroke-width="2" points="40,120 90,112 140,126 190,104 240,116 290,92 340,100 390,78 440,88 490,70 540,80 590,62 640,70 700,54"/>
+        <polyline fill="none" stroke="#19A862" stroke-width="2" stroke-dasharray="5 4" points="40,120 90,114 140,130 190,109 240,121 290,98 340,107 390,85 440,95 490,78 540,89 590,71 640,79 700,63"/>
+        <text x="600" y="40" fill="#3987E5" font-size="11">策略</text>
+        <text x="650" y="40" fill="#19A862" font-size="11">实际</text>
+      </svg>
+      <p class="caveat">前向记录满 <b>365 天</b>才会给出通过或不通过的判定。现在的曲线不构成任何结论——样本太短，好看也不算数。</p>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head"><div><h2>现在持有什么</h2><p>权重是目标仓位占账户资金的比例，正数做多、负数做空。</p></div></div>
+    <table class="holdings">
+      <thead><tr><th>币种</th><th>方向</th><th>权重</th><th style="width:38%">分布</th><th>为什么</th></tr></thead>
+      <tbody>
+        <tr><td><b>BTCUSDT</b></td><td class="pos">做多</td><td class="num pos">+18.2%</td><td><div class="bar"><i class="long" style="width:18%"></i><span class="midline"></span></div></td><td style="color:var(--muted);font-size:.83rem">五个时间尺度全部向上</td></tr>
+        <tr><td><b>ETHUSDT</b></td><td class="pos">做多</td><td class="num pos">+14.6%</td><td><div class="bar"><i class="long" style="width:15%"></i><span class="midline"></span></div></td><td style="color:var(--muted);font-size:.83rem">四个向上、一个向下</td></tr>
+        <tr><td><b>SOLUSDT</b></td><td class="pos">做多</td><td class="num pos">+9.1%</td><td><div class="bar"><i class="long" style="width:9%"></i><span class="midline"></span></div></td><td style="color:var(--muted);font-size:.83rem">方向向上，但波动大所以仓位小</td></tr>
+        <tr><td><b>DOGEUSDT</b></td><td class="neg">做空</td><td class="num neg">−7.4%</td><td><div class="bar"><i class="short" style="width:7%"></i><span class="midline"></span></div></td><td style="color:var(--muted);font-size:.83rem">中长期尺度转为向下</td></tr>
+        <tr><td><b>其余 8 个</b></td><td style="color:var(--faint)">无方向</td><td class="num" style="color:var(--faint)">0%</td><td><div class="bar"><span class="midline"></span></div></td><td style="color:var(--muted);font-size:.83rem">时间尺度互相冲突，不持仓</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div><h2>它按什么规则做</h2><p>这套参数已经冻结，<b>页面上只读</b>。值从后端的冻结规格读取，不是页面上抄的。</p></div>
+      <span class="frozen">冻结规格 f74db0b9…c56ed</span>
+    </div>
+    <div class="params"><div class="paramgroup"><dl>
+      <div class="paramrow"><dt>看哪些币</dt><span class="val num">12 个</span><p class="why">BTC ETH BNB SOL XRP DOGE ADA LINK AVAX DOT LTC BCH<em>固定名单，不随行情增减</em></p></div>
+      <div class="paramrow"><dt>怎么判断方向</dt><span class="val num">5 个尺度</span><p class="why">分别看过去 14、28、56、84、168 天的涨跌，各占两成，多数意见决定做多还是做空。</p></div>
+      <div class="paramrow"><dt>怎么决定仓位大小</dt><span class="val num">28 天波动</span><p class="why">波动越大分到的仓位越小，让每个币贡献的风险大致相当。</p></div>
+      <div class="paramrow"><dt>整体风险目标</dt><span class="val num">年化 10%</span><p class="why">把 12 个币放在一起看，控制组合整体的波动水平。</p></div>
+      <div class="paramrow"><dt>多久调一次</dt><span class="val num">7 天</span><p class="why">下一根完整 4 小时 K 线执行。<b>没有单独止损</b>——靠慢反应和方向翻转来退出。</p></div>
+      <div class="paramrow"><dt>什么时候停</dt><span class="val num">−30%</span><p class="why">账户或模拟账从各自高点回撤到这个幅度，拒绝继续执行。</p></div>
+    </dl></div></div>
+  </section>
+
+  <section class="block">
+    <div class="block-head"><div><h2>已知的弱点</h2><p>这些不是猜测，是研究过程中确认的。写在这里是为了你不会忘。</p></div></div>
+    <ul class="skiplist">
+      <li><b>震荡行情里会持续亏损</b><span>趋势策略的本性：方向来回翻转时，每次调仓都在高买低卖。这是它换取大趋势收益必须付的代价。</span></li>
+      <li><b>没有独立止损</b><span>回撤靠每 7 天一次的慢反应承受。单周内的剧烈反向会完整吃下去。</span></li>
+      <li><b>500 USDT 装不下 12 个币</b><span>部分币的目标仓位低于交易所最小下单额，实际持仓会比计划少几个。</span></li>
+      <li><b>历史检验存在幸存者偏差</b><span>这 12 个币是今天还活着的币。当年同样热门但已经退市的没被算进去。</span></li>
+    </ul>
+  </section>
+
+  <details class="tech">
+    <summary><span><b>技术详情</b><small>出问题时看这里</small></span><span>展开</span></summary>
+    <div class="body"><dl class="kv">
+      <dt>冻结规格指纹</dt><dd class="num">f74db0b9f9c8018ffb21ecdc5a0f1fbb6d615704f291f9b72f478ed62bfc56ed</dd>
+      <dt>定义哈希</dt><dd class="num">3207b10f…e6753</dd>
+      <dt>前向账本起点</dt><dd class="num">2026-08-01 00:00 UTC · 已记录 96 个周期</dd>
+      <dt>实盘协议</dt><dd>目标仓位 3 倍投影 · 逐仓 3 倍 · 停止线 30%</dd>
+      <dt>数据来源</dt><dd>Binance USDT 永续合约 4 小时 K 线，仅使用已收盘</dd>
+    </dl></div>
+  </details>
+</div>
+
+<!-- ══════════════ 空态 ══════════════ -->
+<div class="view" id="empty">
+  <button class="backlink">← 返回全部策略</button>
+  <div class="pagehead">
+    <div>
+      <span class="eyebrow">信号策略 · 推给你决定</span>
+      <h1>持续强势</h1>
+      <p class="lede">价格连续走强、成交持续放大时提醒你。它只提醒，不下单。</p>
+    </div>
+    <div class="live">
+      <span class="badge bad"><span class="dot"></span>扫描已停止</span>
+      <small>最近一次扫描 08-17 09:30，已超过 5 小时</small>
+      <button class="ghost">查看故障详情</button>
+    </div>
+  </div>
+
+  <div class="notice" style="border-left-color:var(--down)">
+    <b>这个策略现在没有在工作。</b>
+    开关是开着的，但扫描服务已经超过 30 分钟没有成功运行——所以你看不到新信号，不是因为市场上没有机会。最近一次失败原因：信号账本拒绝启动（规则文件已变更，旧账本需要先归档）。
+  </div>
+
+  <section class="block">
+    <div class="block-head"><div><h2>它替我干了什么</h2></div></div>
+    <div class="empty"><b>还没有任何记录</b><span>这类信号自启用以来一次都没有触发过。条件可能定得过严——可以在规则区放宽后，用回放看看过去 7 天会推什么。</span></div>
+  </section>
+
+  <section class="block">
+    <div class="block-head"><div><h2>最近的信号长什么样</h2></div></div>
+    <div class="empty"><b>还没有样本</b><span>产生第一个信号后，这里会显示真实的价格图。<b>不会填充演示数据。</b></span></div>
+  </section>
+</div>
+
+</div>
+
+<script>
+  document.querySelectorAll('nav.views button').forEach(function(button){
+    button.addEventListener('click', function(){
+      document.querySelectorAll('nav.views button').forEach(function(other){ other.classList.remove('active'); });
+      document.querySelectorAll('.view').forEach(function(view){ view.classList.remove('active'); });
+      button.classList.add('active');
+      document.getElementById(button.dataset.view).classList.add('active');
+      window.scrollTo(0, 0);
+    });
+  });
+</script>
+</body>
+</html>
