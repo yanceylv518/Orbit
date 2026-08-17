@@ -46,6 +46,15 @@
 
 自定义筛选条件构建器（字段 + 比较符 + 与或组合）、研究页与策略页重做——后续任务卡。
 
+## 4b. 验收结论（Claude，2026-08-17，提交 `ce94133`）：通过
+
+- **同源性成立（最关键一条）**：`replay.py` 直接 `from orbit.domain.signals.sig1 import detect_sig1_signals` 并调用，**未另写回放逻辑**；`test_replay_uses_live_detector_and_reports_same_signals` 以同一批窗口对比「直接调用检测函数」与「经回放服务」的结果一致。
+- **不保存即可预览**：`test_unsaved_replay_preview_returns_diff_without_writing_configuration` 断言 `saved is False`、返回改前/改后总数与 `added` 差异列表，且**交互账本前后完全未变**（确认未写配置）。
+- **纪律红线以模板断言守护**：`test_replay_page_has_fixed_discipline_and_no_parameter_profit_ranking` 断言页面含固定文案「历史回放不预测未来。规则变更的真实效果，由信号模拟账在未来数据上裁决。」，且**不含**「最优参数」「参数收益排行榜」「按历史收益排序」。
+- **数据不足不静默截断**：`test_replay_reports_dataset_gap_without_silent_truncation` 返回 `status=DATA_GAP` 并给出人话说明（「只到…」）。
+- 顺带修复 `scan_once` 的一处类型错误（`test_scan_once_counts_tracked_symbols_without_list_set_type_error`）。
+- `531 passed`、`MODULAR_BASELINE_PASS`、TB4 零触碰。
+
 ## 5. 验收清单
 
 1. **回放与实时同源**：同一段历史、同一配置下，回放输出与实时扫描逐条一致（专测）；
