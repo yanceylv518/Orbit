@@ -3,7 +3,7 @@
     <div v-if="isStopped" class="global-stop-banner" role="alert">
       <div>
         <strong>{{ executionStatusText }}</strong>
-        <span>{{ liveExecution.stop_reason || "自动执行已停止，不会发送新的 TB4 订单。" }}</span>
+        <span>{{ liveExecution.stop_reason || "自动执行已停止，不会发送新的自动订单。" }}</span>
       </div>
     </div>
 
@@ -264,7 +264,7 @@ function timeText(value) {
 async function stopLiveExecution() {
   const reason = prompt("请输入自动下单急停原因。当前执行批次将永久停止；恢复前必须重新预检并创建新的执行批次：");
   if (!reason?.trim()) return;
-  if (!confirm("确认立即停止所有新的 TB4 自动订单？")) return;
+  if (!confirm("确认立即停止所有新的自动订单？")) return;
   await post("/api/admin/live-execution/emergency-stop", { reason: reason.trim() });
 }
 </script>

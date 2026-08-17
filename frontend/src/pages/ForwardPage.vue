@@ -70,7 +70,7 @@
             <p class="muted">原子初始化不可变前向账本，并获取 12 个市场的最新交易规则。</p>
             <div class="wizard-actions">
               <button class="button ghost small" :disabled="wizardBusy || forward.status !== 'NOT_STARTED'" @click="initializeForward">
-                {{ forward.status === "NOT_STARTED" ? "初始化 TB4" : "TB4 已初始化" }}
+                {{ forward.status === "NOT_STARTED" ? "初始化模拟前向" : "模拟前向已初始化" }}
               </button>
               <button class="button ghost small" :disabled="wizardBusy" @click="refreshRules">刷新交易规则</button>
             </div>
@@ -136,7 +136,7 @@
         :note="`${fmt(checklist.capital_usdt)} USDT，交易所初始杠杆 ${checklist.initial_leverage || '-'}x`"
       />
       <MetricCard
-        label="TB4 原始目标"
+        label="策略原始目标"
         help="名义金额"
         :value="`${fmt(summary.strategy_gross_notional_usdt)} USDT`"
         :note="`未放大，占资金 ${percent(Number(summary.strategy_gross_weight || 0) * 100)}`"
@@ -156,7 +156,7 @@
       <MetricCard
         label="账户资金"
         :value="`${fmt(checklist.capital_usdt)} USDT`"
-        note="风险换算本金；不修改冻结 TB4 的纸面账本"
+        note="风险换算本金；不修改冻结策略的模拟账本"
       />
     </div>
 
@@ -188,8 +188,8 @@
             <tr>
               <th>市场</th>
               <th>方向</th>
-              <th>TB4 / 3x 权重</th>
-              <th>TB4 / 3x 目标价值 <HelpTip term="名义金额" /></th>
+              <th>策略 / 实盘 3 倍权重</th>
+              <th>策略 / 实盘 3 倍目标价值 <HelpTip term="名义金额" /></th>
               <th>较上次变化</th>
               <th>目标数量</th>
               <th>最低额 / 步进</th>
@@ -226,7 +226,7 @@
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="3"><strong>TB4 原始 / 3x 实盘目标</strong></td>
+              <td colspan="3"><strong>策略原始 / 实盘 3 倍目标</strong></td>
               <td class="mono">
                 {{ fmt(summary.strategy_gross_notional_usdt, 4) }} /
                 {{ fmt(summary.target_gross_notional_usdt, 4) }} USDT
@@ -527,8 +527,8 @@ const syncAgeText = computed(() => {
 });
 const emptyText = computed(() => {
   const map = {
-    NOT_AVAILABLE: "TB4 前向尚未启动，当前没有可执行目标。",
-    AWAITING_FIRST_REBALANCE: "TB4 已暖机，等待第一笔正式前向再平衡后生成清单。",
+    NOT_AVAILABLE: "模拟前向尚未启动，当前没有可执行目标。",
+    AWAITING_FIRST_REBALANCE: "策略已暖机，等待第一笔正式前向再平衡后生成清单。",
   };
   return map[checklist.value.status] || "当前没有可执行清单。";
 });
@@ -598,7 +598,7 @@ function executionRowColor(value) {
 async function stopLiveExecution() {
   const reason = prompt("请输入自动执行急停原因。当前执行批次将永久停止；恢复前必须重新预检并创建新的执行批次：");
   if (!reason?.trim()) return;
-  if (!confirm("确认立即停止所有新的 TB4 自动订单？")) return;
+  if (!confirm("确认立即停止所有新的自动订单？")) return;
   await post("/api/admin/live-execution/emergency-stop", { reason: reason.trim() });
 }
 
@@ -623,10 +623,10 @@ function configurePilot() {
 }
 
 function initializeForward() {
-  if (!confirm("确认从下一根完整 4h K 线开始冻结 TB4 前向证据？初始化后不能重置起点。")) return;
+  if (!confirm("确认从下一根完整 4 小时 K 线开始冻结模拟前向证据？初始化后不能重置起点。")) return;
   return wizardAction(
     () => post("/api/admin/live-pilot/initialize-forward"),
-    "TB4 前向基准已初始化。",
+    "模拟前向基准已初始化。",
   );
 }
 

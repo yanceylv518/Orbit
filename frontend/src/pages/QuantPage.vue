@@ -200,11 +200,11 @@ const summarySentence = computed(() => exceptionText.value || (forward.value.sta
   : "量化系统运行平稳，当前没有必须立即处理的问题。"));
 const instances = computed(() => [
   {
-    route: "forward/tb4-paper", name: "TB4 模拟观察", description: "用冻结规则持续验证策略，不使用真实资金", mode: "模拟运行",
+    route: "forward/tb4-paper", name: "趋势策略 · 模拟观察", description: "用冻结规则持续验证策略，不使用真实资金", mode: "模拟运行",
     status: enumLabel(forward.value.status || "NOT_STARTED"), color: forward.value.status === "MATURE" ? "green" : "blue", updatedAt: timeText(forward.value.last_scored_at || forward.value.started_at),
   },
   {
-    route: "forward/live-small", name: "TB4 小资金实盘", description: "受停止规则保护的真实资金执行实例", mode: "小资金实盘",
+    route: "forward/live-small", name: "趋势策略 · 小资金实盘", description: "受停止规则保护的真实资金执行实例", mode: "小资金实盘",
     status: executionStatus.value, color: executionHealthClass.value ? "red" : (liveExecution.value.enabled ? "green" : "orange"), updatedAt: timeText(reconciliation.value.account_synced_at), live: true,
   },
 ]);

@@ -245,6 +245,25 @@ def test_sig5_moves_parameters_to_strategy_detail_and_uses_honest_states():
     assert 'field.group === "通用"' not in detail_page and "field.group === '通用'" not in detail_page
 
 
+def test_no_internal_codename_reaches_any_user_facing_page():
+    """零内部代号是全局红线，不是某一页的验收项。
+
+    路由 slug（forward/tb4）属内部标识，与后端账本键同性质，不在此列；
+    这里只管用户读得到的文案。
+    """
+    import re
+
+    root = Path(__file__).parents[2] / "frontend/src"
+    offenders = []
+    for path in sorted(root.rglob("*.vue")) + sorted(root.rglob("*.js")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "tb4-paper" in line or "forward/tb4" in line or "'tb4'" in line or '"tb4"' in line:
+                continue
+            if re.search(r"T\s*\[?B\]?\s*-?\s*4", line, re.IGNORECASE):
+                offenders.append(f"{path.relative_to(root)}:{number}")
+    assert not offenders, "用户可见文案出现内部代号：" + "、".join(offenders)
+
+
 def test_every_signal_strategy_page_can_reach_its_own_and_the_shared_parameters():
     """SIG-5 打回项：币池两项曾在界面上完全不可达，突破族曾只剩 1 项。"""
     import json as json_module

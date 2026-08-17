@@ -449,9 +449,15 @@ class CachedToolEvaluator:
                             [*base, "build-update"], run_id=run_id, phase="build",
                             start_progress=75, end_progress=99, on_progress=on_progress,
                         )
+                    # 上报实际写入的分区数，不是计划下载的文件数——两者在有文件
+                    # 构建失败时会不一致，报计划数等于谎报成功。
+                    added = pending
+                    if pending:
+                        completed = json.loads(plan_path.read_text(encoding="utf-8"))
+                        added = int(completed.get("added_partitions") or 0)
                     return self._shortline_result(
-                        added_partitions=pending,
-                        update_result="UPDATED" if pending else "NO_CHANGES",
+                        added_partitions=added,
+                        update_result="UPDATED" if added else "NO_CHANGES",
                     )
                 finally:
                     self._release_shortline_run(run_id)

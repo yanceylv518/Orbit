@@ -219,8 +219,12 @@ def main() -> None:
             "protocol": DATASET_PROTOCOL, "status": "COMPLETE",
             "selected_files": len(objects), "completed_count": len(results),
             "recent_files": sync_progress["recent"], "total_bytes": total_bytes,
-            "completed_bytes": sync_progress["bytes"], "error_count": 0,
-            "recent_logs": ["增量下载完成" if objects else "没有新增文件"],
+            "completed_bytes": sync_progress["bytes"], "error_count": sync_progress["errors"],
+            "recent_logs": [
+                "没有新增文件" if not objects
+                else f"增量下载完成，{sync_progress['errors']} 个文件失败" if sync_progress["errors"]
+                else "增量下载完成"
+            ],
         })
         print(json.dumps({
             "files": len(results),
