@@ -73,6 +73,56 @@ self.feed.closed_klines(symbol, "4h", 361)     # 60 天历史
 8. 缓存只含已收盘 K 线（专测）；
 9. 全量测试绿 + `verify_modular_baseline.py` 通过 + TB4 零触碰。
 
+## 4b. 验收结论（Claude，2026-08-17，提交 `e390b67`）：**通过**（含 Claude 直接修复的一处阻断项）
+
+### 实测权重（本机跑 `_kline_weight`，非引述实现自述）
+
+| | 单币权重 | 300 币一轮 |
+|---|---|---|
+| 改前 | 12（15m 1440 根 + 4h 361 根） | 3,600 |
+| 改后首轮 | 12（冷启动拉满） | 3,600（限流器排队，约 3 分钟完成暖机） |
+| **改后稳态** | **1**（15m 取 3 根；4h 非边界轮直接复用缓存） | **300** |
+
+预算 1,200 权重/分钟，占币安 IP 限额约一半，**给趋势策略留出余量**——红线满足。稳态用量只占预算 1/4。
+
+### 逐项核对
+
+1. **增量缓存**：`test_source_uses_small_increment_and_reuses_4h_between_boundaries` 断言第二轮只有 `("AAAUSDT","15m",3)` 一次调用，**4h 一次都不请求**；
+2. **缺口只回补该币**：`test_source_refills_only_symbol_with_increment_gap` 断言缺口触发该币拉满，另一币零请求；
+3. **缓存只含已收盘 K 线**：`closed_klines` 与 `_cached_klines` 双重过滤 `close_time > now_ms`；
+4. **限流排队而非失败**：`acquire` 在超预算时 sleep 到窗口重置；429/418 走 `backoff` 且指数退避（上限 300 秒），退避期内直接抛 `RATE_LIMIT` 不重试；
+5. **报错说人话**：`ScanDataUnavailable` 消息为「218 个市场中 214 个取数失败，主因 HTTP 429/418 限频」，含市场数与主因，**无裸异常类名**；
+6. **推送去重**：同一 `error_type` 一小时内不重复推送，恢复时推恢复通知（`_should_notify_failure` / `_recovered_failure`，均有专测）；
+7. **市场数上限**：新增可配置 `maximum_tracked_markets`（默认 300），按成交额中位数由高到低保留，`truncated_market_count` 已进读模型并在页面可见；
+8. **取数满足配置而非反过来**：`_required_15m_history()` 由 `collapse_lookback_days` / `pullback_start_high_lookback_days` / `long_volume_days` 推导，未为省流量缩短历史——红线满足。
+
+`553 passed`、`MODULAR_BASELINE_PASS`、TB4 受保护文件零改动。
+
+### 阻断项（Claude 构造场景发现并直接修复）
+
+**用户在策略页调大任一窗口参数后，全部市场永久取数失败。**
+
+`_cached_klines` 原逻辑为「缓存非空就只取 3 根」。而 `_required_15m_history()` 会随用户配置变大（崩塌判断窗口允许 2–90 天）。实测：默认所需 1440 根，把崩塌判断窗口从 14 天调到 30 天后所需变为 2880 根，缓存却只能每轮增长 1 根：
+
+```
+第1轮 失败: ValueError: completed kline history is insufficient | 缓存 1441
+第2轮 失败: ValueError: completed kline history is insufficient | 缓存 1442
+第3轮 失败: ValueError: completed kline history is insufficient | 缓存 1443
+```
+
+**这对每个币同时发生**，直接触发 `ScanDataUnavailable` → 整轮扫描瘫痪，需约 15 天才自愈——**与本卡要修的故障现象完全相同，且由页面上的正常操作触发**。
+
+修复：缓存短于所需长度时拉满，补齐后恢复增量。
+新增 `test_raising_a_window_parameter_refills_instead_of_starving_forever` 覆盖「调大→拉满→恢复增量」全过程。
+
+### 待补
+
+桌面与 390×844 实测（本机无 node）。
+
+### 范围外交付（未按卡验收）
+
+同批次提交 `7e45323 feat(data): add daily incremental history updates` 改动历史数据集与数据页，**不属本卡**。测试随全量通过，但未对照任何任务卡逐条验收；如需严格验收请单独立卡。
+
 ## 5. 临时缓解（已告知用户，不替代本卡）
 
 在信号策略页把「可交易性门槛」从 200 万调高到 5000 万–1 亿，缩小币池即可恢复扫描。**代价是重新漏掉小市值启动币**——正是 SIG-3 要解决的问题，因此本卡完成后应把门槛调回。

@@ -301,7 +301,10 @@ class BinanceSig1Source:
         expected_close = now_ms // interval_ms * interval_ms - 1
         if cached and interval == "4h" and int(cached[-1]["close_time"]) >= expected_close:
             return cached[-maximum:]
-        rows = self.feed.closed_klines(symbol, interval, maximum if not cached else 3)
+        # 缓存短于所需长度就必须拉满：用户在页面上调大窗口参数（崩塌判断窗口、
+        # 基准量能窗口等）会让 maximum 变大，此时只取增量将永远补不齐，该币会一直
+        # 报「历史不足」——而这对所有币同时发生，等于整轮扫描瘫痪。
+        rows = self.feed.closed_klines(symbol, interval, 3 if len(cached) >= maximum else maximum)
         rows = [row for row in rows if int(row["close_time"]) <= now_ms]
         if cached and rows:
             overlap = {int(row["close_time"]) for row in cached} & {int(row["close_time"]) for row in rows}

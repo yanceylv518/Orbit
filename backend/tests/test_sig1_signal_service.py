@@ -191,6 +191,38 @@ class Sig1SignalServiceTests(unittest.TestCase):
         self.assertEqual(fifteen[1], ("AAAUSDT", "15m", source._required_15m_history()))
         self.assertFalse(any(call[0] == "BBBUSDT" for call in feed.calls))
 
+    def test_raising_a_window_parameter_refills_instead_of_starving_forever(self):
+        """页面上调大窗口后，缓存必须一次拉满，而不是每轮只补 1 根。
+
+        参数可由用户在策略页调整（崩塌判断窗口 2–90 天）。若只取增量，所需长度变大
+        后缓存永远补不齐，且对每个币同时发生——整轮扫描瘫痪，且要 15 天才自愈。
+        """
+        clock = [2_880_000.0]
+        feed = IncrementalFeed()
+        contract = spec()
+        source = BinanceSig1Source(feed, contract, FakeScanService(), clock=lambda: clock[0])
+        source._market_window("AAAUSDT")
+        before = source._required_15m_history()
+
+        contract["signals"]["OVERSOLD_REBOUND"]["collapse_lookback_days"] = 30
+        self.assertGreater(source._required_15m_history(), before)
+        feed.calls.clear()
+        feed.ends["15m"] += MS
+        clock[0] += 900
+
+        source._market_window("AAAUSDT")
+
+        required = source._required_15m_history()
+        self.assertIn(("AAAUSDT", "15m", required), feed.calls)
+        self.assertGreaterEqual(len(source._candle_cache[("AAAUSDT", "15m")]), required)
+
+        # 补齐之后恢复增量，不得每轮都拉满。
+        feed.calls.clear()
+        feed.ends["15m"] += MS
+        clock[0] += 900
+        source._market_window("AAAUSDT")
+        self.assertEqual([call for call in feed.calls if call[1] == "15m"], [("AAAUSDT", "15m", 3)])
+
     def test_failure_message_has_market_counts_and_human_cause(self):
         exc = ScanDataUnavailable({"attempted_market_count": 218, "successful_market_count": 4, "failed_market_count": 214, "failure_counts": {"RATE_LIMIT": 214}, "primary_failure": "RATE_LIMIT", "primary_failure_label": "HTTP 429/418 限频"})
         event = _failure_event(exc, 1000)
