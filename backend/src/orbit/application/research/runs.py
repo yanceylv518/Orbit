@@ -418,6 +418,43 @@ class CachedToolEvaluator:
             sys.executable, tool, "--root", str(self.shortline_root),
             "--lock-owner-token", lock_token,
         ]
+        manifest_path = self.shortline_root / "manifest.json"
+        incremental_ready = all(path.exists() for path in (
+            manifest_path,
+            self.shortline_root / "metadata" / "archive_index.json",
+            self.shortline_root / "metadata" / "contracts.json",
+        ))
+        if incremental_ready:
+            try:
+                self._run_shortline_phase(
+                    [*base, "update-index", "--workers", str(min(workers, 8))],
+                    run_id=run_id, phase="index", start_progress=2, end_progress=30,
+                    on_progress=on_progress,
+                )
+            except BaseException:
+                self._release_shortline_run(run_id)
+                raise
+            plan_path = self.shortline_root / "metadata" / "incremental_update.json"
+            if plan_path.exists():
+                try:
+                    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                    pending = int(plan.get("pending_files") or 0)
+                    if pending:
+                        self._run_shortline_phase(
+                            [*base, "sync-update", "--workers", str(workers)],
+                            run_id=run_id, phase="download", start_progress=30, end_progress=75,
+                            on_progress=on_progress,
+                        )
+                        self._run_shortline_phase(
+                            [*base, "build-update"], run_id=run_id, phase="build",
+                            start_progress=75, end_progress=99, on_progress=on_progress,
+                        )
+                    return self._shortline_result(
+                        added_partitions=pending,
+                        update_result="UPDATED" if pending else "NO_CHANGES",
+                    )
+                finally:
+                    self._release_shortline_run(run_id)
         phases = (
             ("index", [*base, "index"], 2, 15),
             (
@@ -450,29 +487,35 @@ class CachedToolEvaluator:
                     end_progress=end_progress,
                     on_progress=on_progress,
                 )
-            manifest_path = self.shortline_root / "manifest.json"
-            quality_path = self.shortline_root / "quality_report.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            quality = json.loads(quality_path.read_text(encoding="utf-8"))
-            if manifest.get("dataset_state") != "COMPLETE":
-                raise RuntimeError("full shortline build did not produce a COMPLETE dataset")
-            return {
-                "dataset_id": self.shortline_root.name,
-                "dataset_state": manifest["dataset_state"],
-                "dataset_fingerprint": manifest["dataset_fingerprint"],
-                "quality_report_sha256": manifest["quality_report_sha256"],
-                "contract_count": quality.get("contract_count"),
-                "partition_count": quality.get("partition_count"),
-            }
+            return self._shortline_result(update_result="FULL_BUILD")
         finally:
-            with self._process_lock:
-                self._cancelled_runs.discard(run_id)
-                if self._active_run_id == run_id:
-                    self._active_process = None
-                    self._active_run_id = None
-                if self._dataset_lock is not None:
-                    self._dataset_lock.release()
-                    self._dataset_lock = None
+            self._release_shortline_run(run_id)
+
+    def _release_shortline_run(self, run_id: str) -> None:
+        with self._process_lock:
+            self._cancelled_runs.discard(run_id)
+            if self._active_run_id == run_id:
+                self._active_process = None
+                self._active_run_id = None
+            if self._dataset_lock is not None:
+                self._dataset_lock.release()
+                self._dataset_lock = None
+
+    def _shortline_result(self, **extra: Any) -> dict[str, Any]:
+        manifest = json.loads((self.shortline_root / "manifest.json").read_text(encoding="utf-8"))
+        quality = json.loads((self.shortline_root / "quality_report.json").read_text(encoding="utf-8"))
+        if manifest.get("dataset_state") != "COMPLETE":
+            raise RuntimeError("shortline update did not produce a COMPLETE dataset")
+        return {
+            "dataset_id": self.shortline_root.name,
+            "dataset_state": manifest["dataset_state"],
+            "dataset_fingerprint": manifest["dataset_fingerprint"],
+            "quality_report_sha256": manifest["quality_report_sha256"],
+            "dataset_cutoff_ms": manifest.get("dataset_cutoff_ms"),
+            "contract_count": quality.get("contract_count"),
+            "partition_count": quality.get("partition_count"),
+            **extra,
+        }
 
     def cancel_shortline_dataset(self, run_id: str) -> None:
         with self._process_lock:
@@ -923,7 +966,13 @@ class ResearchWorkflowService:
                     "status": "succeeded",
                     "phase": "complete",
                     "progress": 100,
-                    "message": "DATA-1R 全市场研究数据集已完成",
+                    "message": (
+                        "历史数据已更新到最新可用日期"
+                        if result.get("update_result") == "UPDATED"
+                        else "检查完成，没有新增历史数据"
+                        if result.get("update_result") == "NO_CHANGES"
+                        else "DATA-1R 全市场研究数据集已完成"
+                    ),
                     "completed_at": completed_at,
                     "updated_at": completed_at,
                 })

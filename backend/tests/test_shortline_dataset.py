@@ -180,6 +180,18 @@ class ShortlineDatasetDomainTests(unittest.TestCase):
 
 
 class ShortlineArchiveTests(unittest.TestCase):
+    def test_daily_archive_discovery_uses_date_partitions(self):
+        payload = _listing_xml([
+            "data/futures/um/daily/klines/BTCUSDT/15m/BTCUSDT-15m-2026-08-16.zip",
+        ], truncated=False)
+        objects = BinancePublicArchiveIndex(opener=QueueOpener([payload])).discover_daily_symbol_month(
+            "BTCUSDT", "2026-08",
+        )
+
+        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects[0].kind, "KLINE_15M_DAILY")
+        self.assertEqual(objects[0].month, "2026-08-16")
+
     def test_s3_index_paginates_and_keeps_delisted_symbol(self):
         pages = [
             _listing_xml(
@@ -270,6 +282,54 @@ class ShortlineArchiveTests(unittest.TestCase):
 
 
 class ShortlineDatasetBuilderTests(unittest.TestCase):
+    def test_incremental_build_adds_only_daily_partition_and_advances_cutoff(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "shortline-data-v1"
+            raw = root / "raw" / "klines" / "15m" / "BTCUSDT"
+            raw.mkdir(parents=True)
+            monthly_path = raw / "BTCUSDT-15m-2026-07.zip"
+            monthly_start = _ms("2026-07-31T23:00:00Z")
+            _write_kline_zip(monthly_path, [
+                candle_row(monthly_start + i * INTERVAL_MS) for i in range(4)
+            ])
+            monthly = ArchiveObject(
+                key="data/futures/um/monthly/klines/BTCUSDT/15m/BTCUSDT-15m-2026-07.zip",
+                size=monthly_path.stat().st_size, last_modified="", etag=None,
+                kind="KLINE_15M", symbol="BTCUSDT", month="2026-07",
+            )
+            write_archive_index(
+                root / "metadata" / "archive_index.json", [monthly],
+                scope="ALL_USDT_PERPETUAL",
+            )
+            builder = ShortlineDatasetBuilder(root)
+            initial = builder.build(dataset_cutoff_ms=_ms("2026-07-31T23:59:59.999Z"))
+            daily_path = raw / "BTCUSDT-15m-2026-08-01.zip"
+            daily_start = _ms("2026-08-01T00:00:00Z")
+            _write_kline_zip(daily_path, [
+                candle_row(daily_start + i * INTERVAL_MS) for i in range(96)
+            ])
+            daily = ArchiveObject(
+                key="data/futures/um/daily/klines/BTCUSDT/15m/BTCUSDT-15m-2026-08-01.zip",
+                size=daily_path.stat().st_size, last_modified="", etag=None,
+                kind="KLINE_15M_DAILY", symbol="BTCUSDT", month="2026-08-01",
+            )
+            write_archive_index(
+                root / "metadata" / "archive_index.json", [monthly, daily],
+                scope="ALL_USDT_PERPETUAL",
+            )
+
+            result = builder.build_incremental([daily])
+
+            self.assertEqual(result["added_partitions"], 1)
+            self.assertGreater(
+                result["manifest"]["dataset_cutoff_ms"],
+                initial["manifest"]["dataset_cutoff_ms"],
+            )
+            self.assertTrue(
+                (root / "derived" / "1h" / "BTCUSDT" / "BTCUSDT-1h-2026-08-01.jsonl.gz").exists()
+            )
+            self.assertEqual(result["quality_report"]["partition_count"], 2)
+
     def test_build_is_idempotent_and_catalog_registers_manifest(self):
         with tempfile.TemporaryDirectory() as temp:
             calibration = Path(temp) / "var" / "calibration"

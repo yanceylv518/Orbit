@@ -22,6 +22,7 @@ ARCHIVE_BASE_URL = "https://data.binance.vision"
 S3_LIST_URL = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision"
 KLINE_PREFIX = "data/futures/um/monthly/klines/"
 FUNDING_PREFIX = "data/futures/um/monthly/fundingRate/"
+DAILY_KLINE_PREFIX = "data/futures/um/daily/klines/"
 KLINE_KEY_RE = re.compile(
     r"^data/futures/um/monthly/klines/(?P<symbol>[A-Z0-9]+USDT)/15m/"
     r"(?P=symbol)-15m-(?P<month>\d{4}-\d{2})\.zip$"
@@ -29,6 +30,10 @@ KLINE_KEY_RE = re.compile(
 FUNDING_KEY_RE = re.compile(
     r"^data/futures/um/monthly/fundingRate/(?P<symbol>[A-Z0-9]+USDT)/"
     r"(?P=symbol)-fundingRate-(?P<month>\d{4}-\d{2})\.zip$"
+)
+DAILY_KLINE_KEY_RE = re.compile(
+    r"^data/futures/um/daily/klines/(?P<symbol>[A-Z0-9]+USDT)/15m/"
+    r"(?P=symbol)-15m-(?P<date>\d{4}-\d{2}-\d{2})\.zip$"
 )
 
 
@@ -148,6 +153,33 @@ class BinancePublicArchiveIndex:
             ))
         return sorted(objects, key=lambda item: (item.month, item.kind))
 
+    def discover_daily_symbols(self) -> list[str]:
+        result = []
+        for prefix in self.list_common_prefixes(DAILY_KLINE_PREFIX):
+            relative = prefix.removeprefix(DAILY_KLINE_PREFIX).strip("/")
+            if re.fullmatch(r"[A-Z0-9]+USDT", relative):
+                result.append(relative)
+        return sorted(set(result))
+
+    def discover_daily_symbol_month(self, symbol: str, month: str) -> list[ArchiveObject]:
+        normalized = symbol.upper().strip()
+        if not re.fullmatch(r"[A-Z0-9]+USDT", normalized):
+            raise ArchiveError(f"invalid USD-M perpetual symbol: {symbol}")
+        if not re.fullmatch(r"\d{4}-\d{2}", month):
+            raise ArchiveError(f"invalid archive month: {month}")
+        prefix = f"{DAILY_KLINE_PREFIX}{normalized}/15m/{normalized}-15m-{month}-"
+        result = []
+        for item in self.list_objects(prefix):
+            match = DAILY_KLINE_KEY_RE.fullmatch(item["key"])
+            if not match:
+                continue
+            result.append(ArchiveObject(
+                key=item["key"], size=item["size"],
+                last_modified=item["last_modified"], etag=item["etag"],
+                kind="KLINE_15M_DAILY", symbol=normalized, month=match.group("date"),
+            ))
+        return sorted(result, key=lambda item: item.month)
+
     def _discover_kind(
         self,
         prefix: str,
@@ -228,7 +260,7 @@ class ArchiveDownloader:
 
 
 def archive_destination(root: Path, item: ArchiveObject) -> Path:
-    if item.kind == "KLINE_15M":
+    if item.kind in {"KLINE_15M", "KLINE_15M_DAILY"}:
         return root / "raw" / "klines" / "15m" / item.symbol / Path(item.key).name
     if item.kind == "FUNDING":
         return root / "raw" / "funding" / item.symbol / Path(item.key).name

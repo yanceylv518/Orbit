@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import argparse
 import atexit
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
@@ -61,6 +62,11 @@ def main() -> None:
     index.add_argument("--no-funding", action="store_true")
     index.add_argument("--symbol", action="append", default=[])
 
+    update_index = commands.add_parser(
+        "update-index", help="Check only unpublished daily partitions after the dataset cutoff",
+    )
+    update_index.add_argument("--workers", type=int, default=8)
+
     sync = commands.add_parser("sync", help="Download checksum-verified raw partitions")
     sync.add_argument("--symbol", action="append", default=[])
     sync.add_argument("--start-month")
@@ -69,6 +75,11 @@ def main() -> None:
     sync.add_argument("--workers", type=int, default=4)
     sync.add_argument("--max-files", type=int)
     sync.add_argument("--confirm-full-download", action="store_true")
+
+    sync_update = commands.add_parser("sync-update", help="Download only planned daily additions")
+    sync_update.add_argument("--workers", type=int, default=4)
+
+    commands.add_parser("build-update", help="Build only newly downloaded daily partitions")
 
     build = commands.add_parser("build", help="Build 1h/4h, liquidity, metadata and manifest")
     build.add_argument("--active-symbols-file")
@@ -116,6 +127,9 @@ def main() -> None:
             "objects": len(objects), "symbols": len({item.symbol for item in objects}),
             "objects_sha256": payload["objects_sha256"],
         }, ensure_ascii=False))
+    elif args.command == "update-index":
+        payload = build_incremental_archive_index(root, workers=args.workers)
+        print(json.dumps(payload, ensure_ascii=False))
     elif args.command == "sync":
         _validate_month(args.start_month)
         _validate_month(args.end_month)
@@ -178,6 +192,59 @@ def main() -> None:
             "files": len(results),
             "downloaded": sum(item["status"] == "DOWNLOADED" for item in results),
             "unchanged": sum(item["status"] == "UNCHANGED" for item in results),
+        }, ensure_ascii=False))
+    elif args.command == "sync-update":
+        plan_path = root / "metadata" / "incremental_update.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        objects = [ArchiveObject(**item) for item in plan.get("pending_objects") or []]
+        total_bytes = sum(max(int(obj.size), 0) for obj in objects)
+        sizes_by_key = {obj.key: max(int(obj.size), 0) for obj in objects}
+        sync_progress = {"count": 0, "bytes": 0, "recent": [], "errors": 0}
+        _write_state(root / "metadata" / "sync_state.json", {
+            "protocol": DATASET_PROTOCOL, "status": "RUNNING",
+            "selected_files": len(objects), "completed_count": 0,
+            "recent_files": [], "total_bytes": total_bytes,
+            "completed_bytes": 0, "error_count": 0,
+            "recent_logs": ["增量下载任务已启动"],
+        })
+        results = ShortlineDatasetBuilder(root).sync(
+            objects, workers=args.workers,
+            on_result=lambda item: _record_sync_progress(
+                root / "metadata" / "sync_state.json", len(objects),
+                total_bytes, sizes_by_key,
+                sync_progress, item,
+            ),
+        ) if objects else []
+        _write_state(root / "metadata" / "sync_state.json", {
+            "protocol": DATASET_PROTOCOL, "status": "COMPLETE",
+            "selected_files": len(objects), "completed_count": len(results),
+            "recent_files": sync_progress["recent"], "total_bytes": total_bytes,
+            "completed_bytes": sync_progress["bytes"], "error_count": 0,
+            "recent_logs": ["增量下载完成" if objects else "没有新增文件"],
+        })
+        print(json.dumps({
+            "files": len(results),
+            "downloaded": sum(item["status"] == "DOWNLOADED" for item in results),
+            "unchanged": sum(item["status"] == "UNCHANGED" for item in results),
+        }, ensure_ascii=False))
+    elif args.command == "build-update":
+        plan = json.loads(
+            (root / "metadata" / "incremental_update.json").read_text(encoding="utf-8")
+        )
+        objects = [ArchiveObject(**item) for item in plan.get("pending_objects") or []]
+        result = ShortlineDatasetBuilder(root).build_incremental(objects)
+        plan.update({
+            "status": "COMPLETE", "added_partitions": result["added_partitions"],
+            "dataset_cutoff_ms": result["manifest"]["dataset_cutoff_ms"],
+        })
+        _write_state(root / "metadata" / "incremental_update.json", plan)
+        print(json.dumps({
+            "contracts": len(result["contracts"]),
+            "added_partitions": result["added_partitions"],
+            "dataset_cutoff_ms": result["manifest"]["dataset_cutoff_ms"],
+            "dataset_fingerprint": result["manifest"]["dataset_fingerprint"],
+            "quality_report_sha256": result["quality_report"]["report_sha256"],
+            "dataset_state": result["quality_report"]["dataset_state"],
         }, ensure_ascii=False))
     elif args.command == "build":
         active = load_active_symbols(Path(args.active_symbols_file)) if args.active_symbols_file else None
@@ -315,6 +382,94 @@ def build_archive_index(
         raise
 
 
+def build_incremental_archive_index(root: Path, *, workers: int = 8) -> dict:
+    if workers < 1 or workers > 16:
+        raise SystemExit("--workers must be between 1 and 16")
+    index_path = root / "metadata" / "archive_index.json"
+    manifest_path = root / "manifest.json"
+    if not index_path.exists() or not manifest_path.exists():
+        raise SystemExit("incremental update requires an existing complete dataset")
+    existing = load_archive_index(index_path)
+    existing_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    cutoff_ms = int(manifest.get("dataset_cutoff_ms") or 0)
+    if cutoff_ms <= 0:
+        raise SystemExit("existing dataset cutoff is missing")
+    cutoff_day = datetime.fromtimestamp(cutoff_ms / 1000, tz=timezone.utc).date()
+    yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
+    months = []
+    cursor = cutoff_day.replace(day=1)
+    while cursor <= yesterday:
+        months.append(cursor.strftime("%Y-%m"))
+        cursor = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
+    client = BinancePublicArchiveIndex()
+    symbols = client.discover_daily_symbols()
+    discovered: list[ArchiveObject] = []
+    jobs = [(symbol, month) for symbol in symbols for month in months]
+    state_path = root / "metadata" / "archive_index_state.json"
+    completed_symbols: set[str] = set()
+    _write_state(state_path, {
+        "protocol": DATASET_PROTOCOL, "status": "RUNNING",
+        "total_symbols": len(symbols), "completed_symbols": [],
+        "current_symbol": None, "error_count": 0,
+        "recent_logs": ["正在检查日度增量"],
+    })
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="data1r-index") as pool:
+        futures = {
+            pool.submit(client.discover_daily_symbol_month, symbol, month): (symbol, month)
+            for symbol, month in jobs
+        }
+        for future in as_completed(futures):
+            symbol, _month = futures[future]
+            discovered.extend(future.result())
+            completed_symbols.add(symbol)
+            _write_state(state_path, {
+                "protocol": DATASET_PROTOCOL, "status": "RUNNING",
+                "total_symbols": len(symbols),
+                "completed_symbols": sorted(completed_symbols),
+                "current_symbol": symbol, "error_count": 0,
+                "recent_logs": [f"已检查 {symbol}"],
+            })
+    eligible = [
+        item for item in discovered
+        if cutoff_day.isoformat() < item.month <= yesterday.isoformat()
+    ]
+    existing_keys = {item.key for item in existing}
+    pending = sorted((
+        item for item in eligible
+        if item.key not in existing_keys
+        or not (root / "raw" / "klines" / "15m" / item.symbol / Path(item.key).name).exists()
+        or not (
+            root / "derived" / "1h" / item.symbol
+            / f"{item.symbol}-1h-{item.month}.jsonl.gz"
+        ).exists()
+    ), key=lambda x: x.key)
+    merged = {item.key: item for item in existing}
+    merged.update({item.key: item for item in pending})
+    write_archive_index(
+        index_path, list(merged.values()),
+        scope=str(existing_payload.get("scope") or "ALL_USDT_PERPETUAL"),
+    )
+    plan = {
+        "protocol": DATASET_PROTOCOL,
+        "checked_through": yesterday.isoformat(),
+        "previous_cutoff_ms": cutoff_ms,
+        "pending_objects": [item.as_dict() for item in pending],
+        "pending_files": len(pending),
+        "affected_symbols": sorted({item.symbol for item in pending}),
+    }
+    _write_state(root / "metadata" / "incremental_update.json", plan)
+    _write_state(state_path, {
+        "protocol": DATASET_PROTOCOL, "status": "COMPLETE",
+        "total_symbols": len(symbols), "completed_symbols": symbols,
+        "current_symbol": None, "error_count": 0,
+        "recent_logs": [
+            f"发现 {len(pending)} 个新增日分区" if pending else "没有新增日分区"
+        ],
+    })
+    return plan
+
+
 def _write_state(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
@@ -392,8 +547,9 @@ def verify_native(root: Path, symbol: str, month: str, interval: str) -> dict:
     derived_path = root / "derived" / interval / symbol / f"{symbol}-{interval}-{month}.jsonl.gz"
     if not derived_path.exists():
         raise SystemExit(f"derived partition not found: {derived_path}")
+    granularity = "daily" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", month) else "monthly"
     key = (
-        f"data/futures/um/monthly/klines/{symbol}/{interval}/"
+        f"data/futures/um/{granularity}/klines/{symbol}/{interval}/"
         f"{symbol}-{interval}-{month}.zip"
     )
     item = ArchiveObject(

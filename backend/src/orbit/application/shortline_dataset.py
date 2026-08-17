@@ -38,7 +38,9 @@ from orbit.infrastructure.persistence.atomic_file import replace_with_retry
 
 DATASET_PROTOCOL = "ORBIT_SHORTLINE_DATASET_V1"
 NATIVE_ATTESTATION_PROTOCOL = "ORBIT_NATIVE_AGGREGATE_ATTESTATION_V1"
-PARTITION_RE = re.compile(r"^(?P<symbol>[A-Z0-9]+USDT)-15m-(?P<month>\d{4}-\d{2})\.zip$")
+PARTITION_RE = re.compile(
+    r"^(?P<symbol>[A-Z0-9]+USDT)-15m-(?P<month>\d{4}-\d{2}(?:-\d{2})?)\.zip$"
+)
 
 _IDENTITY_EXCLUDED_FILES = {"manifest.json", "verification_report.json"}
 _IDENTITY_EXCLUDED_PREFIXES = ("verification/", "attestations/")
@@ -286,6 +288,180 @@ class ShortlineDatasetBuilder:
         manifest = self.build_manifest(dataset_cutoff_ms=cutoff, quality_report_sha256=quality_hash)
         return {"contracts": contracts, "quality_report": quality_report, "manifest": manifest}
 
+    def build_incremental(self, objects: Sequence[ArchiveObject]) -> dict[str, Any]:
+        """Add checksum-verified daily partitions without rereading frozen history."""
+        kline_objects = sorted(
+            (item for item in objects if item.kind == "KLINE_15M_DAILY"),
+            key=lambda item: item.key,
+        )
+        if not kline_objects:
+            manifest = json.loads((self.root / "manifest.json").read_text(encoding="utf-8"))
+            quality = json.loads((self.root / "quality_report.json").read_text(encoding="utf-8"))
+            contracts_payload = json.loads(
+                (self.root / "metadata" / "contracts.json").read_text(encoding="utf-8")
+            )
+            return {
+                "contracts": contracts_payload.get("contracts") or [],
+                "quality_report": quality,
+                "manifest": manifest,
+                "added_partitions": 0,
+            }
+        quality = json.loads((self.root / "quality_report.json").read_text(encoding="utf-8"))
+        contracts_path = self.root / "metadata" / "contracts.json"
+        contracts_payload = json.loads(contracts_path.read_text(encoding="utf-8"))
+        contracts_by_symbol = {
+            str(item["symbol"]): dict(item) for item in contracts_payload.get("contracts") or []
+        }
+        contract_quality = {
+            str(item["symbol"]): dict(item) for item in quality.get("contracts") or []
+        }
+        partition_quality = {
+            (str(item["symbol"]), str(item["month"])): dict(item)
+            for item in quality.get("partitions") or []
+        }
+        changed_paths: set[str] = {"metadata/archive_index.json"}
+        cutoff = int(quality.get("dataset_cutoff_ms") or 0)
+        for item in kline_objects:
+            raw_path = archive_destination(self.root, item)
+            candles = list(iter_kline_zip(raw_path))
+            if not candles:
+                raise ShortlineDatasetError(f"daily archive is empty: {item.key}")
+            sequence = validate_candle_sequence(candles)
+            if sequence["missing_count"] or sequence["duplicate_count"]:
+                raise ShortlineDatasetError(f"daily archive has gaps or duplicates: {item.key}")
+            self._write_partition(item.symbol, item.month, candles)
+            first, last = candles[0], candles[-1]
+            cutoff = max(cutoff, last.close_time_ms)
+            partition_quality[(item.symbol, item.month)] = {
+                "symbol": item.symbol, "month": item.month, "rows": len(candles),
+                "missing_count": 0, "missing_ranges": [],
+                "missing_ranges_truncated": False, "duplicate_count": 0,
+                "complete": True, "verified_halt_windows": [],
+                "unverified_missing_ranges": [], "halt_verified": False,
+            }
+            previous_contract = contracts_by_symbol.get(item.symbol)
+            if previous_contract is None:
+                previous_contract = infer_contract_metadata(
+                    item.symbol, (first, last), dataset_cutoff_ms=cutoff,
+                    active_symbols={item.symbol}, history_complete=True,
+                ).as_dict()
+            else:
+                previous_contract["last_close_time_ms"] = max(
+                    int(previous_contract.get("last_close_time_ms") or 0), last.close_time_ms,
+                )
+                previous_contract["delisted_at_ms"] = None
+                previous_contract["status"] = "TRADING"
+                previous_contract["status_method"] = "DAILY_ARCHIVE_FRESHNESS"
+                previous_contract["history_complete"] = True
+            contracts_by_symbol[item.symbol] = previous_contract
+            previous_quality = contract_quality.get(item.symbol)
+            if previous_quality is None:
+                previous_quality = {
+                    "symbol": item.symbol, "rows": 0,
+                    "expected_rows_between_first_and_last": 0, "coverage_ratio": 1.0,
+                    "missing_count": 0, "missing_ranges": [],
+                    "missing_ranges_truncated": False, "duplicate_count": 0,
+                    "first_open_time_ms": first.open_time_ms,
+                    "last_close_time_ms": last.close_time_ms,
+                }
+            previous_quality["rows"] = int(previous_quality.get("rows") or 0) + len(candles)
+            previous_quality["last_close_time_ms"] = max(
+                int(previous_quality.get("last_close_time_ms") or 0), last.close_time_ms,
+            )
+            expected = (
+                (int(previous_quality["last_close_time_ms"]) - int(previous_quality["first_open_time_ms"]))
+                // (15 * 60 * 1000) + 1
+            )
+            previous_quality["expected_rows_between_first_and_last"] = expected
+            previous_quality["coverage_ratio"] = min(
+                1.0, int(previous_quality["rows"]) / expected if expected else 1.0,
+            )
+            contract_quality[item.symbol] = previous_quality
+            for relative in (
+                f"raw/klines/15m/{item.symbol}/{Path(item.key).name}",
+                f"derived/1h/{item.symbol}/{item.symbol}-1h-{item.month}.jsonl.gz",
+                f"derived/4h/{item.symbol}/{item.symbol}-4h-{item.month}.jsonl.gz",
+                f"derived/daily_liquidity/{item.symbol}/{item.symbol}-daily-liquidity-{item.month}.jsonl.gz",
+            ):
+                changed_paths.add(relative)
+        contracts = [contracts_by_symbol[key] for key in sorted(contracts_by_symbol)]
+        _write_json(contracts_path, {
+            "protocol": DATASET_PROTOCOL, "dataset_cutoff_ms": cutoff, "contracts": contracts,
+        })
+        changed_paths.add("metadata/contracts.json")
+        partitions = [partition_quality[key] for key in sorted(partition_quality)]
+        coverage = dict(quality.get("archive_coverage") or {})
+        coverage.update({
+            "index_available": True,
+            "complete": True,
+            "expected_partitions": len(partitions),
+            "downloaded_partitions": len(partitions),
+            "missing_partitions": [],
+            "unexpected_partitions": [],
+        })
+        symbol_complete = dict(coverage.get("symbol_complete") or {})
+        symbol_complete.update({item.symbol: True for item in kline_objects})
+        coverage["symbol_complete"] = symbol_complete
+        quality.update({
+            "dataset_cutoff_ms": cutoff,
+            "contract_count": len(contracts),
+            "partition_count": len(partitions),
+            "dataset_state": "COMPLETE",
+            "contracts": [contract_quality[key] for key in sorted(contract_quality)],
+            "partitions": partitions,
+            "archive_coverage": coverage,
+        })
+        summary = dict(quality.get("summary") or {})
+        summary.update({
+            "missing_15m_candles": sum(int(item.get("missing_count") or 0) for item in contract_quality.values()),
+            "duplicate_15m_candles": sum(int(item.get("duplicate_count") or 0) for item in contract_quality.values()),
+            "incomplete_15m_partitions": sum(not item.get("complete", False) for item in partitions),
+        })
+        quality["summary"] = summary
+        quality_core = {key: value for key, value in quality.items() if key != "report_sha256"}
+        quality_hash = _payload_hash(quality_core)
+        quality = {**quality_core, "report_sha256": quality_hash}
+        _write_json(self.root / "quality_report.json", quality)
+        changed_paths.add("quality_report.json")
+        manifest = self._update_manifest_incremental(
+            dataset_cutoff_ms=cutoff,
+            quality_report_sha256=quality_hash,
+            changed_paths=changed_paths,
+        )
+        return {
+            "contracts": contracts, "quality_report": quality, "manifest": manifest,
+            "added_partitions": len(kline_objects),
+        }
+
+    def _update_manifest_incremental(
+        self, *, dataset_cutoff_ms: int, quality_report_sha256: str,
+        changed_paths: set[str],
+    ) -> dict[str, Any]:
+        previous = json.loads((self.root / "manifest.json").read_text(encoding="utf-8"))
+        entries = {str(item["path"]): dict(item) for item in previous.get("entries") or []}
+        for relative in changed_paths:
+            path = self.root / relative
+            if path.exists():
+                entries[relative] = {
+                    "path": relative, "size_bytes": path.stat().st_size,
+                    "sha256": sha256_file(path), "kind": _file_kind(relative),
+                }
+            else:
+                entries.pop(relative, None)
+        ordered = [entries[key] for key in sorted(entries)]
+        manifest = {
+            **{key: value for key, value in previous.items() if key not in {
+                "dataset_cutoff_ms", "quality_report_sha256", "entries", "dataset_fingerprint",
+            }},
+            "dataset_cutoff_ms": dataset_cutoff_ms,
+            "quality_report_sha256": quality_report_sha256,
+            "dataset_state": "COMPLETE",
+            "entries": ordered,
+            "dataset_fingerprint": _payload_hash(ordered),
+        }
+        _write_json(self.root / "manifest.json", manifest)
+        return manifest
+
     def record_native_verification(
         self,
         result: dict[str, Any],
@@ -479,7 +655,8 @@ class ShortlineDatasetBuilder:
         index_scope = str(index_payload.get("scope") or "UNKNOWN")
         objects = load_archive_index(index_path)
         expected = {
-            Path(item.key).name: item for item in objects if item.kind == "KLINE_15M"
+            Path(item.key).name: item for item in objects
+            if item.kind in {"KLINE_15M", "KLINE_15M_DAILY"}
         }
         downloaded = {
             path.name: path for paths in partitions.values() for path in paths
