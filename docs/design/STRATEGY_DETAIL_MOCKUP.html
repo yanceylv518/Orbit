@@ -95,6 +95,10 @@
   .paramrow .why em{color:var(--faint);font-style:normal;display:block;font-size:.76rem;margin-top:2px}
   .frozen{color:var(--faint);font-size:.8rem;background:var(--chip);border:1px solid var(--edge);
     border-radius:6px;padding:2px 8px;display:inline-block}
+  .shared{display:inline-block;font-size:.68rem;letter-spacing:.06em;color:var(--warn);
+    border:1px solid rgba(201,134,43,.45);background:rgba(201,134,43,.1);
+    border-radius:5px;padding:1px 6px;margin-left:8px;vertical-align:middle;font-weight:600}
+  .paramrow .why b.warn{color:#E0AE6A}
 
   .skiplist{list-style:none;margin:0;padding:0;display:grid;gap:10px}
   .skiplist li{background:var(--panel2);border:1px solid var(--edge-soft);border-left:3px solid var(--down);
@@ -166,6 +170,7 @@
 <div class="notice">
   <b>这是样稿，数字是示意。</b>
   样稿只画后端已经能给出的东西，唯一需要新增读模型的是「近 30 天按信号族的模拟账成绩」（累计 R、胜负、曲线）——现有接口只有条数，没有成绩。这一条在实现前必须先补后端，否则该区块只能显示空态。
+  <br><b>参数归属（2026-08-17 调整）：</b>规则参数搬到策略页，就地改、就地回放。四项共用参数（币池门槛、成交额回看、每日处理上限、每日推送上限）在策略页也能改，但打<span class="shared">共用</span>标记并写明影响范围。<b>信号</b>页只保留跨策略的运行设置：服务总开关、推送渠道与凭证、账户绑定、健康告警，以及每日信号列表与人工留痕。
 </div>
 
 <!-- ══════════════ 信号策略 ══════════════ -->
@@ -272,9 +277,9 @@
     <div class="block-head">
       <div>
         <h2>它按什么规则找</h2>
-        <p>下面是<b>此刻真正生效</b>的值，从运行中的服务读取，不是说明文。改了立刻生效。</p>
+        <p>下面是<b>此刻真正生效</b>的值，从运行中的服务读取，不是说明文。<b>就在这里改，改完立刻生效。</b></p>
       </div>
-      <button class="ghost">去调整</button>
+      <div style="display:flex;gap:8px"><button class="ghost">改完先回放看差异</button><button class="ghost">修改记录</button></div>
     </div>
 
     <div class="params">
@@ -282,12 +287,12 @@
         <h3>先决定看哪些币</h3>
         <dl>
           <div class="paramrow">
-            <dt>最低日成交额</dt><span class="val num">200 万</span>
-            <p class="why">成交太清淡的币进不来，因为下单会滑价。<em>只管能不能交易，不管值不值得看 · 可填 50 万 – 5 亿</em></p>
+            <dt>最低日成交额<span class="shared">共用</span></dt><span class="val num">200 万</span>
+            <p class="why">成交太清淡的币进不来，因为下单会滑价。<b class="warn">这项三个信号策略共用，改了会同时影响放量突破和持续强势。</b><em>只管能不能交易，不管值不值得看 · 可填 50 万 – 5 亿</em></p>
           </div>
           <div class="paramrow">
-            <dt>看多久的成交额</dt><span class="val num">30 天</span>
-            <p class="why">取这段时间的中位数，避免某一天暴量就混进来。<em>可填 3 – 90 天</em></p>
+            <dt>看多久的成交额<span class="shared">共用</span></dt><span class="val num">30 天</span>
+            <p class="why">取这段时间的中位数，避免某一天暴量就混进来。<b class="warn">三个信号策略共用。</b><em>可填 3 – 90 天</em></p>
           </div>
         </dl>
       </div>
@@ -326,8 +331,8 @@
             <p class="why">防止同一个币反复刷屏。<em>可填 1 – 168 小时</em></p>
           </div>
           <div class="paramrow">
-            <dt>每天最多处理</dt><span class="val num">30 个</span>
-            <p class="why">超出的信号<b>照样记账</b>，只是不进当天的人工候选。<em>可填 5 – 200 个</em></p>
+            <dt>每天最多处理<span class="shared">共用</span></dt><span class="val num">30 个</span>
+            <p class="why">超出的信号<b>照样记账</b>，只是不进当天的人工候选。<b class="warn">这是三类信号加起来的总数，不是每类各 30 个。</b><em>可填 5 – 200 个</em></p>
           </div>
         </dl>
       </div>
@@ -347,7 +352,7 @@
       </div>
     </div>
 
-    <p class="caveat">规则版本 <b class="num">v4</b> · 最近一次修改 <b class="num">08-17 14:20</b> 由 admin · 每次修改都写入不可覆盖的记录。<b>模拟账里每条信号都带着当时的规则版本号</b>，所以改规则不会污染历史成绩。</p>
+    <p class="caveat">规则版本 <b class="num">v4</b> · 最近一次修改 <b class="num">08-17 14:20</b> 由 admin · 每次修改都写入不可覆盖的记录。<b>模拟账里每条信号都带着当时的规则版本号</b>，所以改规则不会污染历史成绩。<br>推送渠道、账户绑定和服务总开关不在这里——那些是所有策略共用的运行设置，在<b>信号</b>页。</p>
   </section>
 
   <!-- 4. 不推的情况 -->
