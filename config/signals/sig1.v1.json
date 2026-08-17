@@ -15,6 +15,11 @@
     "signal_interval": "15m",
     "completed_candles_only": true,
     "minimum_simultaneously_eligible_markets": 3,
+    "maximum_tracked_markets": 300,
+    "data_fetch": {
+      "maximum_concurrency": 8,
+      "weight_budget_per_minute": 1200
+    },
     "liquidity": {
       "minimum_median_daily_quote_volume_usdt": 2000000,
       "lookback_complete_utc_days": 30

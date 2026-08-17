@@ -7,6 +7,7 @@ from typing import Any, Mapping
 FIELDS = (
     ("liquidity_minimum", ("market", "liquidity", "minimum_median_daily_quote_volume_usdt"), "币池", "可交易性门槛", "30 日成交额中位数至少达到该金额。", "float", 100_000, 1_000_000_000, None),
     ("liquidity_days", ("market", "liquidity", "lookback_complete_utc_days"), "币池", "成交额回看天数", "只使用完整 UTC 日，历史不足不会进入币池。", "int", 2, 90, None),
+    ("maximum_tracked_markets", ("market", "maximum_tracked_markets"), "币池", "最多跟踪市场数", "达到流动性门槛的市场过多时，按成交额中位数从高到低保留。", "int", 10, 1000, None),
     ("breakout_channel", ("signals", "BREAKOUT_MOMENTUM", "channel_lookback_candles"), "突破", "突破通道长度", "当前收盘需要突破此前多少根 15 分钟 K 线。", "int", 4, 384, None),
     ("breakout_volume", ("signals", "BREAKOUT_MOMENTUM", "minimum_relative_quote_volume"), "突破", "最低放量倍数", "当前成交额相对滚动均值至少放大多少倍。", "float", 0.5, 20, None),
     ("pullback_drop", ("signals", "OVERSOLD_REBOUND", "minimum_drop_fraction"), "高位回调", "最低急跌幅度", "观察窗内至少下跌该比例才继续判断企稳。", "float", 0.01, 0.80, None),

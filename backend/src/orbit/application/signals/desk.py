@@ -30,18 +30,30 @@ INTERACTION_MANIFEST = {
 SIGNAL_FAMILY_PRESENTATION = {
     "BREAKOUT_MOMENTUM": {
         "name": "放量突破", "summary": "价格冲出近期区间且成交明显活跃时发出提醒。",
+        "thesis": "寻找收盘价真正离开近期整理区间、同时成交参与度明显放大的市场。",
+        "success": "完整 15 分钟 K 线收盘突破通道高点，成交额相对滚动均值达到当前门槛。",
+        "falsePositive": "盘中短暂刺穿但收盘回落、没有成交配合，或币种交易性不足，都不算有效突破。",
+        "tradeFlow": "信号写入模拟账，以下一根 K 线开盘作为计划进场；止损固定为 2 倍 ATR，止损优先于时间退出。",
         "indicators": [["通道高点", "近期已收盘价格的最高位置。"], ["成交量比", "当前成交额相对历史窗口的放大倍数。"], ["趋势强度", "用方向对齐的价格变化排序机会。"]],
         "exclusions": ["交易性未达门槛或 K 线不完整时不动作。", "收盘未突破通道高点或放量不足时不动作。", "超过每日处理上限的信号仍入账和模拟，不推送。"],
         "steps": [["收盘", "只读取完整 15 分钟 K 线。"], ["准入", "按 30 日成交性选出可处理市场。"], ["命中", "检查通道突破与成交量。"], ["入账", "全部信号进入模拟账。"], ["推送", "仅对限额内机会发送提醒。"]],
     },
     "OVERSOLD_REBOUND": {
         "name": "高位回调", "summary": "寻找仍在上升趋势、从高位急跌后开始企稳的市场。",
+        "thesis": "寻找大方向仍向上、从近期高位快速下跌后不再继续走弱的回调机会。",
+        "success": "短期跌幅达到门槛，同时通过长周期方向、中期崩塌和急跌起点高位三层保护。",
+        "falsePositive": "长期已经转弱、离中期高点跌得过深，或急跌开始前本就不在高位，都会被视为接刀。",
+        "tradeFlow": "信号写入模拟账，下一根 K 线开盘计划进场；按 2 倍 ATR 设置保护位，止损或到期退出。",
         "indicators": [["短期跌幅", "衡量观察窗口内的急跌。"], ["长周期方向", "只在允许的大级别状态中观察回调。"], ["双重高点", "同时检查中期崩塌和急跌起点。"]],
         "exclusions": ["长周期不是允许状态时不动作。", "距中期高点回撤达崩塌上限时不动作。", "急跌起点本就远离近期高点时不动作。", "超过每日处理上限的信号仍入账和模拟，不推送。"],
         "steps": [["收盘", "只读取完整 15 分钟 K 线。"], ["准入", "检查交易性与长周期方向。"], ["防崩塌", "先检查中期和起点高位保护。"], ["企稳", "急跌后收盘不再走弱才命中。"], ["入账与推送", "全量记录，限额内推送。"]],
     },
     "SUSTAINED_STRENGTH": {
         "name": "持续强势", "summary": "寻找价格与成交持续配合、方向没有转弱的市场。",
+        "thesis": "寻找不是一根 K 线突然冲高，而是方向、价格位置和成交活跃度持续配合的市场。",
+        "success": "长周期向上，趋势强度达到当前分位，近期量能不弱于基准，价格仍贴近窗口高点。",
+        "falsePositive": "只有瞬间冲高、成交快速枯竭、已经远离高点或仍在冷却期的币种不会重复提醒。",
+        "tradeFlow": "信号写入模拟账，下一根 K 线开盘计划进场；按 2 倍 ATR 保护，并受同币种提醒冷却约束。",
         "indicators": [["趋势强度", "要求方向对齐强度达到设定分位。"], ["持续量比", "近期均量相对基准均量不能转弱。"], ["距高点比例", "价格必须仍在高位区域。"]],
         "exclusions": ["长周期不向上时不动作。", "趋势强度、持续量比或高位距离任一不达标时不动作。", "同币种冷却期内不重复提醒。", "超过每日处理上限的信号仍入账和模拟，不推送。"],
         "steps": [["收盘", "只读取完整 15 分钟 K 线。"], ["方向", "先检查长周期是否向上。"], ["持续性", "检查强度、量能和高位距离。"], ["冷却", "已提醒币种在冷却期内不重复。"], ["入账与推送", "全量记录，限额内推送。"]],
@@ -474,7 +486,7 @@ class SignalDeskService:
                 "losses": sum(realized_r <= 0 for _, realized_r in closed),
                 "curve": curve,
             }
-        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "error_type": None}, "rolling_30d_by_family": rolling_30d_by_family, "rolling_30d_daily_average_by_family": {family: round(count / 30, 2) for family, count in rolling_30d_by_family.items()}, "rolling_30d_performance_by_family": performance, "recent_samples_by_family": recent_samples_by_family, "_all_signals": rows, "_source_alerts": source_alerts}
+        return {"protocol": "ORBIT_SIGNAL_DESK_V2", "day_utc": selected_day, "health": {"status": "RUNNING" if latest_scan else "WAITING_FIRST_SCAN", "manifest_exists": True, "events_exists": events_path.exists(), "event_count": len(records), "head_hash": records[-1]["record_hash"] if records else "0" * 64, "latest_recorded_at_ms": latest_recorded_at_ms, "latest_scan": self._public_event(latest_scan), "manifest": self._public_event(manifest), "error_type": None}, "rolling_30d_by_family": rolling_30d_by_family, "rolling_30d_daily_average_by_family": {family: round(count / 30, 2) for family, count in rolling_30d_by_family.items()}, "rolling_30d_performance_by_family": performance, "recent_samples_by_family": recent_samples_by_family, "_all_signals": rows, "_source_alerts": source_alerts}
 
     def _summary(self, rows):
         closed = [row for row in rows if row["simulation"].get("status") == "CLOSED"]
@@ -515,6 +527,26 @@ class SignalDeskService:
         control = latest("SIGNAL_SERVICE_CONTROL_CHANGED") or {}
         binding = latest("SIGNAL_ACCOUNT_BINDING_CHANGED") or {}
         latest_scan_ms = (health.get("latest_scan") or {}).get("recorded_at_ms") or health.get("latest_recorded_at_ms")
+        latest_scan = health.get("latest_scan") or {}
+        latest_close_ms = int(latest_scan.get("signal_close_time_ms") or 0)
+        latest_rows = [row for row in rows if int(row.get("signal_time_ms") or 0) == latest_close_ms]
+        latest_round_by_family = {}
+        for family_id in ("BREAKOUT_MOMENTUM", "OVERSOLD_REBOUND", "SUSTAINED_STRENGTH"):
+            family_rows = [row for row in latest_rows if row.get("family_id") == family_id]
+            detected_map = latest_scan.get("detected_by_family") or {}
+            new_map = latest_scan.get("new_by_family") or {}
+            latest_round_by_family[family_id] = {
+                "available": bool(latest_scan),
+                "complete_family_counts": family_id in detected_map and family_id in new_map,
+                "recorded_at_ms": latest_scan.get("recorded_at_ms"),
+                "signal_close_time_ms": latest_scan.get("signal_close_time_ms"),
+                "market_count": latest_scan.get("market_window_count"),
+                "detected_count": detected_map.get(family_id),
+                "new_signal_count": new_map.get(family_id),
+                "included_count": sum(row.get("candidate_scope") == "INCLUDED" for row in family_rows),
+                "recorded_count": len(family_rows),
+                "pushed_count": sum((row.get("push") or {}).get("event_type") == "PUSH_SUCCEEDED" for row in family_rows),
+            }
         now = self.clock_ms()
         stale = latest_scan_ms is None or now - int(latest_scan_ms) > 30 * 60_000
         push_failures = sum(event.get("event_type") in {"PUSHOVER_TEST_FAILED", "SERVICE_SCAN_FAILED"} for event in interactions)
@@ -547,13 +579,20 @@ class SignalDeskService:
             "service": {"enabled": bool(control.get("enabled", False)), "running": bool(control.get("enabled", False)) and not stale, "last_scan_at_ms": latest_scan_ms, "market_data_fresh": not stale, "error_count": push_failures + int(health.get("status") == "LEDGER_ERROR")},
             "pushover": {"configured": bool(push.get("api_token_reference") and push.get("user_key_reference")), "enabled": bool(push.get("enabled", False)), "api_token_fingerprint": push.get("api_token_fingerprint"), "user_key_fingerprint": push.get("user_key_fingerprint"), "today_sent": sum((row.get("push") or {}).get("event_type") == "PUSH_SUCCEEDED" for row in rows), "daily_limit": notifications.get("daily_success_limit", 3)},
             "binding": {"account_id": bound_account_id, "optional": True, "conflict": binding_conflict, "purpose": "只用于真实成交自动配对，不参与信号扫描或模拟"},
-            "parameters": {"liquidity_threshold_usdt": (market.get("liquidity") or {}).get("minimum_median_daily_quote_volume_usdt", 2000000), "liquidity_lookback_complete_utc_days": (market.get("liquidity") or {}).get("lookback_complete_utc_days", 30), "candidate_limit": (active_spec.get("workload") or {}).get("daily_candidate_limit", 30), "push_thresholds": notifications.get("trend_strength_minimum_by_family", {}), "signal_interval": market.get("signal_interval", "15m")},
+            "parameters": {"liquidity_threshold_usdt": (market.get("liquidity") or {}).get("minimum_median_daily_quote_volume_usdt", 2000000), "liquidity_lookback_complete_utc_days": (market.get("liquidity") or {}).get("lookback_complete_utc_days", 30), "maximum_tracked_markets": market.get("maximum_tracked_markets", 300), "truncated_market_count": int(latest_scan.get("truncated_market_count") or 0), "candidate_limit": (active_spec.get("workload") or {}).get("daily_candidate_limit", 30), "push_thresholds": notifications.get("trend_strength_minimum_by_family", {}), "signal_interval": market.get("signal_interval", "15m")},
             "family_controls": family_controls,
             "strategy_families": deepcopy(SIGNAL_FAMILY_PRESENTATION),
             "latest_round": {
                 "market_count": int((health.get("latest_scan") or {}).get("market_window_count") or 0),
                 "detected_count": int((health.get("latest_scan") or {}).get("detected_signal_count") or 0),
                 "new_signal_count": int((health.get("latest_scan") or {}).get("new_signal_count") or 0),
+            },
+            "latest_round_by_family": latest_round_by_family,
+            "diagnostics": {
+                "latest_failure": self._public_event(latest("SERVICE_SCAN_FAILED")) or None,
+                "ledger_event_count": health.get("event_count"),
+                "ledger_head_hash": health.get("head_hash"),
+                "ledger_manifest": health.get("manifest"),
             },
             "configuration": public_configuration(active_spec, revision),
             "scope_version": active_spec["scope_version"],
@@ -578,7 +617,7 @@ class SignalDeskService:
         for event in interactions:
             kind = event.get("event_type"); recorded = int(event.get("recorded_at_ms") or 0)
             if kind == "SERVICE_SCAN_FAILED":
-                alerts.append(self._alert(f"SERVICE_SCAN_FAILED:{recorded}", "ERROR", "服务", "信号扫描失败", f"扫描任务发生 {event.get('error_type') or '未知错误'}。", recorded, "RECOVERED" if latest_heartbeat > recorded else "ACTIVE"))
+                alerts.append(self._alert(f"SERVICE_SCAN_FAILED:{recorded}", "ERROR", "服务", "信号扫描失败", event.get("message") or f"扫描任务发生 {event.get('error_type') or '未知错误'}。", recorded, "RECOVERED" if latest_heartbeat > recorded else "ACTIVE"))
             elif kind == "PUSHOVER_TEST_FAILED":
                 alerts.append(self._alert(f"PUSHOVER_TEST_FAILED:{recorded}", "WARNING", "推送", "测试通知失败", f"Pushover 返回 {event.get('error_type') or '未知错误'}。", recorded, "RECOVERED" if latest_test_success > recorded else "ACTIVE"))
             elif kind == "OUTSIDE_SIGNAL_TRADE_DETECTED":

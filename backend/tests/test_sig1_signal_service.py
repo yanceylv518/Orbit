@@ -10,7 +10,7 @@ from orbit.application.signals.replay import SignalReplayService
 from orbit.domain.calibration.r0_shortline import ShortlineCandle
 from orbit.domain.signals.sig1 import detect_sig1_signals
 from orbit.infrastructure.persistence.signal_ledger import AppendOnlySignalLedger
-from backend.tools.run_sig1_signal_service import BinanceSig1Source
+from backend.tools.run_sig1_signal_service import BinanceSig1Source, ScanDataUnavailable, _failure_event, _recovered_failure, _should_notify_failure
 
 
 MS = 900_000
@@ -134,18 +134,84 @@ class FakeNotifier:
 
 class FakeScanFeed:
     def closed_klines(self, symbol, interval, limit):
-        return []
+        step = MS if interval == "15m" else 14_400_000
+        return [{"open_time": (index - limit) * step, "close_time": (index - limit + 1) * step - 1, "open": 1, "high": 1, "low": 1, "close": 1, "quote_volume": 1} for index in range(limit)]
 
 
 class FakeScanService:
     def required_symbols(self):
         return {"TRACKUSDT"}
 
-    def process_closed_candle(self, windows, signal_close_time_ms, *, processed_at_ms):
+    def process_closed_candle(self, windows, signal_close_time_ms, *, processed_at_ms, scan_metadata=None):
         return {"processed_market_count": len(windows)}
 
 
+class IncrementalFeed:
+    def __init__(self):
+        self.calls = []
+        self.ends = {"15m": 3_200 * MS - 1, "4h": 200 * 14_400_000 - 1}
+
+    def closed_klines(self, symbol, interval, limit):
+        self.calls.append((symbol, interval, limit))
+        step = MS if interval == "15m" else 14_400_000
+        end = self.ends[interval]
+        count = limit
+        return [{"open_time": end - (count - index) * step + 1, "close_time": end - (count - index - 1) * step, "open": 1, "high": 1, "low": 1, "close": 1, "quote_volume": 1} for index in range(count)]
+
+
 class Sig1SignalServiceTests(unittest.TestCase):
+    def test_source_uses_small_increment_and_reuses_4h_between_boundaries(self):
+        clock = [2_880_000.0]
+        feed = IncrementalFeed()
+        source = BinanceSig1Source(feed, spec(), FakeScanService(), clock=lambda: clock[0])
+        source._market_window("AAAUSDT")
+        feed.calls.clear()
+        feed.ends["15m"] += MS
+        clock[0] += 900
+
+        source._market_window("AAAUSDT")
+
+        self.assertEqual(feed.calls, [("AAAUSDT", "15m", 3)])
+        self.assertLessEqual(len(source._candle_cache[("AAAUSDT", "15m")]), source._required_15m_history())
+
+    def test_source_refills_only_symbol_with_increment_gap(self):
+        clock = [2_880_000.0]
+        feed = IncrementalFeed()
+        source = BinanceSig1Source(feed, spec(), FakeScanService(), clock=lambda: clock[0])
+        source._market_window("AAAUSDT")
+        source._market_window("BBBUSDT")
+        feed.calls.clear()
+        feed.ends["15m"] += 4 * MS
+        clock[0] += 4 * 900
+
+        source._market_window("AAAUSDT")
+
+        fifteen = [call for call in feed.calls if call[1] == "15m"]
+        self.assertEqual(fifteen[0], ("AAAUSDT", "15m", 3))
+        self.assertEqual(fifteen[1], ("AAAUSDT", "15m", source._required_15m_history()))
+        self.assertFalse(any(call[0] == "BBBUSDT" for call in feed.calls))
+
+    def test_failure_message_has_market_counts_and_human_cause(self):
+        exc = ScanDataUnavailable({"attempted_market_count": 218, "successful_market_count": 4, "failed_market_count": 214, "failure_counts": {"RATE_LIMIT": 214}, "primary_failure": "RATE_LIMIT", "primary_failure_label": "HTTP 429/418 限频"})
+        event = _failure_event(exc, 1000)
+        self.assertIn("218 个市场中 214 个取数失败", event["message"])
+        self.assertIn("HTTP 429/418 限频", event["message"])
+        self.assertNotIn("RuntimeError", event["message"])
+
+    def test_failure_notifications_are_deduplicated_and_recovery_is_detected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = AppendOnlySignalLedger(Path(directory))
+            ledger.open({"protocol": "TEST"})
+            first = {"event_type": "SERVICE_SCAN_FAILED", "recorded_at_ms": 1000, "error_type": "RATE_LIMIT", "message": "限频"}
+            self.assertTrue(_should_notify_failure(ledger, first, 1000))
+            ledger.append(first)
+            second = first | {"recorded_at_ms": 2000}
+            self.assertFalse(_should_notify_failure(ledger, second, 2000))
+            self.assertTrue(_should_notify_failure(ledger, second, 3_601_001))
+            self.assertEqual(_recovered_failure(ledger)["error_type"], "RATE_LIMIT")
+            ledger.append({"event_type": "SERVICE_HEARTBEAT", "recorded_at_ms": 3000})
+            self.assertIsNone(_recovered_failure(ledger))
+
     def test_replay_uses_live_detector_and_reports_same_signals(self):
         contract = spec()
         target = 101 * MS - 1
@@ -187,6 +253,18 @@ class Sig1SignalServiceTests(unittest.TestCase):
         self.assertEqual(result["qualified_market_count"], 3)
         self.assertEqual(result["tracked_trade_symbol_count"], 1)
         self.assertEqual(result["processed_market_count"], 4)
+
+    def test_market_cap_keeps_most_liquid_and_reports_truncation(self):
+        contract = spec()
+        contract["market"]["maximum_tracked_markets"] = 3
+        source = BinanceSig1Source(FakeScanFeed(), contract, FakeScanService(), clock=lambda: 1_000)
+        source._universe_day = "1970-01-01"
+        source._daily_volumes = {f"S{index}USDT": [3_000_000 + index] * 30 for index in range(5)}
+
+        result = source.scan_once()
+
+        self.assertEqual(result["qualified_market_count"], 3)
+        self.assertEqual(result["truncated_market_count"], 2)
 
     def test_detector_matches_frozen_breakout_and_oversold_scope(self):
         target = 101 * MS - 1

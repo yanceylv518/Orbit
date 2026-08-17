@@ -86,6 +86,8 @@ def test_missing_signal_service_is_an_honest_empty_state(tmp_path):
     assert result["operations"]["parameters"] == {
         "liquidity_threshold_usdt": 2000000,
         "liquidity_lookback_complete_utc_days": 30,
+        "maximum_tracked_markets": 300,
+        "truncated_market_count": 0,
         "candidate_limit": 30,
         "push_thresholds": {},
         "signal_interval": "15m",
@@ -123,6 +125,37 @@ def test_family_read_model_keeps_six_samples_and_real_closed_results(tmp_path):
     presentation = result["operations"]["strategy_families"]["BREAKOUT_MOMENTUM"]
     assert presentation["name"] == "放量突破"
     assert any("入账" in row and "不推送" in row for row in presentation["exclusions"])
+    assert presentation["thesis"]
+    assert presentation["tradeFlow"]
+
+
+def test_latest_round_is_split_by_family_and_never_invents_missing_counts(tmp_path):
+    service = _service(tmp_path)
+    ledger = AppendOnlySignalLedger(tmp_path / "sig1")
+    ledger.append({
+        "event_type": "SCAN_COMPLETED", "recorded_at_ms": 1786665600100,
+        "signal_close_time_ms": 1786665600000, "market_window_count": 218,
+        "detected_signal_count": 4, "new_signal_count": 1,
+        "detected_by_family": {"BREAKOUT_MOMENTUM": 2, "OVERSOLD_REBOUND": 2, "SUSTAINED_STRENGTH": 0},
+        "new_by_family": {"BREAKOUT_MOMENTUM": 1, "OVERSOLD_REBOUND": 0, "SUSTAINED_STRENGTH": 0},
+    })
+    result = service.snapshot(day="2026-08-14")
+    breakout = result["operations"]["latest_round_by_family"]["BREAKOUT_MOMENTUM"]
+    oversold = result["operations"]["latest_round_by_family"]["OVERSOLD_REBOUND"]
+    assert breakout["available"] is True
+    assert breakout["complete_family_counts"] is True
+    assert breakout["market_count"] == 218
+    assert breakout["detected_count"] == 2
+    assert breakout["recorded_count"] == 1
+    assert oversold["detected_count"] == 2
+    assert oversold["recorded_count"] == 0
+
+    old = _service(tmp_path / "old")
+    old_ledger = AppendOnlySignalLedger(tmp_path / "old" / "sig1")
+    old_ledger.append({"event_type": "SCAN_COMPLETED", "recorded_at_ms": 1786665600100, "signal_close_time_ms": 1786665600000, "market_window_count": 10, "detected_signal_count": 1, "new_signal_count": 1})
+    old_round = old.snapshot(day="2026-08-14")["operations"]["latest_round_by_family"]["BREAKOUT_MOMENTUM"]
+    assert old_round["complete_family_counts"] is False
+    assert old_round["detected_count"] is None
 
 
 def test_family_disable_requires_reason_and_reason_is_audited_and_visible(tmp_path):
@@ -221,7 +254,7 @@ def test_every_signal_strategy_page_can_reach_its_own_and_the_shared_parameters(
     contract = json_module.loads((Path(__file__).parents[2] / "config/signals/sig1.v1.json").read_text(encoding="utf-8"))
     fields = public_configuration(contract, 0)["fields"]
     shared = {row["key"] for row in fields if row["family"] is None} - {"daily_push_limit"}
-    assert shared == {"liquidity_minimum", "liquidity_days", "daily_candidate_limit"}
+    assert shared == {"liquidity_minimum", "liquidity_days", "maximum_tracked_markets", "daily_candidate_limit"}
 
     def page_keys(family):
         return {row["key"] for row in fields if row["key"] != "daily_push_limit" and (row["family"] is None or row["family"] == family)}

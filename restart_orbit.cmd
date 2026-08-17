@@ -8,4 +8,5 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo Orbit backend restarted successfully.
+echo Orbit backend and signal scanner restarted successfully.
+echo Signal scanner log: runtime\signal-service.log

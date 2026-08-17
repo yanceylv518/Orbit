@@ -38,6 +38,7 @@ class Sig1SignalService:
         signal_close_time_ms: int,
         *,
         processed_at_ms: int | None = None,
+        scan_metadata: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         processed_at = int(processed_at_ms if processed_at_ms is not None else time.time() * 1000)
         self._advance_virtual_trades(market_windows, processed_at)
@@ -70,6 +71,14 @@ class Sig1SignalService:
         self._deliver_notifications(signal_day(signal_close_time_ms), processed_at)
         state = self._state()
         if int(signal_close_time_ms) not in state["completed_scan_times"]:
+            detected_by_family = {
+                family_id: sum(row.get("family_id") == family_id for row in detected)
+                for family_id in ("BREAKOUT_MOMENTUM", "OVERSOLD_REBOUND", "SUSTAINED_STRENGTH")
+            }
+            new_by_family = {
+                family_id: sum(row.get("family_id") == family_id for row in fresh)
+                for family_id in ("BREAKOUT_MOMENTUM", "OVERSOLD_REBOUND", "SUSTAINED_STRENGTH")
+            }
             self.ledger.append(
                 self._event(
                     "SCAN_COMPLETED",
@@ -78,6 +87,9 @@ class Sig1SignalService:
                     market_window_count=len(market_windows),
                     detected_signal_count=len(detected),
                     new_signal_count=len(fresh),
+                    detected_by_family=detected_by_family,
+                    new_by_family=new_by_family,
+                    **dict(scan_metadata or {}),
                 )
             )
         return {
