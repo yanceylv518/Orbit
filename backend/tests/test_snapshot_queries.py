@@ -192,3 +192,44 @@ class SnapshotQueryServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrendForwardFreshnessTests(unittest.TestCase):
+    """SIG-5: 页面不得凭「账本初始化过」就宣称策略在运行。
+
+    ``trend_forward.py`` 是基线受保护文件，所以新鲜度在读模型层判定。
+    """
+
+    def _service(self, snapshot, now_ms):
+        empty = object()
+        return SnapshotQueryService(
+            {"auth": {"login_required": False}}, {}, FakePermissions(), FakeDirectory(),
+            empty, empty, empty, empty, empty, empty, empty, FakePortfolioViews(),
+            lambda: {"driver": "json"}, lambda: snapshot,
+            mock_data_enabled=False, clock_ms=lambda: now_ms,
+        )
+
+    def test_recently_advanced_forward_is_fresh(self):
+        last_close = 1_760_000_000_000
+        service = self._service(
+            {"status": "RUNNING", "runner": {"last_close_time_ms": last_close}},
+            last_close + 3_600_000,
+        )
+        self.assertTrue(service.trend_forward_freshness()["data_fresh"])
+
+    def test_forward_stalled_beyond_two_intervals_is_not_fresh(self):
+        last_close = 1_760_000_000_000
+        service = self._service(
+            {"status": "RUNNING", "runner": {"last_close_time_ms": last_close}},
+            last_close + 9 * 3_600_000,
+        )
+        self.assertFalse(service.trend_forward_freshness()["data_fresh"])
+
+    def test_never_started_forward_reports_unknown_not_false(self):
+        service = self._service({"status": "NOT_STARTED"}, 1_760_000_000_000)
+        self.assertIsNone(service.trend_forward_freshness()["data_fresh"])
+
+    def test_freshness_does_not_mutate_the_protected_snapshot(self):
+        snapshot = {"status": "RUNNING", "runner": {"last_close_time_ms": 1_760_000_000_000}}
+        self._service(snapshot, 1_760_000_000_000).trend_forward_freshness()
+        self.assertNotIn("data_fresh", snapshot)

@@ -204,6 +204,48 @@ def test_sig5_moves_parameters_to_strategy_detail_and_uses_honest_states():
     assert "已启用但扫描超时" in strategy_page
     for page in (signal_page, detail_page, strategy_page):
         assert "TB4" not in page
+    # 代号过滤不得靠字符类拆分绕过上面这条断言——后端名称已干净，兜底须删除。
+    for page in (detail_page, strategy_page):
+        assert "T[B]4" not in page
+    # 过滤必须按后端给的 family 归属，不得匹配中文分组标签（改一次措辞就会静默清空整页）。
+    assert "field.family" in detail_page
+    assert 'field.group === "通用"' not in detail_page and "field.group === '通用'" not in detail_page
+
+
+def test_every_signal_strategy_page_can_reach_its_own_and_the_shared_parameters():
+    """SIG-5 打回项：币池两项曾在界面上完全不可达，突破族曾只剩 1 项。"""
+    import json as json_module
+
+    from orbit.application.signals.configuration import public_configuration
+
+    contract = json_module.loads((Path(__file__).parents[2] / "config/signals/sig1.v1.json").read_text(encoding="utf-8"))
+    fields = public_configuration(contract, 0)["fields"]
+    shared = {row["key"] for row in fields if row["family"] is None} - {"daily_push_limit"}
+    assert shared == {"liquidity_minimum", "liquidity_days", "daily_candidate_limit"}
+
+    def page_keys(family):
+        return {row["key"] for row in fields if row["key"] != "daily_push_limit" and (row["family"] is None or row["family"] == family)}
+
+    assert page_keys("BREAKOUT_MOMENTUM") == shared | {"breakout_channel", "breakout_volume"}
+    assert page_keys("OVERSOLD_REBOUND") == shared | {
+        "pullback_drop", "pullback_return_candles", "pullback_cycle",
+        "collapse_days", "collapse_drawdown", "pullback_start_days", "pullback_start_drawdown",
+    }
+    assert page_keys("SUSTAINED_STRENGTH") == shared | {
+        "strength_quantile", "strength_short_volume_days", "strength_long_volume_days",
+        "strength_volume_ratio", "strength_high_days", "strength_high_distance", "strength_cooldown_hours",
+    }
+    # 每一个可配置项都必须至少能在一个策略页上改到；推送上限归信号页。
+    reachable = page_keys("BREAKOUT_MOMENTUM") | page_keys("OVERSOLD_REBOUND") | page_keys("SUSTAINED_STRENGTH")
+    assert {row["key"] for row in fields} - reachable == {"daily_push_limit"}
+
+
+def test_field_family_comes_from_the_spec_path_not_the_display_label():
+    from orbit.application.signals.configuration import FIELDS, field_family
+
+    for _, path, *_ in FIELDS:
+        family = field_family(path)
+        assert family == (path[1] if path[0] == "signals" else None)
 
 
 def test_taken_decision_requires_valid_stop_and_is_append_only(tmp_path):

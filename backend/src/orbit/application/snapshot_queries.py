@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import time
 from typing import Any, Callable
 
 from orbit.application.auth import sanitize_user
@@ -30,7 +31,9 @@ class SnapshotQueryService:
         mock_data_enabled: bool,
         live_reconciliation_snapshot: Callable[[], dict[str, Any]] | None = None,
         live_execution_snapshot: Callable[[], dict[str, Any]] | None = None,
+        clock_ms: Callable[[], int] = lambda: int(time.time() * 1000),
     ) -> None:
+        self.clock_ms = clock_ms
         self.config = config
         self.strategy = strategy
         self.permissions = permissions
@@ -63,6 +66,26 @@ class SnapshotQueryService:
             })
         )
         self.mock_data_enabled = mock_data_enabled
+
+    TREND_STALE_AFTER_MS = 2 * 4 * 3_600_000
+
+    def trend_forward_freshness(self) -> dict[str, Any]:
+        """Trend snapshot plus whether it is still being advanced.
+
+        ``trend_forward.py`` is a baseline-protected file, so freshness is
+        derived here instead: a started forward whose last closed 4h candle is
+        older than two intervals is no longer being fed, and pages must not
+        keep reporting it as running.
+        """
+        snapshot = deepcopy(self.trend_forward_snapshot())
+        last_close_ms = (snapshot.get("runner") or {}).get("last_close_time_ms")
+        if snapshot.get("status") in (None, "NOT_STARTED") or last_close_ms is None:
+            snapshot["data_fresh"] = None
+        else:
+            snapshot["data_fresh"] = (
+                self.clock_ms() - int(last_close_ms) <= self.TREND_STALE_AFTER_MS
+            )
+        return snapshot
 
     def public_snapshot(self) -> dict[str, Any]:
         return {
@@ -115,7 +138,7 @@ class SnapshotQueryService:
             "event_config": self.strategy["strategy"]["events"],
             "storage": self.storage_status(),
             "market_feed": deepcopy(market_feed) if market_feed else None,
-            "trend_forward": deepcopy(self.trend_forward_snapshot()),
+            "trend_forward": self.trend_forward_freshness(),
             "live_reconciliation": deepcopy(self.live_reconciliation_snapshot()),
             "live_execution": deepcopy(self.live_execution_snapshot()),
             "plan_symbol_states": self.plan_symbol_state_rows(symbol_states),

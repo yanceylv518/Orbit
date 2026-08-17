@@ -142,6 +142,31 @@
 
 `ForwardPage.vue` 有 9 处 `TB4` 面向用户的文案，属本卡未触及的旧页面，但与「界面零内部代号」红线冲突，应单独清理。
 
+## 6c. 打回项修复（Claude 直接修，2026-08-17）：四项已闭合
+
+**根治方式而非补丁**：阻断一、二同源——前端按**中文分组标签**字符串匹配来决定显示哪些参数。标签是给人看的，改一次措辞就静默清空整页。故在后端为每个配置项增加 `family` 字段，**由 spec 路径推导**（`("signals", "<族>", …)` → 该族；其余 → `None` 即共用），前端改按 `family` 过滤。
+
+| 打回项 | 修复 |
+|---|---|
+| 一：币池两项不可达 | `liquidity_minimum` / `liquidity_days` 路径不在 `signals` 下 → `family=None` → **三个策略页都出现且可改**，带「共用」标记 |
+| 二：突破族只剩 1 项 | 不再匹配分组标签，`breakout_channel` / `breakout_volume` 正常显示 |
+| 三：趋势新鲜度空转 | `trend_forward.py` 是基线受保护文件，故在读模型层 `snapshot_queries.trend_forward_freshness()` 判定：最近一根已收 4h K 线超过两个间隔（8 小时）即 `data_fresh=false`；未启动返回 `null`（未知，不是 false）；**不改动受保护快照本身**（有专测） |
+| 四：`/T[B]4/i` | 两个页面均已删除，并新增断言 `"T[B]4" not in page` 防止再用字符类拆分绕过代号检查 |
+
+**修复后三页实际可改参数（实跑核对，非测试自述）**：
+
+| 策略页 | 项数 | 内容 |
+|---|---|---|
+| 放量突破 | 5 | 共用 3 项 + 突破通道长度、最低放量倍数 |
+| 高位回调 | 10 | 共用 3 项 + 本族 7 项 |
+| 持续强势 | 10 | 共用 3 项 + 本族 7 项 |
+
+**测试改为核对字段集合而非字符串存在**：`test_every_signal_strategy_page_can_reach_its_own_and_the_shared_parameters` 逐页断言期望键集合，并断言**除「每日推送上限」（归信号页）外，每个可配置项都至少能在一个策略页改到**——这条使「参数搬丢」这类缺陷无法再静默通过。另加 `test_field_family_comes_from_the_spec_path_not_the_display_label` 与 4 项新鲜度专测。
+
+`540 passed`（+6）、`MODULAR_BASELINE_PASS`、TB4 受保护文件零改动。
+
+**仍待 Codex 补**：桌面与 390×844 实测（本机无 node，`npm run check/build` 未复跑）。
+
 ## 7. 验收清单
 
 1. **前端零参数常量副本**：全前端 grep 不到策略参数硬编码值；`definitions` 对象中的参数、指标、过滤条件均改为后端来源（专测或 grep 断言）；

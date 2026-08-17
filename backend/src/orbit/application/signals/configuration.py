@@ -95,11 +95,21 @@ def configuration_values(spec: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def field_family(path: tuple[str, ...]) -> str | None:
+    """Which signal family owns this field, or None when it is shared.
+
+    Derived from the spec path rather than the display group name: a group can
+    be renamed for readability, but the path is what the detector actually
+    reads.  Consumers filter on this instead of matching Chinese group labels.
+    """
+    return path[1] if len(path) > 1 and path[0] == "signals" else None
+
+
 def public_configuration(spec: Mapping[str, Any], revision: int) -> dict[str, Any]:
     values = configuration_values(spec)
     fields = []
-    for key, _, group, label, help_text, kind, minimum, maximum, choices in FIELDS:
-        fields.append({"key": key, "group": group, "label": label, "help": help_text, "kind": kind, "value": values[key], "minimum": minimum, "maximum": maximum, "choices": list(choices or ())})
+    for key, path, group, label, help_text, kind, minimum, maximum, choices in FIELDS:
+        fields.append({"key": key, "family": field_family(path), "group": group, "label": label, "help": help_text, "kind": kind, "value": values[key], "minimum": minimum, "maximum": maximum, "choices": list(choices or ())})
     return {"revision": revision, "scope_version": scope_version(revision), "fields": fields}
 
 
